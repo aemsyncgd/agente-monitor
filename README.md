@@ -1,6 +1,4 @@
 <div align="center">
-# Agente Monitor — Monitoreo de red FTTH/GPON con IA
-
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
   <img alt="Agente Monitor — Monitoreo de red FTTH/GPON con IA" src="assets/hero-light.svg" width="100%">
