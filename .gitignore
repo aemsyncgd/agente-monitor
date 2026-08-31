@@ -1,0 +1,83 @@
+# === Environment & Secrets ===
+.env
+.env.local
+.env.*.local
+.env.ia
+.env.ia.local
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# === Virtual Environment ===
+venv/
+.venv/
+env/
+
+# === Logs (contienen IPs y datos de dispositivos) ===
+logs/
+src/logs/
+
+# === Modelos ML (archivos grandes, binarios) ===
+models/*.pt
+models/*.pkl
+models/*.onnx
+
+# === Backups (pueden contener datos sensibles) ===
+backups/
+
+# === Data sensible de clientes ===
+grid_servicios.csv
+
+# === IDE / Editor ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# === Testing ===
+.pytest_cache/
+.coverage
+htmlcov/
+
+# === Misc ===
+*.bak
+*.tmp
+*.orig
+
+# === APIs (APIS.md contiene tokens reales de InfluxDB) ===
+apis.md
+
+# === Config OLTs/Nodos (SNMP communities + topologia interna de la red) ===
+config/nodes.yaml
+config/ping_targets.yaml
+config/olts.conf
+
+# === Backups de configuracion ===
+config/_back_*
+
+# === Infraestructura / runtime local ===
+influxdb/
+graphify-out/
+otros/
+.opencode/
+charts/
+esquema.jpg
+*.pem
+*.key
+*.crt
+
+# === Documentacion interna de operaciones (topologia/IPs/proveedores) ===
+docs/
+interface-dashboard.md
+
+# === BITACORAS ===
+BITACORA*

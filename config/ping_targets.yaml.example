@@ -1,0 +1,44 @@
+# config/ping_targets.yaml.example
+# ---------------------------------------------------------------
+# PLANTILLA de blancos de monitoreo ICMP.
+#
+# IMPORTANTE:
+#   - El archivo REAL `config/ping_targets.yaml` contiene las IPs
+#     internas de tus equipos de red. NUNCA lo subas a un repositorio
+#     publico: esta git-ignorado.
+#   - Copia esta plantilla a `config/ping_targets.yaml` y completa
+#     con tus valores reales.
+#
+#   cp config/ping_targets.yaml.example config/ping_targets.yaml
+# ---------------------------------------------------------------
+
+targets:
+  # === DNS PUBLICOS (latencia + disponibilidad) ===
+  - name: DNS-GOOGLE
+    ip: 8.8.8.8
+    type: dns
+    enabled: true
+    timeout_ms: 3000
+    count: 3
+
+  # === DISPOSITIVOS DE LA RED ===
+  - name: MIKROTIK-EJEMPLO
+    ip: 10.0.0.1
+    type: mikrotik
+    enabled: true
+    timeout_ms: 3000
+    count: 3
+
+  - name: OLT-EJEMPLO
+    ip: 10.0.0.2
+    type: olt
+    enabled: true
+    timeout_ms: 5000
+    count: 3
+
+ping_settings:
+  interval_seconds: 60
+  timeout_ms: 3000
+  count: 3
+  alert_down_seconds: 120
+  alert_on_recovery: true

@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="es" class="dark h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VIDANET - Backbone TV Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        surface: {
+                            950: '#090d16',
+                            900: '#0f172a',
+                            800: '#1e293b',
+                            700: '#334155',
+                            600: '#475569',
+                            400: '#94a3b8',
+                            200: '#e2e8f0',
+                        },
+                        brand: {
+                            500: '#06b6d4',
+                            400: '#22d3ee',
+                            300: '#67e8f9',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <style>
+        [v-cloak] { display: none; }
+        body { font-family: system-ui, -apple-system, sans-serif; }
+    </style>
+</head>
+<body class="bg-surface-950 text-surface-200 h-full overflow-x-hidden selection:bg-brand-500 selection:text-white">
+    <div id="app" v-cloak class="h-screen flex flex-col p-2 md:p-3 space-y-3 overflow-hidden">
+
+        <!-- TV Header -->
+        <header class="bg-surface-900/90 rounded-2xl border border-surface-700/60 p-4 px-6 flex flex-wrap items-center justify-between shadow-2xl backdrop-blur-md">
+            <div class="flex items-center gap-4">
+                <div class="p-3 bg-brand-500/20 border border-brand-500/30 rounded-xl text-brand-400">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-black text-white tracking-wide uppercase flex items-center gap-3">
+                        VIDANET <span class="text-brand-400">BACKBONE</span> MONITOR
+                    </h1>
+                    <p class="text-xs md:text-sm text-surface-400 font-medium">Monitoreo de Router Principal & Proveedores WAN</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-6 mt-2 sm:mt-0">
+                <div class="text-right">
+                    <div class="text-xl md:text-2xl font-black font-mono text-white leading-tight">{{ currentTime }}</div>
+                    <div class="text-xs text-surface-400 uppercase font-semibold tracking-wider">{{ currentDate }}</div>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-full text-emerald-400 text-xs font-bold uppercase tracking-wider animate-pulse">
+                    <span class="w-2.5 h-2.5 bg-emerald-400 rounded-full"></span>
+                    <span>EN VIVO (10s)</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Router General Stats Row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-surface-900/80 rounded-xl p-4 border border-surface-700/50 shadow-lg flex items-center justify-between">
+                <div>
+                    <span class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Router Principal</span>
+                    <h3 class="text-lg font-bold text-white font-mono mt-0.5">{{ backboneData.device_name || 'VIDANET-BACKBONE' }}</h3>
+                    <p class="text-[11px] text-surface-400 font-mono">{{ backboneData.ip || '10.0.0.1' }}</p>
+                </div>
+                <div class="p-2.5 bg-surface-800 rounded-lg text-brand-400 border border-surface-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
+                </div>
+            </div>
+
+            <div class="bg-surface-900/80 rounded-xl p-4 border border-surface-700/50 shadow-lg">
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Uso CPU</span>
+                    <span class="text-sm font-bold font-mono" :class="backboneData.cpu > 80 ? 'text-red-400' : backboneData.cpu > 50 ? 'text-amber-400' : 'text-emerald-400'">{{ backboneData.cpu || 0 }}%</span>
+                </div>
+                <div class="h-2 bg-surface-800 rounded-full overflow-hidden border border-surface-700/60">
+                    <div class="h-full rounded-full transition-all duration-500" :class="backboneData.cpu > 80 ? 'bg-red-500' : backboneData.cpu > 50 ? 'bg-amber-500' : 'bg-emerald-500'" :style="{ width: Math.min(backboneData.cpu || 0, 100) + '%' }"></div>
+                </div>
+                <div class="text-[10px] text-surface-400 mt-1 flex justify-between font-mono">
+                    <span>Cores: {{ backboneData.cpu_cores ? backboneData.cpu_cores.length : 16 }}</span>
+                    <span>Uptime: {{ backboneData.uptime || 'N/A' }}</span>
+                </div>
+            </div>
+
+            <div class="bg-surface-900/80 rounded-xl p-4 border border-surface-700/50 shadow-lg">
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Memoria RAM</span>
+                    <span class="text-sm font-bold font-mono" :class="backboneData.memory > 80 ? 'text-red-400' : 'text-emerald-400'">{{ backboneData.memory || 0 }}%</span>
+                </div>
+                <div class="h-2 bg-surface-800 rounded-full overflow-hidden border border-surface-700/60">
+                    <div class="h-full rounded-full bg-emerald-500 transition-all duration-500" :style="{ width: Math.min(backboneData.memory || 0, 100) + '%' }"></div>
+                </div>
+                <div class="text-[10px] text-surface-400 mt-1 font-mono">
+                    Usado: {{ backboneData.memory_used_mb || 0 }} MB / {{ backboneData.memory_total_mb || 0 }} MB
+                </div>
+            </div>
+
+            <div class="bg-surface-900/80 rounded-xl p-4 border border-surface-700/50 shadow-lg">
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Temperatura Router</span>
+                    <span class="text-sm font-bold font-mono" :class="backboneData.temperature > 60 ? 'text-red-400' : 'text-amber-300'">{{ backboneData.temperature || 0 }}°C</span>
+                </div>
+                <div class="h-2 bg-surface-800 rounded-full overflow-hidden border border-surface-700/60">
+                    <div class="h-full rounded-full bg-amber-500 transition-all duration-500" :style="{ width: Math.min(((backboneData.temperature || 0)/80)*100, 100) + '%' }"></div>
+                </div>
+                <div class="text-[10px] text-surface-400 mt-1 font-mono">
+                    Estado: <span class="text-emerald-400 font-semibold">Óptimo</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- WAN Providers Charts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            <!-- Provider 1: 1sfp-sfpplus3_WAN-3-UPSTREAM -->
+            <div class="bg-surface-900 rounded-2xl p-5 border border-surface-700/60 shadow-xl flex flex-col justify-between space-y-4">
+                <div>
+                    <div class="flex items-center justify-between border-b border-surface-700/60 pb-3 mb-3">
+                        <div>
+                            <span class="px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">Proveedor WAN 1</span>
+                            <h2 class="text-xl font-black text-white font-mono mt-1">1sfp-sfpplus3_WAN-3-UPSTREAM</h2>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs font-semibold text-surface-400">Tráfico Total</div>
+                            <div class="text-lg font-bold font-mono text-cyan-400">{{ formatBps(besserRx + besserTx) }}</div>
+                        </div>
+                    </div>
+                    <!-- Chart container -->
+                    <div id="chart-besser" class="w-full h-64"></div>
+                </div>
+
+                <!-- Integrated 4-Block Grid: Traffic (bps) + Optical SFP Metrics (dBm) for UPSTREAM -->
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 bg-surface-950/80 p-3 rounded-xl border border-surface-800">
+                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
+                        <div class="text-[11px] font-bold text-cyan-400 uppercase flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+                            Descarga (Rx)
+                        </div>
+                        <div class="text-lg font-black font-mono text-white mt-1">{{ formatBps(besserRx) }}</div>
+                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">1sfp-sfpplus3</div>
+                    </div>
+                    
+                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
+                        <div class="text-[11px] font-bold uppercase flex items-center gap-1" :class="getDbmColorClass(besserRxDbm)">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            Potencia Rx (SFP)
+                        </div>
+                        <div class="text-lg font-black font-mono mt-1" :class="getDbmColorClass(besserRxDbm)">{{ formatDbm(besserRxDbm) }}</div>
+                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">Señal Óptica (dBm)</div>
+                    </div>
+
+                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
+                        <div class="text-[11px] font-bold text-fuchsia-400 uppercase flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+                            Subida (Tx)
+                        </div>
+                        <div class="text-lg font-black font-mono text-white mt-1">{{ formatBps(besserTx) }}</div>
+                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">1sfp-sfpplus3</div>
+                    </div>
+
+                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
+                        <div class="text-[11px] font-bold text-purple-400 uppercase flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            Potencia Tx (SFP)
+                        </div>
+                        <div class="text-lg font-black font-mono text-purple-300 mt-1">{{ formatDbm(besserTxDbm) }}</div>
+                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">Láser SFP (dBm)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Provider 2: VLAN_251_UPSTREAM -->
+            <div class="bg-surface-900 rounded-2xl p-5 border border-surface-700/60 shadow-xl flex flex-col justify-between space-y-4">
+                <div>
+                    <div class="flex items-center justify-between border-b border-surface-700/60 pb-3 mb-3">
+                        <div>
+                            <span class="px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/30">Proveedor WAN 2</span>
+                            <h2 class="text-xl font-black text-white font-mono mt-1">VLAN_251_UPSTREAM</h2>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs font-semibold text-surface-400">Tráfico Total</div>
+                            <div class="text-lg font-bold font-mono text-purple-400">{{ formatBps(tecnovenRx + tecnovenTx) }}</div>
+                        </div>
+                    </div>
+                    <!-- Chart container -->
+                    <div id="chart-tecnoven" class="w-full h-64"></div>
+                </div>
+
+                <!-- Integrated 4-Block Grid: Traffic (bps) + Optical SFP Metrics (dBm) for UPSTREAM 1sfp-sfpplus1 -->
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 bg-surface-950/80 p-3 rounded-xl border border-surface-800">
+                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
+                        <div class="text-[11px] font-bold text-cyan-400 uppercase flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+                            Descarga (Rx)
+                        </div>
+                        <div class="text-lg font-black font-mono text-white mt-1">{{ formatBps(tecnovenSfpRx) }}</div>
+                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">1sfp-sfpplus1</div>
+                    </div>
+                    
+                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
+                        <div class="text-[11px] font-bold uppercase flex items-center gap-1" :class="getDbmColorClass(tecnovenSfpRxDbm)">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            Potencia Rx (SFP)
+                        </div>
+                        <div class="text-lg font-black font-mono mt-1" :class="getDbmColorClass(tecnovenSfpRxDbm)">{{ formatDbm(tecnovenSfpRxDbm) }}</div>
+                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">Señal Óptica (dBm)</div>
+                    </div>
+
+                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
+                        <div class="text-[11px] font-bold text-fuchsia-400 uppercase flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+                            Subida (Tx)
+                        </div>
+                        <div class="text-lg font-black font-mono text-white mt-1">{{ formatBps(tecnovenSfpTx) }}</div>
+                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">1sfp-sfpplus1</div>
+                    </div>
+
+                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
+                        <div class="text-[11px] font-bold text-purple-400 uppercase flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            Potencia Tx (SFP)
+                        </div>
+                        <div class="text-lg font-black font-mono text-purple-300 mt-1">{{ formatDbm(tecnovenSfpTxDbm) }}</div>
+                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">Láser SFP (dBm)</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Remaining Interfaces Grid -->
+        <div class="bg-surface-900 rounded-2xl p-5 border border-surface-700/60 shadow-xl space-y-4">
+            <h3 class="text-base font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <svg class="w-5 h-5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+                Otras Interfaces de Backbone
+            </h3>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                <div v-for="iface in otherInterfaces" :key="iface.name" 
+                     class="bg-surface-950/90 rounded-xl p-3 border border-surface-800 hover:border-surface-700 transition-colors">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="font-mono font-bold text-xs text-surface-200 truncate" :title="iface.name">{{ iface.name }}</span>
+                        <span :class="iface.running ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-red-500/20 text-red-400 border-red-500/40'" 
+                              class="w-2 h-2 rounded-full border"></span>
+                    </div>
+                    <div class="space-y-0.5 text-[11px] font-mono">
+                        <div class="flex justify-between text-cyan-400">
+                            <span>Rx:</span>
+                            <span class="font-bold">{{ formatBps(iface.rx_bytes_per_sec || 0) }}</span>
+                        </div>
+                        <div class="flex justify-between text-fuchsia-400">
+                            <span>Tx:</span>
+                            <span class="font-bold">{{ formatBps(iface.tx_bytes_per_sec || 0) }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted, computed } = Vue;
+        function getApiKey() { return localStorage.getItem('api_key') || ''; }
+        function clearApiKey() { localStorage.removeItem('api_key'); }
+        let apiPromptLock = null;
+        function promptForKey(force = false) {
+            if (!force && getApiKey()) return Promise.resolve(getApiKey());
+            if (apiPromptLock) return apiPromptLock;
+            apiPromptLock = new Promise((resolve) => {
+                setTimeout(() => {
+                    const key = window.prompt('Ingresa la API Key del sistema (confirmar y presionar Enter):');
+                    if (key && key.trim()) { localStorage.setItem('api_key', key.trim()); resolve(key.trim()); }
+                    else { resolve(''); }
+                    apiPromptLock = null;
+                }, 50);
+            });
+            return apiPromptLock;
+        }
+        async function apiFetch(url, opts = {}, authRetried = false) {
+            let key = getApiKey();
+            if (!key && !authRetried) key = await promptForKey();
+            const headers = { ...(opts.headers || {}), 'Content-Type': 'application/json' };
+            if (key) headers['X-API-Key'] = key;
+            opts.headers = headers;
+            const res = await fetch(url, opts);
+            if (res.status === 401) {
+                if (authRetried) throw new Error('API Key inválida');
+                clearApiKey();
+                key = await promptForKey(true);
+                if (!key) throw new Error('Autenticación requerida');
+                return apiFetch(url, opts, true);
+            }
+            return res;
+        }
+
+        createApp({
+            setup() {
+                const currentTime = ref('');
+                const currentDate = ref('');
+                const backboneData = ref({});
+                const interfacesList = ref([]);
+                const tvConfig = ref({ wan1_interface: '1sfp-sfpplus3_WAN-3-UPSTREAM', wan2_interface: 'VLAN_251_UPSTREAM', wan2_sfp_physical: '1sfp-sfpplus1', selected_interfaces: [], refresh_seconds: 10 });
+
+                const besserRx = ref(0);
+                const besserTx = ref(0);
+                const tecnovenRx = ref(0);
+                const tecnovenTx = ref(0);
+                const tecnovenSfpRx = ref(0);
+                const tecnovenSfpTx = ref(0);
+
+                const besserRxDbm = ref(null);
+                const besserTxDbm = ref(null);
+                const tecnovenSfpRxDbm = ref(null);
+                const tecnovenSfpTxDbm = ref(null);
+
+                let chartBesser = null;
+                let chartTecnoven = null;
+
+                const maxHistory = 20;
+                const historyBesserRx = [];
+                const historyBesserTx = [];
+                const historyTecnovenRx = [];
+                const historyTecnovenTx = [];
+                const timeLabels = [];
+
+                function updateClock() {
+                    const now = new Date();
+                    currentTime.value = now.toLocaleTimeString();
+                    currentDate.value = now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                }
+
+                function formatBps(bps) {
+                    if (!bps || isNaN(bps)) return '0 bps';
+                    if (bps >= 1e9) return (bps / 1e9).toFixed(2) + ' Gbps';
+                    if (bps >= 1e6) return (bps / 1e6).toFixed(2) + ' Mbps';
+                    if (bps >= 1e3) return (bps / 1e3).toFixed(1) + ' Kbps';
+                    return Math.round(bps) + ' bps';
+                }
+
+                function formatDbm(val) {
+                    if (val === null || val === undefined || isNaN(val)) return '-- dBm';
+                    return (val > 0 ? '+' : '') + Number(val).toFixed(2) + ' dBm';
+                }
+
+                function getDbmColorClass(val) {
+                    if (val === null || val === undefined || isNaN(val)) return 'text-surface-400';
+                    if (val > -20.0) return 'text-emerald-400';
+                    if (val > -25.0) return 'text-amber-400';
+                    return 'text-red-400';
+                }
+
+                const otherInterfaces = computed(() => {
+                    const selected = tvConfig.value.selected_interfaces || [];
+                    const mainNames = [tvConfig.value.wan1_interface, tvConfig.value.wan2_interface, tvConfig.value.wan2_sfp_physical];
+                    let list = interfacesList.value.filter(i => i.interface_name && !mainNames.includes(i.interface_name));
+                    if (selected.length > 0) {
+                        list = list.filter(i => selected.includes(i.interface_name));
+                    }
+                    return list.map(i => ({ ...i, name: i.interface_name, running: i.ifOperStatus === 1 }));
+                });
+
+                function initCharts() {
+                    const baseChartOptions = {
+                        chart: {
+                            type: 'area',
+                            height: 180,
+                            toolbar: { show: false },
+                            animations: { enabled: true, dynamicAnimation: { speed: 800 } },
+                            background: 'transparent',
+                        },
+                        colors: ['#22d3ee', '#e879f9'],
+                        stroke: { curve: 'smooth', width: 2.5 },
+                        fill: { type: 'gradient', gradient: { shadeStops: [{ offset: 0, opacity: 0.4 }, { offset: 100, opacity: 0.05 }] } },
+                        dataLabels: { enabled: false },
+                        xaxis: { categories: [], labels: { style: { colors: '#94a3b8', fontSize: '10px' } } },
+                        yaxis: { labels: { style: { colors: '#94a3b8', fontSize: '10px' }, formatter: (val) => formatBps(val) } },
+                        grid: { borderColor: '#334155', strokeDashArray: 3 },
+                        tooltip: { theme: 'dark' }
+                    };
+
+                    chartBesser = new ApexCharts(document.querySelector("#chart-besser"), {
+                        ...baseChartOptions,
+                        series: [
+                            { name: 'Descarga (Rx)', data: historyBesserRx },
+                            { name: 'Subida (Tx)', data: historyBesserTx }
+                        ]
+                    });
+                    chartBesser.render();
+
+                    chartTecnoven = new ApexCharts(document.querySelector("#chart-tecnoven"), {
+                        ...baseChartOptions,
+                        series: [
+                            { name: 'Descarga (Rx)', data: historyTecnovenRx },
+                            { name: 'Subida (Tx)', data: historyTecnovenTx }
+                        ]
+                    });
+                    chartTecnoven.render();
+                }
+
+                async function fetchTVConfig() {
+                    try {
+                        const res = await apiFetch('/api/tv/config');
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data) tvConfig.value = { ...tvConfig.value, ...data };
+                        }
+                    } catch (e) {
+                        console.error('Error fetching TV config:', e);
+                    }
+                }
+
+                async function fetchData() {
+                    try {
+                        // Fetch TV config periodically (lightweight)
+                        if (Math.random() < 0.2) fetchTVConfig();
+
+                        const [mkRes, ifRes] = await Promise.allSettled([
+                            apiFetch('/api/v1/metrics/mikrotik').then(r => r.json()),
+                            apiFetch('/api/v1/metrics/mikrotik/interfaces').then(r => r.json())
+                        ]);
+
+                        if (mkRes.status === 'fulfilled' && mkRes.value && mkRes.value.data) {
+                            const list = mkRes.value.data;
+                            const backbone = list.find(d => d.device_name === 'VIDANET-BACKBONE') || list[0] || {};
+                            backboneData.value = backbone;
+                        }
+
+                        if (ifRes.status === 'fulfilled' && ifRes.value) {
+                            const rawIfaces = Array.isArray(ifRes.value) ? ifRes.value : (ifRes.value.data || []);
+                            interfacesList.value = rawIfaces;
+
+                            const ifaceByName = (name) => rawIfaces.find(i => i.interface_name === name);
+                            const w1 = tvConfig.value.wan1_interface;
+                            const w2 = tvConfig.value.wan2_interface;
+                            const w2sfp = tvConfig.value.wan2_sfp_physical;
+
+                            const besser = ifaceByName(w1) || rawIfaces.find(i => (i.interface_name || '').includes('UPSTREAM'));
+                            const tecnoven = ifaceByName(w2) || rawIfaces.find(i => (i.interface_name || '').includes('UPSTREAM'));
+                            const sfp1 = ifaceByName(w2sfp);
+
+                            besserRx.value = besser ? (besser.rx_bps || 0) : 0;
+                            besserTx.value = besser ? (besser.tx_bps || 0) : 0;
+                            if (besser && besser.sfp_rx_power !== undefined && besser.sfp_rx_power !== null) besserRxDbm.value = besser.sfp_rx_power;
+                            if (besser && besser.sfp_tx_power !== undefined && besser.sfp_tx_power !== null) besserTxDbm.value = besser.sfp_tx_power;
+
+                            tecnovenRx.value = tecnoven ? (tecnoven.rx_bps || 0) : 0;
+                            tecnovenTx.value = tecnoven ? (tecnoven.tx_bps || 0) : 0;
+
+                            tecnovenSfpRx.value = sfp1 ? (sfp1.rx_bps || 0) : tecnovenRx.value;
+                            tecnovenSfpTx.value = sfp1 ? (sfp1.tx_bps || 0) : tecnovenTx.value;
+                            if (sfp1 && sfp1.sfp_rx_power !== undefined) tecnovenSfpRxDbm.value = sfp1.sfp_rx_power;
+                            if (sfp1 && sfp1.sfp_tx_power !== undefined) tecnovenSfpTxDbm.value = sfp1.sfp_tx_power;
+
+                            const timeStr = new Date().toLocaleTimeString();
+                            if (timeLabels.length >= maxHistory) {
+                                timeLabels.shift();
+                                historyBesserRx.shift();
+                                historyBesserTx.shift();
+                                historyTecnovenRx.shift();
+                                historyTecnovenTx.shift();
+                            }
+                            timeLabels.push(timeStr);
+                            historyBesserRx.push(besserRx.value);
+                            historyBesserTx.push(besserTx.value);
+                            historyTecnovenRx.push(tecnovenRx.value);
+                            historyTecnovenTx.push(tecnovenTx.value);
+
+                            if (chartBesser) {
+                                chartBesser.updateOptions({ xaxis: { categories: timeLabels } });
+                                chartBesser.updateSeries([
+                                    { name: 'Descarga (Rx)', data: historyBesserRx },
+                                    { name: 'Subida (Tx)', data: historyBesserTx }
+                                ]);
+                            }
+                            if (chartTecnoven) {
+                                chartTecnoven.updateOptions({ xaxis: { categories: timeLabels } });
+                                chartTecnoven.updateSeries([
+                                    { name: 'Descarga (Rx)', data: historyTecnovenRx },
+                                    { name: 'Subida (Tx)', data: historyTecnovenTx }
+                                ]);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error fetching backbone metrics:', e);
+                    }
+                }
+
+                async function preloadHistory() {
+                    try {
+                        const w1 = tvConfig.value.wan1_interface;
+                        const w2 = tvConfig.value.wan2_interface;
+                        const names = [w1, w2].filter(Boolean);
+                        if (names.length === 0) return;
+                        const url = `/api/v1/metrics/mikrotik/interfaces/history?device_name=VIDANET-BACKBONE&interfaces=${encodeURIComponent(names.join(','))}&minutes=20&every=30s`;
+                        const res = await apiFetch(url);
+                        if (!res.ok) return;
+                        const payload = await res.json();
+                        const rows = payload.data || [];
+                        if (rows.length === 0) return;
+
+                        const byTime = new Map();
+                        for (const r of rows) {
+                            if (!r.time) continue;
+                            const t = new Date(r.time).toLocaleTimeString();
+                            if (!byTime.has(t)) byTime.set(t, {});
+                            byTime.get(t)[r.interface_name] = { rx: r.rx_bps || 0, tx: r.tx_bps || 0 };
+                        }
+                        const times = [...byTime.keys()].sort();
+                        while (times.length > maxHistory) times.shift();
+
+                        for (const t of times) {
+                            const d = byTime.get(t);
+                            timeLabels.push(t);
+                            historyBesserRx.push((d[w1] || {}).rx || 0);
+                            historyBesserTx.push((d[w1] || {}).tx || 0);
+                            historyTecnovenRx.push((d[w2] || {}).rx || 0);
+                            historyTecnovenTx.push((d[w2] || {}).tx || 0);
+                        }
+
+                        if (chartBesser) {
+                            chartBesser.updateOptions({ xaxis: { categories: timeLabels } });
+                            chartBesser.updateSeries([
+                                { name: 'Descarga (Rx)', data: historyBesserRx },
+                                { name: 'Subida (Tx)', data: historyBesserTx }
+                            ]);
+                        }
+                        if (chartTecnoven) {
+                            chartTecnoven.updateOptions({ xaxis: { categories: timeLabels } });
+                            chartTecnoven.updateSeries([
+                                { name: 'Descarga (Rx)', data: historyTecnovenRx },
+                                { name: 'Subida (Tx)', data: historyTecnovenTx }
+                            ]);
+                        }
+                    } catch (e) {
+                        console.error('Error preloading backbone history:', e);
+                    }
+                }
+
+                onMounted(async () => {
+                    updateClock();
+                    setInterval(updateClock, 1000);
+                    initCharts();
+                    await fetchTVConfig();
+                    await preloadHistory();
+                    fetchData();
+                    setInterval(fetchData, 10000);
+                });
+
+                return {
+                    currentTime,
+                    currentDate,
+                    backboneData,
+                    interfacesList,
+                    otherInterfaces,
+                    besserRx,
+                    besserTx,
+                    tecnovenRx,
+                    tecnovenTx,
+                    tecnovenSfpRx,
+                    tecnovenSfpTx,
+                    besserRxDbm,
+                    besserTxDbm,
+                    tecnovenSfpRxDbm,
+                    tecnovenSfpTxDbm,
+                    formatBps,
+                    formatDbm,
+                    getDbmColorClass
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

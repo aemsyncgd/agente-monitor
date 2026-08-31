@@ -1,0 +1,147 @@
+{
+  "enabled": true,
+  "schedules": [
+    "08:00",
+    "12:30",
+    "16:50",
+    "20:45"
+  ],
+  "mikrotiks": [
+    {
+      "name": "VIDANET-BACKBONE",
+      "interfaces": [
+        {
+          "name": "1sfp-sfpplus1-WAN_1-UPSTREAM",
+          "analyze": true
+        },
+        {
+          "name": "1sfp-sfpplus3-WAN_3-UPSTREAM",
+          "analyze": true
+        }
+      ]
+    },
+    {
+      "name": "SISAL-VIDANET",
+      "interfaces": [
+        {
+          "name": "1-sfp-sfpplus1-TO-SISAL.VIDANET",
+          "analyze": false
+        }
+      ]
+    },
+    {
+      "name": "NARANJILLOS-VIDANET",
+      "interfaces": []
+    },
+    {
+      "name": "PRADO-VIDANET",
+      "interfaces": [
+        {
+          "name": "sfp-sfpplus1-LINK-PRADO-NARANJILLO",
+          "analyze": false
+        }
+      ]
+    },
+    {
+      "name": "YAGUA-VIDANET",
+      "interfaces": [
+        {
+          "name": "bonding-LINK-YAGUA-CORE",
+          "analyze": false
+        }
+      ]
+    }
+  ],
+  "olts": [
+    {
+      "name": "OLT-NARANJILLOS-1",
+      "ge_interfaces": [
+        {
+          "name": "GE0/3",
+          "analyze": false
+        }
+      ],
+      "pon_monitoring": true
+    },
+    {
+      "name": "OLT-NARANJILLOS-2",
+      "ge_interfaces": [
+        {
+          "name": "GE0/2",
+          "analyze": false
+        }
+      ],
+      "pon_monitoring": true
+    },
+    {
+      "name": "OLT-NARANJILLOS-3",
+      "ge_interfaces": [
+        {
+          "name": "GE0/1",
+          "analyze": false
+        }
+      ],
+      "pon_monitoring": true
+    },
+    {
+      "name": "OLT-PRADO-1",
+      "ge_interfaces": [
+        {
+          "name": "GE0/3",
+          "analyze": false
+        }
+      ],
+      "pon_monitoring": true
+    },
+    {
+      "name": "OLT-PRADO-2",
+      "ge_interfaces": [
+        {
+          "name": "GE0/3",
+          "analyze": false
+        }
+      ],
+      "pon_monitoring": true
+    },
+    {
+      "name": "OLT-PRADO-3",
+      "ge_interfaces": [
+        {
+          "name": "GE0/3",
+          "analyze": false
+        }
+      ],
+      "pon_monitoring": true
+    },
+    {
+      "name": "OLT-SISAL-1",
+      "ge_interfaces": [
+        {
+          "name": "GE0/8",
+          "analyze": false
+        }
+      ],
+      "pon_monitoring": true
+    },
+    {
+      "name": "OLT-SISAL-2",
+      "ge_interfaces": [
+        {
+          "name": "GE0/8",
+          "analyze": false
+        }
+      ],
+      "pon_monitoring": true
+    },
+    {
+      "name": "OLT-YAGUA-1",
+      "ge_interfaces": [
+        {
+          "name": "GE0/9",
+          "analyze": false
+        }
+      ],
+      "pon_monitoring": true
+    }
+  ]
+}

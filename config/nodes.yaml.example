@@ -1,0 +1,47 @@
+# config/nodes.yaml.example
+# ---------------------------------------------------------------
+# PLANTILLA de configuracion de nodos (OLTs + MikroTiks).
+#
+# IMPORTANTE:
+#   - El archivo REAL `config/nodes.yaml` contiene IPs internas,
+#     communities SNMP y topologia de tu red. NUNCA lo subas a un
+#     repositorio publico: esta git-ignorado.
+#   - Copia esta plantilla a `config/nodes.yaml` y completa con tus
+#     valores reales.
+#
+#   cp config/nodes.yaml.example config/nodes.yaml
+#
+# Estructura: cada nodo agrupa MikroTiks y OLTs de una misma zona.
+# La `community` SNMP es la credencial de lectura de cada equipo.
+# ---------------------------------------------------------------
+
+nodes:
+- name: NODO-EJEMPLO
+  description: Nodo de ejemplo - remplaza con un nombre real
+  interval_seconds: 60
+  mikrotiks:
+  - ip: 10.0.0.1
+    hostname: MIKROTIK-EJEMPLO
+    community: CHANGEME_SNMP_COMMUNITY
+    role: distribucion            # principal | distribucion | secundario
+    modelo: RB4011iGS+RM
+    interfaces: []
+    conectado_a: 10.0.0.254
+  olts:
+  - ip: 10.0.0.2
+    hostname: OLT-EJEMPLO
+    community: CHANGEME_SNMP_COMMUNITY
+    modelo: V1600G2B
+    pon_count: 16
+    descripcion: OLT de ejemplo
+    conectado_a: 10.0.0.1
+
+monitoring:
+  default_interval: 60
+  node_intervals:
+    NODO-EJEMPLO: 60
+  default_snmp_timeout: 15
+  device_timeouts:
+    mikrotik: 10
+    olt: 15
+    olt_g2b: 20

@@ -1,0 +1,175 @@
+[
+  {
+    "id": "detect_anomaly",
+    "name": "Deteccion de Anomalias",
+    "description": "Analiza datos de potencia optica para detectar fallas automaticamente",
+    "instruction_type": "detect_anomaly",
+    "enabled": true,
+    "priority": 10,
+    "params": {
+      "check_interval_seconds": 60,
+      "min_samples": 10
+    },
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.208022
+  },
+  {
+    "id": "send_telegram",
+    "name": "Alertas Telegram",
+    "description": "Envia notificaciones a Telegram cuando se detectan anomalias o predicciones",
+    "instruction_type": "send_telegram",
+    "enabled": true,
+    "priority": 20,
+    "params": {
+      "cooldown_minutes": 15
+    },
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.2080371
+  },
+  {
+    "id": "daily_summary",
+    "name": "Resumen Diario",
+    "description": "Genera y envia un resumen diario de estado de la red y anomalias",
+    "instruction_type": "daily_summary",
+    "enabled": true,
+    "priority": 80,
+    "params": {
+      "send_hour": 8
+    },
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.2080438
+  },
+  {
+    "id": "retrain_model",
+    "name": "Reentrenar Modelo IA",
+    "description": "Reentrena el modelo autoencoder con datos recientes (cada 24h)",
+    "instruction_type": "retrain_model",
+    "enabled": true,
+    "priority": 60,
+    "params": {
+      "retrain_hours": 24,
+      "min_samples": 1000
+    },
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.2080493
+  },
+  {
+    "id": "check_interface",
+    "name": "Verificacion de Interfaces",
+    "description": "Verifica trafico de interfaces para detectar caidas de enlace",
+    "instruction_type": "check_interface",
+    "enabled": true,
+    "priority": 30,
+    "params": {
+      "check_interval_seconds": 900
+    },
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.208055
+  },
+  {
+    "id": "zone_grouping",
+    "name": "Agrupacion por Zonas",
+    "description": "Agrupa clientes afectados por zona geografica para alertas masivas",
+    "instruction_type": "zone_grouping",
+    "enabled": true,
+    "priority": 40,
+    "params": {
+      "method": "simple"
+    },
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.2080595
+  },
+  {
+    "id": "predict_failure",
+    "name": "Prediccion de Fallos",
+    "description": "Predice fallas futuras basado en tendencias de degradacion de potencia",
+    "instruction_type": "predict_failure",
+    "enabled": true,
+    "priority": 25,
+    "params": {
+      "prediction_horizon_hours": 24,
+      "min_degradation_rate": 0.5
+    },
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.2080648
+  },
+  {
+    "id": "client_lookup",
+    "name": "Lookup de Clientes",
+    "description": "Resuelve serial ONU a nombre y direccion del cliente para enriquecer alertas",
+    "instruction_type": "client_lookup",
+    "enabled": true,
+    "priority": 15,
+    "params": {
+      "csv_path": "grid_servicios.csv",
+      "reload_hours": 24
+    },
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.20807
+  },
+  {
+    "id": "check_ping_status",
+    "name": "Monitoreo ICMP",
+    "description": "Verifica disponibilidad de dispositivos via ping y alerta cuando caen",
+    "instruction_type": "check_ping_status",
+    "enabled": true,
+    "priority": 12,
+    "params": {
+      "alert_down_seconds": 120,
+      "alert_on_recovery": true
+    },
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.208075
+  },
+  {
+    "id": "send_report",
+    "name": "Reporte Diario",
+    "description": "Genera y envia reporte detallado de OLTs, MikroTiks, graficos y alertas a Telegram",
+    "instruction_type": "send_report",
+    "enabled": true,
+    "priority": 85,
+    "params": {
+      "send_times": [
+        "08:00",
+        "12:30",
+        "16:50",
+        "20:50"
+      ]
+    },
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.2080803
+  },
+  {
+    "id": "llm_analyze",
+    "name": "Analisis LLM",
+    "description": "Permite al agente LLM consultar estado de OLTs y generar analisis descriptivos y predictivos",
+    "instruction_type": "llm_analyze",
+    "enabled": true,
+    "priority": 35,
+    "params": {},
+    "last_run": 0.0,
+    "last_result": "",
+    "run_count": 0,
+    "created_at": 1786830369.2080848
+  }
+]

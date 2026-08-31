@@ -1,0 +1,105 @@
+# config/config_ia.yaml
+# Configuracion del Sistema de Monitoreo IA
+
+# === InfluxDB ===
+influxdb:
+  url: "http://localhost:8086"
+  token: "${INFLUXDB_TOKEN}"
+  org: "vidanet"
+  bucket: "monitoreo"
+
+# === Colectores SNMP ===
+collectors:
+  interval_seconds: 900
+  olt_timeout: 90
+  olt_rest_seconds: 60  # pausa entre pasadas del ciclo OLT (escaneo paralelo)
+  nodes_config_path: "config/nodes.yaml"
+  olt_config_path: "config/olts.conf"
+
+# === Ping Monitor (ICMP) ===
+ping:
+  enabled: true
+  targets_path: "config/ping_targets.yaml"
+  interval_seconds: 60
+  alert_down_seconds: 120
+  alert_on_recovery: true
+
+# === AI Engine ===
+ai:
+  enabled: true
+  model_path: "models/optical_autoencoder.pt"
+  training:
+    input_size: 1
+    hidden_size: 32
+    num_layers: 2
+    dropout: 0.2
+    learning_rate: 0.001
+    batch_size: 16
+    epochs: 30
+    window_size: 1440
+    validation_split: 0.2
+    early_stopping_patience: 5
+  retrain_hours: 24
+  min_samples: 500
+
+# === CSV Clientes ===
+csv:
+  path: "grid_servicios.csv"
+  reload_hours: 24
+  enabled: true
+
+# === Agente IA ===
+agent:
+  enabled: true
+  check_interval_seconds: 60
+  instructions_path: "config/instructions.json"
+  model_lightweight: true
+
+# === Agente LLM ===
+llm:
+  enabled: true
+  mode: "hybrid"              # autonomous | hybrid | analyst
+  provider: "ollama"           # openrouter | ollama | anthropic
+  model: "qwen2.5:3b-instruct"
+  base_url: "http://localhost:11434"
+  api_key_env: "OPENROUTER_API_KEY"
+  check_interval_seconds: 900
+  max_tokens: 512
+  temperature: 0.0
+  timeout_seconds: 300
+  keep_alive: "5m"
+  num_ctx: 4096
+  num_thread: 4
+  daily_budget_usd: 2.0
+  analyst_report_hour: "08:00"
+  system_prompt: ""
+  log_file: "logs/llm_agent.log"
+  events_file: "logs/llm_events.json"
+  state_file: "logs/llm_state.json"
+  runtime_config_file: "config/llm_config.json"
+
+# === Dashboard API ===
+api:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+
+# === Notificaciones Telegram ===
+telegram:
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  chat_id: "${TELEGRAM_CHAT_ID}"
+  cooldown_minutes: 15
+  enabled: true
+
+# === Zabbix Bridge (envío de datos a Zabbix via trapper) ===
+zabbix:
+  enabled: true
+  server: "127.0.0.1"
+  port: 10051
+
+# === Logging ===
+logging:
+  level: "INFO"
+  file: "logs/monitor_ia.log"
+  max_size_mb: 10
+  backup_count: 3

@@ -1,0 +1,35 @@
+# Dockerfile.ai
+# Container for AI engine (anomaly detection + predictions)
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies (CPU-only PyTorch)
+COPY requirements-ia.txt .
+RUN pip install --no-cache-dir -r requirements-ia.txt \
+    && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Copy source code
+COPY src/ ./src/
+COPY config/ ./config/
+
+# Create directories
+RUN mkdir -p /app/logs /app/models
+
+# Create non-root user
+RUN useradd -m -u 1000 aiengine && chown -R aiengine:aiengine /app
+USER aiengine
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8001/health')" || exit 1
+
+# Run AI engine
+CMD ["python", "-m", "src.ai.main"]

@@ -1,0 +1,32 @@
+monitoring:
+  interval_seconds: 30
+  threshold_events: 3
+  threshold_window_minutes: 5
+
+verification:
+  ping_enabled: true
+  ping_timeout_seconds: 5
+  snmp_enabled: true
+  ssh_enabled: true
+  
+telegram:
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  chat_id: "${TELEGRAM_CHAT_ID}"
+  cooldown_minutes: 15
+  update_interval_minutes: 30
+
+csv:
+  path: "/home/server/agente-monitor/grid_servicios.csv"
+  refresh_hours: 24
+
+ml:
+  model_path: "/home/server/agente-monitor/models/zone_model.pkl"
+  retrain_hours: 24
+  min_samples: 2
+  eps: 0.3
+
+logging:
+  level: "INFO"
+  file: "logs/monitor.log"
+  max_size_mb: 10
+  backup_count: 3

@@ -1,0 +1,23 @@
+# compose.yml - Agente Monitor
+# InfluxDB como servicio central con auto-start
+# App services (collector, API, AI) corren como systemd en el host
+
+services:
+  influxdb-ia:
+    image: docker.io/library/influxdb:2.7
+    container_name: influxdb-ia
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_SETUP=false
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN}
+    volumes:
+      - ./influxdb/data:/var/lib/influxdb2
+      - ./influxdb/config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
