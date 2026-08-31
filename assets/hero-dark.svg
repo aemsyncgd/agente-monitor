@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 1200 320" width="1200" height="320">
+  <title>Agente Monitor — Monitoreo FTTH/GPON con IA</title>
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070b15"/>
+      <stop offset="1" stop-color="#0e1730"/>
+    </linearGradient>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#67e8f9"/>
+      <stop offset="0.55" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#e879f9"/>
+    </linearGradient>
+    <linearGradient id="barGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#e879f9"/>
+    </linearGradient>
+    <radialGradient id="glowCyan" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowMagenta" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#e879f9" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#e879f9" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="34" height="34" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.4" fill="#25365c" opacity="0.55"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="320" fill="url(#bgGrad)"/>
+  <rect width="1200" height="320" fill="url(#dots)"/>
+  <circle cx="260" cy="150" r="250" fill="url(#glowCyan)"/>
+  <circle cx="260" cy="150" r="430" fill="url(#glowMagenta)"/>
+
+  <path d="M 70 298 L 320 298 L 368 240 L 420 284 L 470 222 L 522 276 L 578 298 L 800 298"
+        fill="none" stroke="#22d3ee" stroke-width="3" opacity="0.45" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g stroke="#3b5b93" stroke-width="2" opacity="0.9">
+    <line x1="820" y1="215" x2="900" y2="255"/>
+    <line x1="820" y1="265" x2="900" y2="255"/>
+    <line x1="820" y1="315" x2="900" y2="255"/>
+    <line x1="900" y1="255" x2="985" y2="265" stroke="#a78bfa" stroke-width="2.5"/>
+  </g>
+  <circle cx="820" cy="215" r="6" fill="#0c4a6e" stroke="#67e8f9" stroke-width="2"/>
+  <circle cx="820" cy="265" r="6" fill="#0c4a6e" stroke="#67e8f9" stroke-width="2"/>
+  <circle cx="820" cy="315" r="6" fill="#0c4a6e" stroke="#67e8f9" stroke-width="2"/>
+  <circle cx="900" cy="255" r="8" fill="#312e81" stroke="#a78bfa" stroke-width="2"/>
+  <circle cx="985" cy="265" r="11" fill="url(#titleGrad)"/>
+  <circle cx="985" cy="265" r="23" fill="none" stroke="#e879f9" stroke-width="1.5" opacity="0.6"/>
+
+  <text x="74" y="96" font-family="'JetBrains Mono','Fira Code',Consolas,monospace" font-size="16" letter-spacing="7" fill="#e879f9" font-weight="700">NOC · FTTH/GPON · IA</text>
+  <text x="70" y="160" font-family="'Inter','Segoe UI',Arial,Helvetica,sans-serif" font-size="64" font-weight="800" fill="url(#titleGrad)" letter-spacing="1">AGENTE MONITOR</text>
+  <text x="72" y="208" font-family="'Segoe UI',Arial,Helvetica,sans-serif" font-size="21" fill="#94a3b8">Monitoreo autónomo&nbsp;&nbsp;·&nbsp;&nbsp;SNMP → InfluxDB → ML → LLM → Telegram</text>
+
+  <g font-family="'JetBrains Mono',Consolas,monospace" font-size="15" font-weight="600">
+    <rect x="70" y="248" width="126" height="32" rx="16" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+    <text x="133" y="269" fill="#67e8f9" text-anchor="middle">PyTorch · 2.x</text>
+    <rect x="206" y="248" width="140" height="32" rx="16" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+    <text x="276" y="269" fill="#4ade80" text-anchor="middle">FastAPI · 0.100</text>
+    <rect x="356" y="248" width="126" height="32" rx="16" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+    <text x="419" y="269" fill="#e879f9" text-anchor="middle">InfluxDB · 2.x</text>
+    <rect x="492" y="248" width="112" height="32" rx="16" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+    <text x="548" y="269" fill="#a78bfa" text-anchor="middle">Ollama</text>
+  </g>
+
+  <rect x="0" y="314" width="1200" height="6" fill="url(#barGrad)" opacity="0.9"/>
+</svg>
