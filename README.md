@@ -209,5 +209,4 @@ pytest
 
 ## Licencia
 
-Este proyecto es de uso interno de su autor. No se concede licencia de uso,
-modificación o distribución sin autorización expresa.
+Proyecto licenciado bajo la **GNU General Public License v3.0** — ver [LICENSE](LICENSE).
