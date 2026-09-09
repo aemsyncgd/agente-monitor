@@ -20,7 +20,6 @@ router = APIRouter()
 
 # Lazy-loaded managers (initialized on first request)
 _instruction_manager = None
-_client_lookup = None
 _project_root = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 
@@ -37,20 +36,6 @@ def _get_instruction_manager():
         )
         _instruction_manager = InstructionManager(instr_path)
     return _instruction_manager
-
-
-def _get_client_lookup():
-    global _client_lookup
-    if _client_lookup is None:
-        from src.client_lookup import ClientLookup
-        _client_lookup = ClientLookup()
-        csv_path = os.environ.get(
-            "CSV_PATH",
-            os.path.join(_project_root, "grid_servicios.csv"),
-        )
-        if os.path.exists(csv_path):
-            _client_lookup.load_from_csv(csv_path)
-    return _client_lookup
 
 
 # === Request models ===
@@ -79,13 +64,13 @@ class NewInstruction(BaseModel):
 
 @router.get("/api/agent/status")
 async def get_agent_status():
-    """Get AI agent status and stats."""
+    """Get AI agent status and stats (clientes desde la base enriquecida)."""
     from ...config_manager import get_config_manager
+    from ..influx_helper import get_clientes_stats
     cm = get_config_manager()
     config = cm.config
 
     mgr = _get_instruction_manager()
-    lookup = _get_client_lookup()
 
     enabled = mgr.get_enabled()
 
@@ -101,6 +86,7 @@ async def get_agent_status():
     except Exception:
         pass
 
+    cstats = get_clientes_stats()
     return {
         "status": "running" if ai_running else "stopped",
         "enabled": config.agent.enabled,
@@ -111,9 +97,12 @@ async def get_agent_status():
             "enabled": len(enabled),
             "disabled": len(mgr.get_all()) - len(enabled),
         },
-        "clients": lookup.stats(),
-        "csv_enabled": config.csv.enabled,
-        "csv_reload_hours": config.csv.reload_hours,
+        "clients": {
+            "total_clients": cstats["enriquecidos"],
+            "active_clients": cstats["enriquecidos"] - cstats["descuadrados"],
+            "pendientes": cstats["pendientes"],
+            "source": "clientes_enriquecidos (InfluxDB)",
+        },
         "influxdb_url": config.influxdb.url,
     }
 
@@ -219,46 +208,54 @@ async def delete_instruction(inst_id: str):
     return {"ok": True}
 
 
-# === Client lookup ===
+# === Client lookup (base enriquecida, sin grid_servicios.csv) ===
+
+def _estado_label(row: Dict) -> str:
+    """Estado legible de la ONU para compatibilidad con el shape legacy."""
+    try:
+        estado = int(row.get("estado_onu", -1))
+    except (TypeError, ValueError):
+        estado = -1
+    if estado == 3:
+        return "Activo"
+    if estado in (1, 4, 6):
+        return "Caído"
+    return "N/A"
+
+
+def _client_brief(c: Dict) -> Dict:
+    return {
+        "nombre": c.get("nombre", ""),
+        "serial_onu": c.get("serial_onu", ""),
+        "direccion": c.get("direccion", ""),
+        "nodo": c.get("nodo", ""),
+        "puerto_pon": c.get("pon_port", ""),
+        "estado": _estado_label(c),
+    }
+
 
 @router.get("/api/agent/clients/lookup")
 async def lookup_client(serial: Optional[str] = Query(None), name: Optional[str] = Query(None)):
-    """Look up a client by serial or name."""
-    lookup = _get_client_lookup()
+    """Look up a client by serial or name (base enriquecida)."""
+    from ..influx_helper import get_enriched_clients
 
     if serial:
-        client = lookup.lookup_by_serial(serial)
-        if client:
-            return {
-                "found": True,
-                "client": {
-                    "nombre": client.nombre,
-                    "serial_onu": client.serial_onu,
-                    "direccion": client.direccion,
-                    "nodo": client.nodo,
-                    "puerto_pon": client.puerto_pon,
-                    "ip_servicio": client.ip_servicio,
-                    "estado": client.estado,
-                },
-            }
-        return {"found": False, "serial": serial}
+        rows = get_enriched_clients(search=serial, limit=10)
+        serial_u = str(serial).strip().upper()
+        exact = [c for c in rows
+                 if (c.get("serial_onu") or "").upper() == serial_u]
+        if not exact and rows:
+            exact = rows
+        if not exact:
+            return {"found": False, "serial": serial}
+        return {"found": True, "client": _client_brief(exact[0])}
 
     if name:
-        results = lookup.search_by_name(name)
+        results = get_enriched_clients(search=name, limit=20)
         return {
             "found": len(results) > 0,
             "count": len(results),
-            "clients": [
-                {
-                    "nombre": c.nombre,
-                    "serial_onu": c.serial_onu,
-                    "direccion": c.direccion,
-                    "nodo": c.nodo,
-                    "puerto_pon": c.puerto_pon,
-                    "estado": c.estado,
-                }
-                for c in results[:20]
-            ],
+            "clients": [_client_brief(c) for c in results],
         }
 
     return {"found": False, "message": "Provide 'serial' or 'name' query parameter"}
@@ -266,22 +263,19 @@ async def lookup_client(serial: Optional[str] = Query(None), name: Optional[str]
 
 @router.get("/api/agent/clients/stats")
 async def client_stats():
-    """Get client database statistics."""
-    lookup = _get_client_lookup()
-    return lookup.stats()
+    """Get client database statistics (base enriquecida)."""
+    from ..influx_helper import get_clientes_stats
+    return get_clientes_stats()
 
 
 @router.get("/api/agent/clients/pon/{olt_hostname}/{pon_port}")
 async def clients_on_pon(olt_hostname: str, pon_port: str):
-    """Get all clients on a specific OLT:PON port."""
-    lookup = _get_client_lookup()
-    clients = lookup.clients_on_pon(olt_hostname, pon_port)
+    """Get all clients on a specific OLT:PON port (base enriquecida)."""
+    from ..influx_helper import get_enriched_clients
+    clients = get_enriched_clients(olt=olt_hostname, pon=pon_port, limit=50)
     return {
         "olt": olt_hostname,
         "pon_port": pon_port,
         "count": len(clients),
-        "clients": [
-            {"nombre": c.nombre, "serial_onu": c.serial_onu, "direccion": c.direccion}
-            for c in clients
-        ],
+        "clients": [_client_brief(c) for c in clients],
     }
