@@ -45,6 +45,8 @@ def _build_scheduler(config):
     except Exception as e:
         logger.warning(f"Reporter unavailable: {e}")
 
+    client_enricher, fault_detector = _build_analytics(config, influx=None)
+
     return WispScheduler(
         agent=None,
         reporter=reporter,
@@ -52,7 +54,69 @@ def _build_scheduler(config):
         memory=memory,
         config=config,
         audit=audit,
+        client_enricher=client_enricher,
+        fault_detector=fault_detector,
     )
+
+
+def _build_analytics(config, influx=None):
+    """Construye (client_enricher, fault_detector) en modo lazy (sin red)."""
+    client_enricher, fault_detector = None, None
+    if not (config.enrichment.enabled or config.fault_detection.enabled):
+        return client_enricher, fault_detector
+    try:
+        from .client_enricher import ClientEnricher
+        from .fault_detector import FaultDetector, OltStatusRefresher
+        from .notifier_ai import TelegramNotifierAI, TelegramConfig
+        from .storage.influx_client import InfluxClient
+        from .wisp_client import WispClient
+
+        if influx is None:
+            influx = InfluxClient(
+                url=os.environ.get("INFLUXDB_URL", config.influxdb.url),
+                token=os.environ.get("INFLUXDB_TOKEN", config.influxdb.token),
+                org=os.environ.get("INFLUXDB_ORG", config.influxdb.org),
+                bucket=os.environ.get("INFLUXDB_BUCKET", config.influxdb.bucket),
+            )
+            influx.connect()
+
+        if config.enrichment.enabled:
+            wisp = WispClient(config.wisp)
+            client_enricher = ClientEnricher(
+                influx=influx,
+                wisp=wisp,
+                config=config.enrichment,
+            )
+
+        if config.fault_detection.enabled:
+            notifier = TelegramNotifierAI(
+                TelegramConfig(
+                    bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", config.telegram.bot_token),
+                    chat_id=os.environ.get("TELEGRAM_CHAT_ID", config.telegram.chat_id),
+                    cooldown_minutes=config.telegram.cooldown_minutes,
+                    state_file=config.fault_detection.state_file,
+                )
+            )
+            from .config_ia import load_nodes_config
+            nodes = config.nodes or load_nodes_config(
+                os.environ.get("NODES_PATH", "config/nodes.yaml")
+            )
+            olt_lookup = {
+                olt.hostname: (olt.ip, olt.community)
+                for node in nodes
+                for olt in node.olts
+            }
+            fault_detector = FaultDetector(
+                influx=influx,
+                notifier=notifier,
+                config=config.fault_detection,
+                olt_lookup=olt_lookup,
+                refresher=OltStatusRefresher(config.fault_detection.refresh_timeout_seconds),
+            )
+    except Exception as e:
+        logger.warning(f"Analytics unavailable (enricher/fault detector): {e}")
+
+    return client_enricher, fault_detector
 
 
 async def _run() -> None:

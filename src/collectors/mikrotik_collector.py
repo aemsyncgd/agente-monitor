@@ -36,6 +36,7 @@ class MikroTikConfig:
     password: str = ""
     api_port: int = 8728
     use_api: bool = False  # True = use RouterOS API, False = use SNMP only
+    nodo: str = ""  # Nodo del CSV/config (para correlacionar con clientes)
 
 
 class MikroTikCollector(BaseCollector):
@@ -168,6 +169,14 @@ class MikroTikCollector(BaseCollector):
             self._record_error()
         else:
             self._record_success(duration)
+
+        # Modo RouterOS API: leases PPPoE + DHCP (para correlacionar clientes).
+        if self.config.use_api:
+            api_metrics = self._collect_routeros_api()
+            if api_metrics:
+                metrics.extend(api_metrics)
+            else:
+                errors.append(f"RouterOS API vacio para {self.config.hostname}")
 
         return CollectorResult(
             success=len(errors) == 0,
@@ -827,6 +836,139 @@ class MikroTikCollector(BaseCollector):
         if in_oct is not None and out_oct is not None:
             _RATE_CACHE[key] = (now, in_oct, out_oct)
         return rx_bps, tx_bps
+
+    # ---- RouterOS API (leases PPPoE + DHCP para correlacion de clientes) ----
+    @staticmethod
+    def _norm_mac(value: Any) -> str:
+        mac = str(value or "").strip().strip('"')
+        if not mac or mac.lower() in ("none", "0:0:0:0:0:0", "00:00:00:00:00:00"):
+            return ""
+        parts = mac.split(":")
+        if parts and len(parts[0]) == 1:
+            parts = [p.rjust(2, "0") for p in parts]
+        return ":".join(parts).lower()
+
+    def _collect_routeros_api(self) -> List[Dict[str, Any]]:
+        """Recolecta leases PPPoE y DHCP via RouterOS API.
+
+        La libreria routeros_api es síncrona; se invoca directamente porque
+        collect() corre en su propio event-loop desechable.
+        """
+        if not self.config.password:
+            logger.warning(f"{self.config.hostname}: API sin password, omitida")
+            return []
+
+        metrics: List[Dict[str, Any]] = []
+        try:
+            from routeros_api import RouterOsApiPool
+
+            pool = RouterOsApiPool(
+                self.config.ip,
+                username=self.config.username,
+                password=self.config.password,
+                plaintext_login=True,
+                use_ssl=False,
+                port=self.config.api_port,
+            )
+            api = pool.get_api()
+
+            try:
+                ppp_active = self._ros_get_rows(
+                    api, "/ppp/active", "RouterOS API /ppp/active"
+                )
+                ppp_secrets = self._ros_get_rows(
+                    api, "/ppp/secret", "RouterOS API /ppp/secret"
+                )
+                dhcp = self._ros_get_rows(
+                    api, "/ip/dhcp-server/lease", "RouterOS API /ip/dhcp-server/lease"
+                )
+            finally:
+                try:
+                    pool.disconnect()
+                except Exception:
+                    pass
+        except ImportError:
+            logger.error("routeros_api no instalado; agregar a requirements.txt")
+            return []
+        except Exception as e:
+            logger.warning(f"RouterOS API fallo en {self.config.hostname}: {e}")
+            return []
+
+        # PPPoE: secret + active (caller-id = MAC de la sesión)
+        active_by_user: Dict[str, dict] = {}
+        for a in ppp_active:
+            user = str(a.get("user", "")).strip()
+            if user:
+                active_by_user[user.lower()] = a
+
+        seen_users = set()
+        for secret in ppp_secrets:
+            user = str(secret.get("name", "")).strip()
+            if not user:
+                continue
+            seen_users.add(user.lower())
+            active = active_by_user.get(user.lower(), {})
+            mac = self._norm_mac(active.get("caller-id") or secret.get("caller-id", ""))
+            metrics.append({
+                "measurement": "routeros_pppoe",
+                "tags": {
+                    "device_name": self.config.hostname,
+                    "device_ip": self.config.ip,
+                    "username": user.lower(),
+                    "nodo": self.config.nodo,
+                },
+                "fields": {
+                    "status": "bound" if active else "idle",
+                    "mac_address": mac,
+                    "address": str(secret.get("address", "") or "").strip(),
+                    "remote_address": str(active.get("address", "") or "").strip(),
+                    "service": str(secret.get("service", "pppoe") or "pppoe").strip(),
+                    "disabled": 1 if str(secret.get("disabled", "false")).lower() == "true" else 0,
+                },
+            })
+
+        # DHCP: leases con MAC (mac-address) + IP (address) + hostname
+        for lease in dhcp:
+            mac = self._norm_mac(lease.get("mac-address", ""))
+            if not mac:
+                continue
+            metrics.append({
+                "measurement": "routeros_dhcp",
+                "tags": {
+                    "device_name": self.config.hostname,
+                    "device_ip": self.config.ip,
+                    "mac_address": mac,
+                    "nodo": self.config.nodo,
+                },
+                "fields": {
+                    "address": str(lease.get("address", "") or "").strip(),
+                    "hostname": str(lease.get("host-name", "") or "").strip(),
+                    "status": str(lease.get("status", "") or "").strip(),
+                    "expires": str(lease.get("expires-after", "") or "").strip(),
+                    "server": str(lease.get("server", "") or "").strip(),
+                },
+            })
+
+        logger.info(
+            f"{self.config.hostname}: API pppoe={len(seen_users)} dhcp={len(metrics) - len(seen_users)}"
+        )
+        return metrics
+
+    @staticmethod
+    def _ros_get_rows(api, path: str, label: str) -> List[dict]:
+        """GET de una tabla RouterOS API -> lista de dicts simples."""
+        try:
+            resource = api.get_resource(path)
+            data = resource.get()
+            rows = []
+            for entry in data:
+                if not isinstance(entry, dict):
+                    continue
+                rows.append({str(k): v for k, v in entry.items() if v is not None})
+            return rows
+        except Exception as e:
+            logger.warning(f"{label}: {e}")
+            return []
 
     async def _snmp_get(
         self, snmp_engine, community, transport, context,

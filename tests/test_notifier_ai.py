@@ -175,3 +175,58 @@ def test_daily_summary_html(tmp_path):
     assert payload["parse_mode"] == "HTML"
     assert "<b>RESUMEN DIARIO" in payload["text"]
     assert "Zona &lt;A&gt;" in payload["text"]
+
+
+# === Alertas agregadas por NAP / OLT (fault_detector) ===
+
+def test_area_alert_nap_down_dedup(tmp_path):
+    notifier = make_notifier(tmp_path)
+    kwargs = dict(scope="nap", olt="OLT-1", label="NAP-12",
+                  down=5, total=5, names=["A", "B", "C"])
+    with mock_post() as post:
+        assert notifier.send_area_alert(kind="down", **kwargs) is True
+        assert notifier.send_area_alert(kind="down", **kwargs) is False
+    assert post.call_count == 1
+    text = post.call_args.kwargs["json"]["text"]
+    assert "<b>FALLA NAP NAP-12</b>" in text
+    assert "<b>OLT:</b> OLT-1" in text
+    assert "5 / 5" in text
+    assert "- A" in text and "- B" in text
+
+
+def test_area_alert_broadcast_olt(tmp_path):
+    notifier = make_notifier(tmp_path)
+    with mock_post() as post:
+        assert notifier.send_area_alert(
+            scope="olt", olt="OLT-2", label="OLT-2",
+            down=8, total=10, kind="down",
+        ) is True
+    text = post.call_args.kwargs["json"]["text"]
+    assert "<b>BROADCAST - OLT OLT-2</b>" in text
+
+
+def test_area_alert_recovery_uses_duration(tmp_path):
+    notifier = make_notifier(tmp_path)
+    notifier._state_store.record("fault:nap:OLT-3:NAP-5",
+                                 {"status": "down"},
+                                 down_since=time.time() - 1800)
+    with mock_post() as post:
+        assert notifier.send_area_alert(
+            scope="nap", olt="OLT-3", label="NAP-5",
+            kind="recovery", duration_minutes=0,
+        ) is True
+    text = post.call_args.kwargs["json"]["text"]
+    assert "<b>NAP RECUPERADO - NAP-5</b>" in text
+    assert "30 min" in text
+
+
+def test_area_alert_escapes_labels(tmp_path):
+    notifier = make_notifier(tmp_path)
+    with mock_post() as post:
+        notifier.send_area_alert(
+            scope="nap", olt="OLT <1>", label="NAP & 12",
+            down=3, total=4, kind="down",
+        )
+    text = post.call_args.kwargs["json"]["text"]
+    assert "OLT &lt;1&gt;" in text
+    assert "NAP &amp; 12" in text

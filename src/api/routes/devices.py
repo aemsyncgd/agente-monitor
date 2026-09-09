@@ -463,7 +463,8 @@ async def refresh_device(device_type: str, device_ip: str):
                 hostname=mt.hostname,
                 modelo=mt.modelo,
                 username=mt.username,
-                use_api=mt.use_api
+                use_api=mt.use_api,
+                nodo=str(node.name) if node else ""
             )
             node = manager.get_node_for_mikrotik(device_ip)
             collector = MikroTikCollector(config=mikrotik_config)

@@ -287,6 +287,77 @@ class TelegramNotifierAI:
         message = "\n".join(lines)
         return self._send_message(message, key=key, state_fingerprint=fingerprint)
 
+    def send_area_alert(
+        self,
+        scope: str = "nap",
+        olt: str = "",
+        label: str = "",
+        kind: str = "down",
+        down: int = 0,
+        total: int = 0,
+        names: Optional[List[str]] = None,
+        duration_minutes: int = 0,
+    ) -> bool:
+        """Alerta agregada por NAP (caja) o por OLT (broadcast), con recuperación.
+
+        kind 'down': dispara una sola alerta por grupo (dedup por estado).
+        kind 'recovery': reporta la duración total de la caída.
+        """
+        names = names or []
+        key = f"fault:{scope}:{olt}:{label}"
+
+        if kind == "down":
+            fingerprint = {"status": "down"}
+            if not self._state_store.should_send(key, fingerprint):
+                logger.debug(f"Area {key} ya reportada baja, omitiendo")
+                return False
+
+            is_broadcast = scope == "olt"
+            header = f"🔴 <b>BROADCAST - OLT {self._esc(olt)}</b>" if is_broadcast \
+                else f"🔴 <b>FALLA NAP {self._esc(label)}</b>"
+            separator = "━━━━━━━━━━━━━━━━"
+            lines = [header, separator]
+            if not is_broadcast:
+                lines.append(f"<b>OLT:</b> {self._esc(olt)}")
+            lines.append(f"<b>Clientes caídos:</b> {down} / {total}")
+            if names:
+                lines.append("")
+                lines.append("Afectados:")
+                for name in names[:8]:
+                    lines.append(f"  - {self._esc(name)}")
+                if len(names) > 8:
+                    lines.append(f"  ... y {len(names) - 8} más")
+            lines.append("")
+            lines.append("⚠️ <i>Verificar zona/NAP y fibra óptica</i>")
+            lines.append(f"⏰ <code>{time.strftime('%H:%M')}</code>")
+            return self._send_message(
+                "\n".join(lines),
+                key=key,
+                state_fingerprint=fingerprint,
+                state_extra={"down_since": time.time()},
+            )
+
+        # recovery
+        fingerprint = {"status": "up"}
+        if not self._state_store.should_send(key, fingerprint):
+            logger.debug(f"Area {key} ya reportada recuperada, omitiendo")
+            return False
+        entry = self._state_store.get(key)
+        down_since = (entry or {}).get("down_since")
+        if duration_minutes <= 0 and down_since:
+            duration_minutes = max(1, int((time.time() - down_since) // 60))
+
+        is_broadcast = scope == "olt"
+        title = f"🟢 <b>BROADCAST RECUPERADO - OLT {self._esc(olt)}</b>" \
+            if is_broadcast else f"🟢 <b>NAP RECUPERADO - {self._esc(label)}</b>"
+        lines = [title, "━━━━━━━━━━━━━━━━"]
+        if not is_broadcast:
+            lines.append(f"<b>OLT:</b> {self._esc(olt)}")
+        lines.append(f"<b>Duración caída:</b> {max(1, duration_minutes)} min")
+        lines.append("✅ <i>Estado normal</i>")
+        lines.append(f"⏰ <code>{time.strftime('%H:%M')}</code>")
+        return self._send_message("\n".join(lines), key=key, state_fingerprint=fingerprint)
+
     def send_daily_summary(self, stats: Dict) -> bool:
 
         lines = [

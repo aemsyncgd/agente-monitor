@@ -125,7 +125,8 @@ def create_collectors_from_config(
                 hostname=mt.hostname,
                 modelo=mt.modelo,
                 username=mt.username,
-                use_api=mt.use_api
+                use_api=mt.use_api,
+                nodo=node.name
             )
             collector = MikroTikCollector(config=mikrotik_config)
             mikrotik_collectors.append(collector)

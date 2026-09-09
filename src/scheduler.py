@@ -31,13 +31,16 @@ class WispScheduler:
     """Programador de tareas del sistema WISP."""
 
     def __init__(self, agent=None, reporter=None, rag_store=None,
-                 memory=None, config=None, audit=None):
+                 memory=None, config=None, audit=None,
+                 client_enricher=None, fault_detector=None):
         self.agent = agent
         self.reporter = reporter
         self.rag = rag_store
         self.memory = memory
         self.config = config
         self.audit = audit
+        self.client_enricher = client_enricher
+        self.fault_detector = fault_detector
 
         self.scheduler = AsyncIOScheduler() if APSCHEDULER_AVAILABLE else None
         self._enabled = False
@@ -59,6 +62,8 @@ class WispScheduler:
         self._add_health_check(sc)
         self._add_rag_reindex(sc)
         self._add_memory_cleanup(sc)
+        self._add_enrichment(sc)
+        self._add_fault_detection(sc)
 
         self._enabled = True
         logger.info("WispScheduler configured")
@@ -151,6 +156,36 @@ class WispScheduler:
 
     # ---- Jobs ----
 
+    def _add_enrichment(self, sc: Any) -> None:
+        if not self.client_enricher:
+            return
+        interval = self.config.enrichment.interval_minutes
+        try:
+            self.scheduler.add_job(
+                self._run_enrichment,
+                IntervalTrigger(minutes=interval),
+                id="enrichment",
+                replace_existing=True,
+            )
+            logger.info(f"Enrichment scheduled every {interval} minutes")
+        except Exception as e:
+            logger.error(f"Enrichment scheduling failed: {e}")
+
+    def _add_fault_detection(self, sc: Any) -> None:
+        if not self.fault_detector:
+            return
+        interval = self.config.fault_detection.interval_minutes
+        try:
+            self.scheduler.add_job(
+                self._run_fault_detection,
+                IntervalTrigger(minutes=interval),
+                id="fault_detection",
+                replace_existing=True,
+            )
+            logger.info(f"Fault detection scheduled every {interval} minutes")
+        except Exception as e:
+            logger.error(f"Fault detection scheduling failed: {e}")
+
     def _run_daily_report(self) -> None:
         logger.info("Running daily report job")
         if self.reporter:
@@ -216,6 +251,35 @@ class WispScheduler:
         except Exception as e:
             logger.error(f"Memory cleanup failed: {e}")
             self._log_failure("memory_cleanup", str(e))
+
+    def _run_enrichment(self) -> None:
+        if not self.client_enricher:
+            return
+        try:
+            stats = self.client_enricher.run()
+            logger.info(
+                f"Enrichment job: {stats.matched} enriquecidos, "
+                f"{stats.pending} pendientes, {stats.mismatched} descuadrados"
+            )
+            self._log_success("enrichment")
+        except Exception as e:
+            logger.error(f"Enrichment failed: {e}")
+            self._log_failure("enrichment", str(e))
+
+    def _run_fault_detection(self) -> None:
+        if not self.fault_detector:
+            return
+        try:
+            stats = self.fault_detector.run()
+            logger.info(
+                f"Fault detection job: {stats.clients} clientes, "
+                f"{stats.nap_candidates} NAPs candidatas, "
+                f"{stats.broadcast_olts} OLTs broadcast"
+            )
+            self._log_success("fault_detection")
+        except Exception as e:
+            logger.error(f"Fault detection failed: {e}")
+            self._log_failure("fault_detection", str(e))
 
     # ---- Control ----
 
