@@ -1195,21 +1195,29 @@
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
                         <h3 class="text-sm font-semibold text-surface-300 mb-4">Buscar Cliente</h3>
                         <div class="flex gap-3 mb-4">
-                            <input v-model="clientSearch" @keyup.enter="searchClients" type="text" placeholder="Serial ONU o nombre del cliente..."
+                            <input v-model="clientSearch" @keyup.enter="searchClients" type="text" placeholder="Serial ONU, nombre, documento, NAP..."
                                 class="flex-1 bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 placeholder-surface-500 focus:outline-none focus:border-brand-500 transition-colors">
                             <button @click="searchClients" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Buscar</button>
                         </div>
                         <div v-if="clientResults.length > 0" class="space-y-2">
-                            <div v-for="c in clientResults" :key="c.serial_onu" class="bg-surface-800 rounded-lg p-3 border border-surface-700/50">
-                                <div class="flex items-center gap-2">
+                            <div v-for="c in clientResults" :key="`${c.documento}-${c.serial_onu}`" class="bg-surface-800 rounded-lg p-3 border border-surface-700/50">
+                                <div class="flex items-center gap-2 flex-wrap">
                                     <span class="font-medium text-surface-200 text-sm">{{ c.nombre }}</span>
                                     <span class="text-xs text-surface-500 font-mono">{{ c.serial_onu }}</span>
-                                    <span :class="c.estado === 'Activo' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'" class="text-xs px-1.5 py-0.5 rounded-full">{{ c.estado }}</span>
+                                    <span :class="onuChipClass(c.estado_onu)" class="text-xs px-1.5 py-0.5 rounded-full">{{ onuChipLabel(c.estado_onu) }}</span>
+                                    <span v-if="c.pendiente" title="Cliente sin certificar en la OLT (pendiente)" class="text-xs px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">Sin cruce ONU</span>
+                                    <span v-if="c.ubicacion_descuadrada" class="text-xs px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400">Descuadrado</span>
                                 </div>
                                 <div class="text-xs text-surface-500 mt-1">
                                     <span v-if="c.direccion">{{ c.direccion }}</span>
                                     <span v-if="c.nodo" class="ml-2">| {{ c.nodo }}</span>
+                                    <span v-if="c.nap" class="ml-2">| NAP: {{ c.nap }}</span>
                                     <span v-if="c.puerto_pon" class="ml-2">| PON: {{ c.puerto_pon }}</span>
+                                </div>
+                                <div v-if="c.estado_servicio || c.pppoe_status || c.olt" class="text-xs text-surface-500 mt-1">
+                                    <span v-if="c.estado_servicio">Servicio: {{ c.estado_servicio }}</span>
+                                    <span v-if="c.pppoe_status" class="ml-2">PPPoE: {{ c.pppoe_status }}</span>
+                                    <span v-if="c.olt" class="ml-2">| {{ c.olt }}</span>
                                 </div>
                             </div>
                         </div>
@@ -3596,17 +3604,25 @@ createApp({
             if (!clientSearch.value) return;
             try {
                 const q = clientSearch.value.trim();
-                // Try serial first, then name
-                let res = await apiFetch(`/api/agent/clients/lookup?serial=${encodeURIComponent(q)}`);
-                if (res.found) {
-                    clientResults.value = res.client ? [res.client] : [];
-                    return;
-                }
-                res = await apiFetch(`/api/agent/clients/lookup?name=${encodeURIComponent(q)}`);
-                clientResults.value = res.clients || [];
+                const res = await apiFetch(`/api/clientes/buscar?q=${encodeURIComponent(q)}`);
+                clientResults.value = Array.isArray(res) ? res : [];
             } catch(e) {
                 clientResults.value = [];
             }
+        }
+
+        function onuChipLabel(estadoOnu) {
+            const s = Number(estadoOnu);
+            if (s === 3) return 'Activo';
+            if ([1, 4, 6].includes(s)) return 'Caído';
+            return 'N/A';
+        }
+
+        function onuChipClass(estadoOnu) {
+            const s = Number(estadoOnu);
+            if (s === 3) return 'bg-emerald-500/20 text-emerald-400';
+            if ([1, 4, 6].includes(s)) return 'bg-red-500/20 text-red-400';
+            return 'bg-surface-700/50 text-surface-400';
         }
 
         function openNewInstructionModal() {
@@ -4137,7 +4153,7 @@ createApp({
                     const [statusRes, instrRes, statsRes] = await Promise.allSettled([
                         apiFetch('/api/agent/status'),
                         apiFetch('/api/agent/instructions'),
-                        apiFetch('/api/agent/clients/stats'),
+                        apiFetch('/api/clientes/stats'),
                     ]);
                     if (statusRes.status === 'fulfilled') agentStatus.value = statusRes.value || {};
                     if (instrRes.status === 'fulfilled') agentInstructions.value = instrRes.value?.instructions || [];
@@ -4212,6 +4228,7 @@ createApp({
             nodeForm, mikrotikForm, oltForm, toast,
             // Agent state
             agentStatus, agentInstructions, clientSearch, clientResults, clientStats, instructionsExpanded,
+                        onuChipLabel, onuChipClass,
             llmConfigSectionExpanded, instructionsSectionExpanded,
             // Network (ping)
             pingStatus, pingFilter, filteredPingTargets, pingConfig, refreshDevice, refreshingDevice,
