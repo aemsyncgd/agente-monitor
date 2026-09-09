@@ -75,6 +75,10 @@ esquema.jpg
 *.key
 *.crt
 
+# === Runtime del agente (estado persistente, RAG, memoria) ===
+data/
+redis/
+
 # === Documentacion interna de operaciones (topologia/IPs/proveedores) ===
 docs/
 interface-dashboard.md

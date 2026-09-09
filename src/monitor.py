@@ -2,10 +2,22 @@
 import re
 import time
 import logging
-from typing import Optional, List, Dict, Tuple
+import warnings
+from typing import Optional, List, Dict, Tuple, Any
+
+warnings.warn(
+    "src.monitor uses ZabbixClient which is DEPRECATED. "
+    "Zabbix integration is legacy and will be removed in a future version.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from .models import Event
 from .buffer import EventBuffer
-from .zabbix_client import ZabbixClient
+try:
+    from .zabbix_client import ZabbixClient
+except ImportError:
+    ZabbixClient = None
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -13,7 +25,7 @@ logger = logging.getLogger(__name__)
 STATUS_PATTERN = re.compile(r'Status\s+([\w\-\/]+):(\d+)\s+-\s+(\w+)\s+-\s+(\w+)')
 
 class Monitor:
-    def __init__(self, config: Config, client: ZabbixClient, buffer: EventBuffer):
+    def __init__(self, config: Config, client: Optional[Any] = None, buffer: Optional[EventBuffer] = None):
         self.config = config
         self.client = client
         self.buffer = buffer
@@ -21,6 +33,8 @@ class Monitor:
         self._last_cache_refresh = 0
     
     def _refresh_hosts_cache(self) -> None:
+        if not self.client:
+            return
         now = time.time()
         if now - self._last_cache_refresh < 300:
             return
@@ -40,6 +54,8 @@ class Monitor:
         return value in ("1", "4")
     
     def check_events(self) -> Optional[List[Event]]:
+        if not self.client:
+            return None
         self._refresh_hosts_cache()
         
         time_from = int(time.time() - self.config.monitoring.threshold_window_minutes * 60)

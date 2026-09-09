@@ -51,8 +51,15 @@ ADMIN_PATHS: Set[str] = {
     "/api/agent/instructions",  # POST create instruction
 }
 
-# Paths that are deprecated (Zabbix) — still accessible but logged
-DEPRECATED_PREFIXES: tuple = ("/api/zabbix",)
+# Prefixes where the viewer role may issue write requests (benign: on-demand
+# data collection that does NOT mutate configuration). Used by the "Refrescar"
+# button on the dashboard to re-collect a single device on click.
+VIEWER_WRITE_PREFIXES: tuple = (
+    "/api/devices/refresh/",
+)
+
+# Paths that are deprecated
+DEPRECATED_PREFIXES: tuple = ()
 
 
 # ── Role definitions ─────────────────────────────────────────────────────────
@@ -131,13 +138,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Check write permissions for non-GET methods
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
             if role == Role.VIEWER:
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "error": "Forbidden",
-                        "detail": "Viewer role cannot perform write operations.",
-                    },
-                )
+                is_benign_write = path.startswith(VIEWER_WRITE_PREFIXES)
+                if not is_benign_write:
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "error": "Forbidden",
+                            "detail": "Viewer role cannot perform write operations.",
+                        },
+                    )
 
         # Store role in request state for route-level use
         request.state.role = role

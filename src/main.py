@@ -5,10 +5,20 @@ import time
 import signal
 import logging
 import logging.handlers
+import warnings
 from pathlib import Path
 
+warnings.warn(
+    "src.main is a legacy Zabbix agent runner script and is DEPRECATED.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from .config import load_config
-from .zabbix_client import ZabbixClient
+try:
+    from .zabbix_client import ZabbixClient
+except ImportError:
+    ZabbixClient = None
 from .buffer import EventBuffer
 from .monitor import Monitor
 from .verifier import Verifier
@@ -72,6 +82,10 @@ def main():
     zabbix_url = os.environ.get("ZABBIX_API_URL", "")
     zabbix_user = os.environ.get("ZABBIX_API_USER", "")
     zabbix_pass = os.environ.get("ZABBIX_API_PASS", "")
+    if ZabbixClient is None:
+        logger.error("ZabbixClient is not available (Zabbix integration is deprecated)")
+        return 1
+
     if not all([zabbix_url, zabbix_user, zabbix_pass]):
         logger.error("ZABBIX_API_URL, ZABBIX_API_USER, ZABBIX_API_PASS must be set")
         return 1

@@ -5,10 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vidanet - Monitoreo IA</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -17,6 +13,12 @@
                     fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
                     colors: {
                         brand: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af',900:'#1e3a8a' },
+                        accent: {
+                            50:'#eff6ff',100:'#bfe6ff',200:'#7fcdff',300:'#22d3ee',400:'#06baf0',500:'#0891b2',600:'#0e7490',700:'#155e75',800:'#104d57',900:'#082f49',
+                            emerald: {
+                                50:'#f0fdf4',100:'#dcfce7',200:'#a7f3d0',300:'#6ee7b7',400:'#22c55e',500:'#16a34a',600:'#16a34a',700:'#15803d',800:'#166534',900:'#14532d'
+                            }
+                        },
                         surface: {
                             50: 'rgb(var(--surface-50) / <alpha-value>)',
                             100: 'rgb(var(--surface-100) / <alpha-value>)',
@@ -35,6 +37,10 @@
             }
         }
     </script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --surface-50: 2 6 23;
@@ -111,17 +117,17 @@
                     <!-- Group with children (Nodos > MikroTik | OLTs) -->
                     <div v-if="item.children && item.children.length">
                         <button @click="activeTab = item.id; toggleNavGroup(item.id)"
-                            :class="activeTab === item.id || isChildActive(item.id) ? 'bg-brand-600/20 text-brand-400 border-brand-500/30' : 'text-surface-400 hover:bg-surface-800 hover:text-surface-200 border-transparent'"
+                            :class="activeTab === item.id || isChildActive(item.id) ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' : 'text-surface-400 hover:bg-surface-800 hover:text-emerald-300 border-transparent'"
                             class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all border">
                             <span class="flex-shrink-0" v-html="item.icon"></span>
                             <span v-show="sidebarOpen" class="whitespace-nowrap">{{ item.label }}</span>
-                            <span v-show="sidebarOpen && item.badge" class="ml-auto bg-red-500/20 text-red-400 text-xs px-1.5 py-0.5 rounded-full font-medium">{{ item.badge }}</span>
+                            <span v-show="sidebarOpen && item.badge" class="ml-auto bg-emerald-500/20 text-emerald-400 text-xs px-1.5 py-0.5 rounded-full font-medium">{{ item.badge }}</span>
                             <svg v-show="sidebarOpen" class="w-4 h-4 ml-auto text-surface-500 transition-transform duration-200" :class="navOpen[item.id] ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                         </button>
                         <transition name="fade">
                             <div v-if="navOpen[item.id] && sidebarOpen" class="ml-3 mt-1 space-y-1 pl-3 border-l border-surface-700/50">
                                 <button v-for="child in item.children" :key="child.id" @click="activeTab = child.id"
-                                    :class="activeTab === child.id ? 'bg-brand-600/20 text-brand-400 border-brand-500/30' : 'text-surface-400 hover:bg-surface-800 hover:text-surface-200 border-transparent'"
+                                    :class="activeTab === child.id ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' : 'text-surface-400 hover:bg-surface-800 hover:text-emerald-300 border-transparent'"
                                     class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all border">
                                     <span class="flex-shrink-0" v-html="child.icon"></span>
                                     <span class="whitespace-nowrap">{{ child.label }}</span>
@@ -131,11 +137,11 @@
                     </div>
                     <!-- Regular item -->
                     <button v-else @click="activeTab = item.id"
-                        :class="activeTab === item.id ? 'bg-brand-600/20 text-brand-400 border-brand-500/30' : 'text-surface-400 hover:bg-surface-800 hover:text-surface-200 border-transparent'"
+                        :class="activeTab === item.id ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' : 'text-surface-400 hover:bg-surface-800 hover:text-emerald-300 border-transparent'"
                         class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all border">
                         <span class="flex-shrink-0" v-html="item.icon"></span>
                         <span v-show="sidebarOpen" class="whitespace-nowrap">{{ item.label }}</span>
-                        <span v-show="sidebarOpen && item.badge" class="ml-auto bg-red-500/20 text-red-400 text-xs px-1.5 py-0.5 rounded-full font-medium">{{ item.badge }}</span>
+                        <span v-show="sidebarOpen && item.badge" class="ml-auto bg-emerald-500/20 text-emerald-400 text-xs px-1.5 py-0.5 rounded-full font-medium">{{ item.badge }}</span>
                     </button>
                 </template>
             </nav>
@@ -153,17 +159,17 @@
         <main :class="sidebarOpen ? 'ml-64' : 'ml-16'" class="flex-1 transition-all duration-300">
 
             <!-- Top Bar -->
-            <header class="h-16 bg-surface-900/80 backdrop-blur-sm border-b border-surface-700/50 flex items-center justify-between px-6 sticky top-0 z-30">
+            <header class="h-16 bg-gradient-to-r from-surface-950 to-surface-900 backdrop-blur-sm border-b border-surface-700/50 flex items-center justify-between px-6 sticky top-0 z-30">
                 <div class="flex items-center gap-3">
                     <h1 class="text-lg font-semibold">{{ currentTitle }}</h1>
                 </div>
                 <div class="flex items-center gap-4">
-                    <button @click="toggleTheme" class="p-2 rounded-lg hover:bg-surface-800 text-surface-400 hover:text-surface-200 transition-colors" :title="isDark ? 'Modo claro' : 'Modo oscuro'">
+                    <button @click="toggleTheme" class="p-2 rounded-lg hover:bg-surface-800/50 hover:text-accent-400 transition-colors" :title="isDark ? 'Modo claro' : 'Modo oscuro'">
                         <svg v-if="isDark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
                         <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
                     </button>
                     <div class="flex items-center gap-2 text-xs text-surface-400">
-                        <span :class="systemHealth === 'healthy' ? 'bg-emerald-500' : systemHealth === 'degraded' ? 'bg-amber-500' : 'bg-red-500'" class="w-2 h-2 rounded-full"></span>
+                        <span :class="systemHealth === 'healthy' ? 'bg-emerald-500' : systemHealth === 'degraded' ? 'bg-emerald-400' : 'bg-red-500'" class="w-2 h-2 rounded-full"></span>
                         <span>InfluxDB: {{ systemHealth }}</span>
                     </div>
                     <div class="text-xs text-surface-500">Actualiza en {{ refreshCountdown }}s</div>
@@ -188,13 +194,15 @@
                 <div v-if="activeTab === 'dashboard'" class="slide-in space-y-6">
                     <!-- Summary Cards -->
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                        <div v-for="card in summaryCards" :key="card.label" class="bg-surface-900 rounded-xl p-4 border border-surface-700/50">
-                            <div class="flex items-center justify-between mb-2">
+                        <div v-for="card in summaryCards" :key="card.label" class="bg-surface-900 rounded-xl shadow-sm overflow-hidden border border-surface-700/50 hover:shadow-md transition-shadow">
+                            <div class="flex items-center justify-between p-4 border-b border-surface-700/50">
                                 <span class="text-xs font-medium text-surface-400 uppercase tracking-wider">{{ card.label }}</span>
                                 <span :class="card.iconClass" class="p-1.5 rounded-lg" v-html="card.icon"></span>
                             </div>
-                            <div class="text-2xl font-bold" :class="card.valueClass">{{ card.value }}</div>
-                            <div v-if="card.sub" class="text-xs text-surface-500 mt-1">{{ card.sub }}</div>
+                            <div class="p-4">
+                                <div class="text-2xl font-bold" :class="card.valueClass">{{ card.value }}</div>
+                                <div v-if="card.sub" class="text-xs text-surface-500 mt-1">{{ card.sub }}</div>
+                            </div>
                         </div>
                     </div>
 
@@ -213,11 +221,11 @@
                     </div>
 
                     <!-- OLT System Metrics -->
-                    <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
+                    <div class="bg-surface-900 rounded-xl shadow-sm border border-surface-700/50 p-5">
                         <h3 class="text-sm font-semibold text-surface-300 mb-4">Metricas de OLTs</h3>
                         <div v-if="oltMetrics.length === 0" class="text-center py-8 text-surface-500 text-sm">Sin datos de OLTs disponibles</div>
                         <div v-else class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                            <div v-for="olt in oltMetrics" :key="olt.olt_name" class="bg-surface-800 rounded-lg p-4 border border-surface-700/50">
+                            <div v-for="olt in oltMetrics" :key="olt.olt_name" class="bg-surface-800 rounded-lg p-4 border border-surface-700/50 hover:shadow-sm transition-shadow">
                                 <div class="flex items-center justify-between mb-3">
                                     <span class="font-medium text-sm text-surface-200">{{ olt.olt_name }}</span>
                                     <span class="flex items-center gap-1.5 text-xs">
@@ -244,15 +252,15 @@
                     </div>
 
                     <!-- Recent Anomalies -->
-                    <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
+                    <div class="bg-surface-900 rounded-xl shadow-sm border border-surface-700/50 p-5">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-sm font-semibold text-surface-300">Anomalias Recientes</h3>
-                            <button @click="activeTab = 'anomalies'" class="text-xs text-brand-400 hover:text-brand-300 transition-colors">Ver todas</button>
+                            <button @click="activeTab = 'anomalies'" class="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">Ver todas</button>
                         </div>
                         <div v-if="recentAnomalies.length === 0" class="text-center py-6 text-surface-500 text-sm">Sin anomalias detectadas</div>
                         <div v-else class="space-y-2">
                             <div v-for="(a, i) in recentAnomalies.slice(0,5)" :key="i" class="flex items-center gap-3 p-3 bg-surface-800 rounded-lg border border-surface-700/50">
-                                <span :class="a.anomaly_type === 'critical' ? 'bg-red-500' : 'bg-amber-500'" class="w-2 h-2 rounded-full flex-shrink-0"></span>
+                                <span :class="a.anomaly_type === 'critical' ? 'bg-red-500' : 'bg-emerald-500'" class="w-2 h-2 rounded-full flex-shrink-0"></span>
                                 <div class="flex-1 min-w-0">
                                     <div class="flex items-center gap-2 text-sm">
                                         <span class="font-medium text-surface-200">{{ a.olt_name }}</span>
@@ -347,7 +355,18 @@
                                     <h3 class="font-semibold text-surface-100 text-sm">{{ m.device_name }}</h3>
                                     <p class="text-xs text-surface-500 font-mono">{{ m.device_ip }}</p>
                                 </div>
-                                <span class="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-medium">ONLINE</span>
+                                <div class="flex items-center shrink-0">
+                                    <span v-if="m.online" class="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-medium">ONLINE</span>
+                                    <span v-else class="bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full font-medium">OFFLINE</span>
+                                    <button @click.stop="refreshDevice('mikrotik', m.device_ip)"
+                                            :disabled="refreshingDevice('mikrotik', m.device_ip)"
+                                            class="text-surface-500 hover:text-emerald-400 transition-all ml-3 shrink-0"
+                                            title="Actualizar datos de este dispositivo">
+                                        <svg :class="{'animate-spin': refreshingDevice('mikrotik', m.device_ip)}" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                             <div class="grid grid-cols-2 gap-2 mb-3">
                                 <div class="bg-surface-800 rounded-lg p-2">
@@ -493,7 +512,17 @@
                                     <h3 class="font-semibold text-surface-100 text-sm">{{ m.olt_name }}</h3>
                                     <p class="text-xs text-surface-500 font-mono">{{ m.olt_ip }}</p>
                                 </div>
-                                <span class="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-medium">ONLINE</span>
+                                <div class="flex items-center shrink-0">
+                                    <span class="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-medium">ONLINE</span>
+                                    <button @click.stop="refreshDevice('olt', m.olt_ip)"
+                                            :disabled="refreshingDevice('olt', m.olt_ip)"
+                                            class="text-surface-500 hover:text-emerald-400 transition-all ml-3 shrink-0"
+                                            title="Actualizar datos de este dispositivo">
+                                        <svg :class="{'animate-spin': refreshingDevice('olt', m.olt_ip)}" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                             <div class="grid grid-cols-3 gap-2 mb-3">
                                 <div class="bg-surface-800 rounded-lg p-2">
@@ -560,7 +589,8 @@
                             <div class="min-w-0">
                                 <div class="flex items-center gap-2">
                                     <h3 class="font-semibold text-surface-100 text-lg truncate">{{ selectedMikrotik.device_name }}</h3>
-                                    <span class="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-medium shrink-0">ONLINE</span>
+                                    <span v-if="selectedMikrotik.online" class="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-medium shrink-0">ONLINE</span>
+                                    <span v-else class="bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full font-medium shrink-0">OFFLINE</span>
                                 </div>
                                 <p class="text-xs text-surface-500 font-mono">{{ selectedMikrotik.device_ip }}</p>
                             </div>
@@ -624,6 +654,11 @@
                                 </thead>
                                 <tbody>
                                     <tr v-for="iface in selectedDeviceInterfaces" :key="iface.interface_index" class="border-b border-surface-800/50 hover:bg-surface-800/30">
+                                        <td class="px-2 py-2 whitespace-nowrap">
+                                            <button @click.stop="openInterfaceTraffic({ device_type: 'mikrotik', device_ip: selectedMikrotik.device_ip, device_name: selectedMikrotik.device_name, interface_name: iface.interface_name, interface_index: iface.interface_index })" title="Ver tráfico detallado" class="p-1.5 rounded-lg hover:bg-surface-700 text-surface-400 hover:text-cyan-300 transition-colors">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                                            </button>
+                                        </td>
                                         <td v-for="col in visibleIfaceColumns" :key="col.key" class="px-4 py-2 text-xs whitespace-nowrap font-mono" :class="col.tone ? col.tone(iface) : 'text-surface-300'">{{ col.render(iface) }}</td>
                                     </tr>
                                 </tbody>
@@ -712,7 +747,12 @@
                                     <div v-for="g in selectedOltGeInterfaces" :key="g.interface_name" class="bg-surface-800 rounded-lg p-2 border" :class="g.ifOperStatus === 1 ? 'border-emerald-500/30' : 'border-surface-700/50'">
                                         <div class="flex items-center justify-between">
                                             <span class="text-xs font-semibold text-surface-300 font-mono">{{ g.interface_name }}</span>
-                                            <span class="w-2 h-2 rounded-full" :class="g.ifOperStatus === 1 ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                                            <span class="flex items-center gap-1">
+                                                <span class="w-2 h-2 rounded-full" :class="g.ifOperStatus === 1 ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                                                <button @click.stop="openInterfaceTraffic({ device_type: 'olt', device_ip: selectedOlt.olt_ip, device_name: selectedOlt.olt_name, interface_name: g.interface_name, interface_index: g.interface_index })" title="Ver tráfico detallado" class="p-1 rounded hover:bg-surface-700 text-surface-400 hover:text-cyan-300 transition-colors">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                                                </button>
+                                            </span>
                                         </div>
                                         <div class="flex justify-between text-[10px] mt-1">
                                             <span class="text-cyan-400 font-mono">{{ formatBps(g.rx_bps) }}</span>
@@ -742,7 +782,12 @@
                                             <template v-for="g in ponGroups" :key="g.pon_port">
                                                 <tr @click="togglePon(g.pon_port)" class="cursor-pointer border-b border-surface-800/50 hover:bg-surface-800/40 transition-colors">
                                                     <td class="px-4 py-2">
-                                                        <svg class="w-4 h-4 text-surface-500 transition-transform duration-200" :class="isPonExpanded(g.pon_port) ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                                        <div class="flex items-center gap-1">
+                                                            <svg class="w-4 h-4 text-surface-500 transition-transform duration-200" :class="isPonExpanded(g.pon_port) ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                                            <button @click.stop="openInterfaceTraffic({ device_type: 'olt', device_ip: selectedOlt.olt_ip, device_name: selectedOlt.olt_name, interface_name: g.pon_port, interface_index: g.ponIface ? g.ponIface.interface_index : null })" title="Ver tráfico detallado" class="p-1 rounded hover:bg-surface-700 text-surface-400 hover:text-cyan-300 transition-colors">
+                                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                     <td class="px-4 py-2 text-xs font-mono font-semibold text-surface-200">{{ g.pon_port }}</td>
                                                     <td class="px-4 py-2 text-xs font-mono text-surface-400" :title="macsForPon(g.pon_port)">{{ macsForPon(g.pon_port) || '—' }}</td>
@@ -772,7 +817,14 @@
                                                             </thead>
                                                             <tbody>
 <tr v-for="o in g.onus" :key="o.onu_index" class="border-b border-surface-800/30 hover:bg-surface-800/30 transition-colors">
-                                                                     <td class="px-3 py-1.5 font-mono text-surface-300">{{ o.onu_index }}</td>
+                                                                     <td class="px-3 py-1.5">
+                                                                         <div class="flex items-center gap-1">
+                                                                             <span class="font-mono text-surface-300">{{ o.onu_index }}</span>
+                                                                             <button @click.stop="openInterfaceTraffic(onuTrafficCtx(o.onu_index))" title="Ver tráfico detallado" class="p-1 rounded hover:bg-surface-700 text-surface-400 hover:text-cyan-300 transition-colors">
+                                                                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                                                                             </button>
+                                                                         </div>
+                                                                     </td>
                                                                      <td class="px-3 py-1.5 font-mono text-amber-400/90" :title="macsForOnu(o.onu_index)">{{ macsForOnu(o.onu_index) || '—' }}</td>
                                                                      <td class="px-3 py-1.5 font-mono text-surface-400">{{ o.onu_serial }}</td>
                                                                     <td class="px-3 py-1.5">
@@ -797,6 +849,84 @@
                                         </tbody>
                                     </table>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==================== Trafico de Interfaz (modal apilado) ==================== -->
+                <div v-if="interfaceTraffic" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" @click="closeInterfaceTraffic"></div>
+                    <div class="relative w-full max-w-3xl bg-surface-900 rounded-2xl border border-surface-700/50 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+                        <!-- Header -->
+                        <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-surface-700/50">
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <span class="bg-surface-800 text-xs px-2 py-0.5 rounded-full font-medium text-surface-400">{{ interfaceTraffic.device_type === 'olt' ? 'OLT' : 'MikroTik' }}</span>
+                                    <h3 class="font-semibold text-surface-100 text-lg truncate">{{ interfaceTraffic.device_name }}</h3>
+                                </div>
+                                <p class="text-xs text-surface-500 font-mono">{{ interfaceTraffic.interface_name }} <span v-if="interfaceTraffic.interface_index" class="text-surface-600">· idx {{ interfaceTraffic.interface_index }}</span></p>
+                            </div>
+                            <div class="flex items-center gap-5 shrink-0 text-right">
+                                <div>
+                                    <div class="text-xs text-surface-500">RX ahora</div>
+                                    <div class="text-lg font-bold text-cyan-400 font-mono">{{ formatBps(trafficLive.rx_bps) }}</div>
+                                </div>
+                                <div>
+                                    <div class="text-xs text-surface-500">TX ahora</div>
+                                    <div class="text-lg font-bold text-fuchsia-400 font-mono">{{ formatBps(trafficLive.tx_bps) }}</div>
+                                </div>
+                                <button @click="closeInterfaceTraffic" class="p-2 rounded-lg hover:bg-surface-800 text-surface-400 hover:text-surface-200 transition-colors">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-auto flex-1 p-5 space-y-5">
+                            <!-- Tarjeta tiempo real -->
+                            <div class="bg-surface-800/50 rounded-xl border border-surface-700/50 p-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <h4 class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Tiempo real (últimos 5 min)</h4>
+                                    <span class="text-[10px] font-mono text-surface-500">{{ trafficLive.ts ? formatClock(new Date(trafficLive.ts * 1000)) : 'esperando muestras…' }}</span>
+                                </div>
+                                <div class="grid grid-cols-2 gap-3 mb-2">
+                                    <div class="rounded-lg bg-surface-900/60 border border-cyan-500/20 p-3 flex items-center justify-between">
+                                        <span class="text-[10px] text-surface-500 uppercase tracking-wider">Recepcion</span>
+                                        <span class="text-xl font-bold text-cyan-400 font-mono">{{ formatBps(trafficLive.rx_bps) }}</span>
+                                    </div>
+                                    <div class="rounded-lg bg-surface-900/60 border border-fuchsia-500/20 p-3 flex items-center justify-between">
+                                        <span class="text-[10px] text-surface-500 uppercase tracking-wider">Transmision</span>
+                                        <span class="text-xl font-bold text-fuchsia-400 font-mono">{{ formatBps(trafficLive.tx_bps) }}</span>
+                                    </div>
+                                </div>
+                                <div v-if="trafficLive.error" class="text-[11px] text-red-400 mb-2">{{ trafficLive.error }}</div>
+                                <div id="chart-traffic-live" class="h-40"></div>
+                            </div>
+
+                            <!-- Tarjeta historico -->
+                            <div class="bg-surface-800/50 rounded-xl border border-surface-700/50 p-4">
+                                <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+                                    <h4 class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Historico</h4>
+                                    <div class="flex flex-wrap gap-1">
+                                        <button v-for="r in trafficRangeOptions" :key="r.key" @click="selectTrafficRange(r.key)"
+                                                :class="trafficRange === r.key ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/40' : 'bg-surface-800 text-surface-400 border-surface-700 hover:text-surface-200'"
+                                                class="px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors">
+                                            {{ r.label }}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div v-if="trafficHistoryLoading" class="py-8 text-center text-xs text-surface-500">Cargando historico…</div>
+                                <div v-else-if="trafficHistory.length === 0" class="py-8 text-center text-xs text-surface-500">Sin datos historicos para este rango.</div>
+                                <div v-else id="chart-traffic-history" class="h-52"></div>
+                            </div>
+
+                            <!-- Tarjeta consumo diario -->
+                            <div class="bg-surface-800/50 rounded-xl border border-surface-700/50 p-4">
+                                <div class="mb-2">
+                                    <h4 class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Consumo diario (7 días)</h4>
+                                </div>
+                                <div v-if="trafficDaily.length === 0" class="py-6 text-center text-xs text-surface-500">Sin deltas de consumo para los últimos días.</div>
+                                <div v-else id="chart-traffic-daily" class="h-48"></div>
                             </div>
                         </div>
                     </div>
@@ -1764,6 +1894,108 @@
                                     {{ llmTesting ? 'Probando...' : 'Probar conexion' }}
                                 </button>
                             </div>
+
+                            <!-- ==================== Operaciones del Agente ==================== -->
+                            <div class="pt-4 border-t border-surface-700">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div class="flex items-center gap-2">
+                                        <h4 class="text-sm font-semibold text-surface-300">Operaciones del Agente</h4>
+                                        <span v-if="opsAgentHealth" class="text-[10px] px-2 py-0.5 rounded-full font-medium" :class="opsHealthStatusClass(opsAgentHealth)">{{ opsAgentHealth.status || 'desconocido' }}</span>
+                                    </div>
+                                    <button @click="fetchAllOps()" class="flex items-center gap-1.5 bg-surface-700 hover:bg-surface-600 text-surface-200 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                        Refrescar
+                                    </button>
+                                </div>
+
+                                <p v-if="opsError" class="text-xs text-red-400 mb-2">{{ opsError }}</p>
+                                <p v-if="opsLastRefresh" class="text-[10px] text-surface-600 mb-3">Actualizado: {{ opsLastRefresh }}</p>
+
+                                <!-- Servicios -->
+                                <div class="mb-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-xs font-semibold text-surface-400">Servicios del agente</span>
+                                        <button @click="fetchOpsServices()" class="text-[10px] text-brand-400 hover:text-brand-300">Refrescar</button>
+                                    </div>
+                                    <div class="space-y-2">
+                                        <div v-for="svc in opsServices" :key="svc.name"
+                                            class="flex items-center gap-3 p-2.5 rounded-lg bg-surface-800 border border-surface-700/50">
+                                            <div class="w-2 h-2 rounded-full flex-shrink-0" :class="opsServiceStatusClass(svc)"></div>
+                                            <div class="flex-1 min-w-0">
+                                                <div class="text-xs font-medium text-surface-200">{{ svc.name }}</div>
+                                                <div class="text-[10px] text-surface-500 truncate">{{ svc.description || svc.detail || '' }}</div>
+                                            </div>
+                                            <div class="flex items-center gap-1.5 flex-shrink-0">
+                                                <button @click="serviceAction(svc.name, 'start')" :disabled="opsBusy === svc.name || svc.status === 'running'" class="px-2 py-1 rounded bg-surface-700 hover:bg-surface-600 text-[10px] text-surface-200 transition-colors disabled:opacity-40">Start</button>
+                                                <button @click="serviceAction(svc.name, 'restart')" :disabled="opsBusy === svc.name" class="px-2 py-1 rounded bg-surface-700 hover:bg-surface-600 text-[10px] text-surface-200 transition-colors disabled:opacity-40">Restart</button>
+                                                <button @click="serviceAction(svc.name, 'stop')" :disabled="opsBusy === svc.name || svc.status !== 'running'" class="px-2 py-1 rounded bg-surface-700 hover:bg-surface-600 text-[10px] text-red-300 transition-colors disabled:opacity-40">Stop</button>
+                                            </div>
+                                        </div>
+                                        <div v-if="!opsServices.length" class="text-[11px] text-surface-500">Sin servicios cargados. Pulsa Refrescar.</div>
+                                    </div>
+                                </div>
+
+                                <!-- Estado agente / Event bus / RAG -->
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                                    <div class="bg-surface-800 rounded-lg border border-surface-700/50 p-3">
+                                        <div class="text-[10px] font-semibold text-surface-400 mb-1.5">Estado del agente</div>
+                                        <div v-if="opsAgentHealth" class="space-y-1 text-[11px] text-surface-200">
+                                            <div class="flex justify-between"><span class="text-surface-500">Status</span><span :class="opsHealthStatusClass(opsAgentHealth)">{{ opsAgentHealth.status }}</span></div>
+                                            <div class="flex justify-between"><span class="text-surface-500">Proceso</span><span>{{ opsAgentHealth.running ? 'Activo' : 'Detenido' }}</span></div>
+                                            <div v-if="opsAgentHealth.uptime" class="flex justify-between"><span class="text-surface-500">Uptime</span><span>{{ Math.floor(opsAgentHealth.uptime / 60) }} min</span></div>
+                                            <div v-if="typeof opsAgentHealth.processed_events === 'number'" class="flex justify-between"><span class="text-surface-500">Eventos</span><span>{{ opsAgentHealth.processed_events }}</span></div>
+                                            <div v-if="opsAgentHealth.in_degraded_mode" class="text-amber-400 mt-1">Modo degradado</div>
+                                            <div v-if="opsAgentHealth.error" class="text-red-400 mt-1">{{ opsAgentHealth.error }}</div>
+                                        </div>
+                                        <div v-else class="text-[11px] text-surface-500">Sin datos.</div>
+                                    </div>
+
+                                    <div class="bg-surface-800 rounded-lg border border-surface-700/50 p-3">
+                                        <div class="flex items-center justify-between mb-1.5">
+                                            <span class="text-[10px] font-semibold text-surface-400">Event Bus</span>
+                                            <button @click="eventbusReplay()" class="text-[10px] text-brand-400 hover:text-brand-300">Replay 10</button>
+                                        </div>
+                                        <div v-if="opsEventbus">
+                                            <div class="flex justify-between text-[11px] text-surface-200"><span class="text-surface-500">Publicados</span><span>{{ opsEventbus.publish_count || 0 }}</span></div>
+                                            <div class="flex justify-between text-[11px] text-surface-200"><span class="text-surface-500">Pendientes</span><span>{{ opsEventbus.pending_count || 0 }}</span></div>
+                                            <div class="flex justify-between text-[11px] text-surface-200"><span class="text-surface-500">Buffer</span><span>{{ opsEventbus.memory_buffer_size || 0 }}</span></div>
+                                            <div v-if="opsEventbus.error_count" class="flex justify-between text-[11px] text-red-300"><span class="text-surface-500">Errores</span><span>{{ opsEventbus.error_count }}</span></div>
+                                        </div>
+                                        <div v-else class="text-[11px] text-surface-500">Sin datos.</div>
+                                    </div>
+                                </div>
+
+                                <!-- RAG -->
+                                <div class="mb-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-xs font-semibold text-surface-400">RAG (memoria del agente)</span>
+                                        <button @click="ragReindex()" class="text-[10px] text-brand-400 hover:text-brand-300">Reindexar</button>
+                                    </div>
+                                    <div v-if="opsRag" class="bg-surface-800 rounded-lg border border-surface-700/50 p-3 text-[11px] text-surface-200 space-y-1">
+                                        <div class="flex justify-between"><span class="text-surface-500">Listo</span><span :class="opsRag.ready ? 'text-emerald-400' : 'text-red-400'">{{ opsRag.ready ? 'Sí' : 'No' }}</span></div>
+                                        <div v-if="opsRag.collection" class="flex justify-between"><span class="text-surface-500">Colección</span><span class="truncate">{{ opsRag.collection }}</span></div>
+                                        <div class="flex justify-between"><span class="text-surface-500">Documentos</span><span>{{ opsRag.document_count || 0 }}</span></div>
+                                        <div v-if="opsRag.persist_directory" class="flex justify-between"><span class="text-surface-500">Persist</span><span class="truncate">{{ opsRag.persist_directory }}</span></div>
+                                        <div v-if="opsRag.error" class="text-red-400">{{ opsRag.error }}</div>
+                                    </div>
+                                    <div v-else class="text-[11px] text-surface-500">Sin datos.</div>
+                                </div>
+
+                                <!-- Auditoría -->
+                                <div>
+                                    <span class="text-xs font-semibold text-surface-400">Últimas acciones de auditoría</span>
+                                    <div v-if="opsAudit.length" class="mt-2 space-y-1.5">
+                                        <div v-for="a in opsAudit.slice(0, 5)" :key="(a.timestamp || a.ts || $index)"
+                                            class="flex items-center gap-2 text-[11px] text-surface-300">
+                                            <span class="text-surface-500 font-mono text-[10px]">{{ (a.timestamp || a.ts || '').slice(11, 19) }}</span>
+                                            <span class="text-surface-200">{{ a.action || a.service || '' }}</span>
+                                            <span v-if="a.target" class="text-brand-400">{{ a.target }}</span>
+                                            <span class="text-surface-500 truncate flex-1">{{ a.detail || a.message || '' }}</span>
+                                        </div>
+                                    </div>
+                                    <div v-else class="text-[11px] text-surface-500 mt-1">Sin eventos recientes.</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -1865,6 +2097,42 @@
                             <button @click="saveTVConfig" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                                 Guardar Configuracion TV
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ==================== Monitor de PING ==================== -->
+                    <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-surface-300">Monitor de PING</h3>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-surface-400 mb-1.5">Ventana de estado (min)</label>
+                                <input v-model.number="pingConfig.status_window_minutes" type="number" min="1" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-surface-400 mb-1.5">Umbral de latencia alta (ms)</label>
+                                <input v-model.number="pingConfig.high_latency_threshold_ms" type="number" min="0" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-surface-400 mb-1.5">Intervalo ping (s)</label>
+                                <input v-model.number="pingConfig.interval_seconds" type="number" min="10" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-surface-400 mb-1.5">Tiempo para alertar caída (s)</label>
+                                <input v-model.number="pingConfig.alert_down_seconds" type="number" min="10" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200">
+                            </div>
+                        </div>
+                        <label class="flex items-center gap-2 mt-4 bg-surface-800 rounded-lg px-4 py-3 cursor-pointer">
+                            <input type="checkbox" v-model="pingConfig.alert_on_recovery" class="rounded border-surface-600 bg-surface-900 text-brand-500 focus:ring-brand-500">
+                            <span class="text-sm text-surface-300">Alertar en recuperación</span>
+                        </label>
+                        <div class="mt-6 flex justify-end gap-3">
+                            <button @click="fetchPingConfig" class="px-4 py-2 rounded-lg text-sm font-medium bg-surface-700 hover:bg-surface-600 text-surface-200 transition-colors">Recargar</button>
+                            <button @click="savePingConfig" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                Guardar
                             </button>
                         </div>
                     </div>
@@ -2098,6 +2366,98 @@ createApp({
         const ollamaModels = ref(['qwen2.5:3b-instruct', 'llama3.2:3b', 'qwen2.5:1.5b']);
         const openrouterModels = ref(['mistralai/mistral-7b-instruct:free', 'google/gemini-2.0-flash-lite-preview-02-05', 'anthropic/claude-3-haiku-20240307', 'meta-llama/llama-3.1-8b-instruct:free']);
 
+        // ------- Agente: Operaciones (services / health / eventbus / rag / audit) -------
+        const opsSectionExpanded = ref(true);
+        const opsServices = ref([]);
+        const opsAgentHealth = ref(null);
+        const opsAgentStats = ref(null);
+        const opsEventbus = ref(null);
+        const opsRag = ref(null);
+        const opsAudit = ref([]);
+        const opsBusy = ref(null);
+        const opsError = ref(null);
+        const opsLastRefresh = ref(null);
+
+        async function fetchOpsServices() {
+            try {
+                const r = await apiFetch('/api/services');
+                opsServices.value = Array.isArray(r) ? r : (r.services || []);
+            } catch (e) { console.error('fetchOpsServices', e); }
+        }
+        async function fetchOpsAgentHealth() {
+            try { opsAgentHealth.value = await apiFetch('/api/agent/health'); }
+            catch (e) { console.error('fetchOpsAgentHealth', e); }
+        }
+        async function fetchOpsAgentStats() {
+            try { opsAgentStats.value = await apiFetch('/api/agent/stats'); }
+            catch (e) { console.error('fetchOpsAgentStats', e); }
+        }
+        async function fetchOpsEventbus() {
+            try { opsEventbus.value = await apiFetch('/api/eventbus'); }
+            catch (e) { console.error('fetchOpsEventbus', e); }
+        }
+        async function fetchOpsRag() {
+            try { opsRag.value = await apiFetch('/api/rag'); }
+            catch (e) { console.error('fetchOpsRag', e); }
+        }
+        async function fetchOpsAudit() {
+            try {
+                const r = await apiFetch('/api/audit');
+                opsAudit.value = Array.isArray(r) ? r : (r.entries || []);
+            } catch (e) { console.error('fetchOpsAudit', e); }
+        }
+        async function fetchAllOps() {
+            await Promise.allSettled([fetchOpsServices(), fetchOpsAgentHealth(), fetchOpsAgentStats(), fetchOpsEventbus(), fetchOpsRag(), fetchOpsAudit()]);
+            opsLastRefresh.value = new Date().toLocaleTimeString();
+        }
+        async function serviceAction(name, action) {
+            if (['stop', 'restart', 'disable'].includes(action)) {
+                const ok = confirm('¿Estás seguro de ejecutar "' + action.toUpperCase() + '" sobre el servicio ' + name + '?');
+                if (!ok) return;
+            }
+            opsBusy.value = name;
+            opsError.value = null;
+            try {
+                const r = await apiFetch('/api/services/' + name + '/action', { method: 'POST', body: JSON.stringify({ action }) });
+                if (r && r.message) alert(r.message);
+                await fetchOpsServices();
+            } catch (e) {
+                opsError.value = 'Error en ' + action + ' de ' + name + ': ' + (e && e.message ? e.message : e);
+                console.error('serviceAction', e);
+            } finally {
+                opsBusy.value = null;
+            }
+        }
+        async function eventbusReplay() {
+            try {
+                const r = await apiFetch('/api/eventbus/replay/10');
+                if (r && r.message) alert(r.message);
+                await fetchOpsEventbus();
+            } catch (e) { console.error('eventbusReplay', e); }
+        }
+        async function ragReindex() {
+            try {
+                const r = await apiFetch('/api/rag/reindex', { method: 'POST' });
+                if (r && r.message) alert(r.message);
+                await fetchOpsRag();
+            } catch (e) { console.error('ragReindex', e); }
+        }
+        function opsServiceStatusClass(s) {
+            if (!s) return 'bg-surface-700 text-surface-400';
+            if (s.status === 'running') return 'bg-emerald-500/20 text-emerald-400';
+            if (s.status === 'degraded') return 'bg-amber-500/20 text-amber-400';
+            if (s.status === 'stopped') return 'bg-red-500/20 text-red-400';
+            return 'bg-surface-700 text-surface-400';
+        }
+        function opsHealthStatusClass(h) {
+            if (!h) return 'text-surface-400';
+            const st = (h.status || '').toLowerCase();
+            if (st === 'ok' || st === 'healthy') return 'text-emerald-400';
+            if (st === 'degraded') return 'text-amber-400';
+            if (st === 'error' || st === 'down') return 'text-red-400';
+            return 'text-surface-400';
+        }
+
         // LLM Modal functions
         function openLLMEventDetailModal(ev) {
             selectedLLMEvent.value = ev;
@@ -2237,6 +2597,8 @@ createApp({
         // Network tab (ping)
         const pingStatus = ref([]);
         const pingFilter = ref('all');
+        const pingConfig = ref({ enabled: true, targets_path: '', interval_seconds: 60, alert_down_seconds: 120, alert_on_recovery: true, status_window_minutes: 3, high_latency_threshold_ms: 10 });
+        const refreshing = reactive({});
 
         // MikroTik metrics
         const mikrotikMetrics = ref([]);
@@ -2269,6 +2631,30 @@ createApp({
 
         // MikroTik detail modal
         const selectedMikrotik = ref(null);
+
+        // Trafico de interfaz (modal apilado: tiempo real + historico + consumo diario)
+        const interfaceTraffic = ref(null);
+        const trafficRange = ref('1sem');
+        const trafficRangeOptions = [
+            { key: '1d', label: '1 día' },
+            { key: '1sem', label: '1 sem' },
+            { key: '1mes', label: '1 mes' },
+            { key: '3m', label: '3 m' },
+            { key: '6m', label: '6 m' },
+            { key: '9m', label: '9 m' },
+            { key: '1año', label: '1 año' },
+        ];
+        const trafficLive = reactive({ rx_bps: 0, tx_bps: 0, ts: 0, error: '' });
+        const trafficLiveSeries = [];
+        const trafficHistory = ref([]);
+        const trafficDaily = ref([]);
+        const trafficHistoryLoading = ref(false);
+        let liveTrafficTimer = null;
+        let liveTrafficChart = null;
+        let historyTrafficChart = null;
+        let dailyTrafficChart = null;
+        const TRAFFIC_LIVE_SECONDS = 5;
+        const TRAFFIC_LIVE_WINDOW_SECONDS = 300;
         const IFACE_COLUMNS = [
             { key: 'name', label: 'Interfaz', render: i => i.interface_name || '--', tone: () => 'text-surface-200 font-semibold' },
             { key: 'type', label: 'Tipo', render: i => ifaceTypeName(i.ifType), tone: () => 'text-surface-400' },
@@ -3139,6 +3525,7 @@ createApp({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(llmConfig.value)
                 });
+                fetchLLMConfig();
                 showToast('Configuración LLM guardada');
             } catch (e) {
                 showToast('Error al guardar configuración LLM', 'error');
@@ -3278,17 +3665,58 @@ createApp({
             if (mikrotikLoading.value) return;
             mikrotikLoading.value = true;
             try {
-                const [sysRes, tempRes, ifaceRes] = await Promise.allSettled([
+                const [sysRes, tempRes, ifaceRes, pingRes, nodesRes] = await Promise.allSettled([
                     apiFetch('/api/v1/metrics/mikrotik'),
                     apiFetch('/api/v1/metrics/mikrotik/temperature'),
                     apiFetch('/api/v1/metrics/mikrotik/interfaces'),
+                    apiFetch('/api/ping/status'),
+                    apiFetch('/api/nodes/'),
                 ]);
                 if (sysRes.status === 'fulfilled') mikrotikMetrics.value = sysRes.value?.data || [];
                 if (tempRes.status === 'fulfilled') mikrotikTemps.value = tempRes.value?.data || [];
                 if (ifaceRes.status === 'fulfilled') mikrotikInterfaces.value = ifaceRes.value?.data || [];
+                const pingTargets = pingRes.status === 'fulfilled' ? (pingRes.value?.targets || []) : [];
+                const nodesList = nodesRes.status === 'fulfilled' ? (nodesRes.value || []) : [];
+                const byIp = {};
+                pingTargets.forEach(t => { byIp[t.ip] = t; });
+                const online = pingTargets.filter(t => t.status === 1);
+                online.forEach(t => { if (!byIp[t.ip]) byIp[t.ip] = t; });
+                Object.entries(byIp).forEach(([ip, t]) => {
+                    if (!online.find(o => o.ip === ip) && t.status !== 0) { delete byIp[ip]; }
+                });
+                const configured = [];
+                nodesList.forEach(n => (n.mikrotiks || []).forEach(mt => configured.push(mt)));
+                const pingByIp = {};
+                Object.values(byIp).forEach(t => {
+                    if (!pingByIp[t.ip]) pingByIp[t.ip] = t;
+                });
+                const configuredByIp = {};
+                nodesList.forEach(n => (n.mikrotiks || []).forEach(mt => { configuredByIp[mt.ip] = mt; }));
+                const merged = [];
+                const seen = new Set();
+                (mikrotikMetrics.value || []).forEach(m => {
+                    const ip = m.device_ip;
+                    seen.add(ip);
+                    const ping = pingByIp[ip];
+                    merged.push({ ...m, online: ping ? ping.status === 1 : true });
+                });
+                configured.forEach(mt => {
+                    if (seen.has(mt.ip)) return;
+                    seen.add(mt.ip);
+                    const ping = pingByIp[mt.ip];
+                    merged.push({
+                        device_ip: mt.ip,
+                        device_name: mt.hostname,
+                        modelo: mt.modelo,
+                        role: mt.role,
+                        online: ping ? ping.status === 1 : false,
+                        cpu_load: 0, memory_percent: 0, total_memory: 0, free_memory: 0,
+                    });
+                });
+                mikrotikMetrics.value = merged;
                 mikrotikLastUpdated.value = new Date().toISOString();
                 if (notify) {
-                    showToast(`MikroTik actualizado · ${mikrotikMetrics.value.length} equipos`);
+                    showToast(`MikroTik actualizado · ${mikrotikMetrics.value.length} equipos · ${mikrotikMetrics.value.filter(m => m.online).length} online`);
                 }
             } catch(e) {
                 console.error('MikroTik metrics fetch failed:', e);
@@ -3300,24 +3728,17 @@ createApp({
 
         async function fetchOltMetrics(notify = false) {
             if (oltLoading.value) return;
+            if (interfaceTraffic.value) return;
             oltLoading.value = true;
             try {
-                const sysRes = await apiFetch('/api/v1/metrics/olt');
-                const names = (sysRes?.data || []).map(m => m.olt_name);
-                const results = await Promise.allSettled(
-                    names.flatMap(n => [
-                        apiFetch(`/api/v1/metrics/olt/interfaces?device_name=${encodeURIComponent(n)}`),
-                        apiFetch(`/api/v1/metrics/olt/power?olt_name=${encodeURIComponent(n)}`),
-                    ])
-                );
-                const ifaces = [];
-                const powers = [];
-                results.forEach((r, i) => {
-                    if (r.status !== 'fulfilled') return;
-                    if (i % 2 === 0) ifaces.push(...(r.value?.data || []));
-                    else powers.push(...(r.value?.data || []));
-                });
-                oltMetrics.value = sysRes?.data || [];
+                const [sysRes, ifRes, powRes] = await Promise.allSettled([
+                    apiFetch('/api/v1/metrics/olt'),
+                    apiFetch('/api/v1/metrics/olt/interfaces'),
+                    apiFetch('/api/v1/metrics/olt/power'),
+                ]);
+                const ifaces = ifRes.status === 'fulfilled' ? (ifRes.value?.data || []) : [];
+                const powers = powRes.status === 'fulfilled' ? (powRes.value?.data || []) : [];
+                oltMetrics.value = sysRes.status === 'fulfilled' ? (sysRes.value?.data || []) : [];
                 oltInterfaces.value = ifaces;
                 oltPower.value = powers;
                 oltLastUpdated.value = new Date().toISOString();
@@ -3342,6 +3763,55 @@ createApp({
                 console.error('Client locations fetch failed:', e);
             } finally {
                 clientLocationsLoading.value = false;
+            }
+        }
+
+        // ==================== PING CONFIG ====================
+        async function fetchPingConfig() {
+            try {
+                const res = await apiFetch('/api/agent/ping-config');
+                if (res && typeof res === 'object') pingConfig.value = { ...pingConfig.value, ...res };
+            } catch (e) {
+                console.error('fetchPingConfig', e);
+            }
+        }
+        async function savePingConfig() {
+            try {
+                const res = await apiFetch('/api/agent/ping-config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        status_window_minutes: pingConfig.value.status_window_minutes,
+                        high_latency_threshold_ms: pingConfig.value.high_latency_threshold_ms,
+                        interval_seconds: pingConfig.value.interval_seconds,
+                        alert_down_seconds: pingConfig.value.alert_down_seconds,
+                        alert_on_recovery: pingConfig.value.alert_on_recovery,
+                    })
+                });
+                if (res && typeof res === 'object') pingConfig.value = { ...pingConfig.value, ...res };
+                showToast('Configuración de PING guardada');
+            } catch (e) {
+                showToast('Error al guardar config PING: ' + e.message, 'error');
+            }
+        }
+
+        // ==================== REFRESH DISPOSITIVO ====================
+        function refreshingDevice(type, ip) {
+            return !!refreshing[type + ':' + ip];
+        }
+        async function refreshDevice(type, ip) {
+            const key = type + ':' + ip;
+            if (refreshing[key]) return;
+            refreshing[key] = true;
+            try {
+                await apiFetch('/api/devices/refresh/' + type + '/' + encodeURIComponent(ip), { method: 'POST' });
+                if (type === 'mikrotik') await fetchMikrotikMetrics();
+                else if (type === 'olt') await fetchOltMetrics();
+                showToast('Datos actualizados');
+            } catch (e) {
+                showToast('Error al actualizar ' + ip + ': ' + e.message, 'error');
+            } finally {
+                refreshing[key] = false;
             }
         }
 
@@ -3420,6 +3890,189 @@ createApp({
             selectedMikrotik.value = null;
         }
 
+        // ==================== TRAFFIC MODAL ====================
+        function destroyInsideTrafficCharts() {
+            if (liveTrafficChart) { liveTrafficChart.destroy(); liveTrafficChart = null; }
+            if (historyTrafficChart) { historyTrafficChart.destroy(); historyTrafficChart = null; }
+            if (dailyTrafficChart) { dailyTrafficChart.destroy(); dailyTrafficChart = null; }
+        }
+
+        function openInterfaceTraffic(ctx) {
+            if (liveTrafficTimer) clearInterval(liveTrafficTimer);
+            liveTrafficTimer = null;
+            destroyInsideTrafficCharts();
+            interfaceTraffic.value = {
+                device_type: ctx.device_type,
+                device_ip: ctx.device_ip,
+                device_name: ctx.device_name || ctx.device_ip,
+                interface_name: ctx.interface_name,
+                interface_index: ctx.interface_index || null,
+            };
+            trafficRange.value = '1sem';
+            Object.assign(trafficLive, { rx_bps: 0, tx_bps: 0, ts: 0, error: '' });
+            trafficLiveSeries.length = 0;
+            trafficHistory.value = [];
+            trafficDaily.value = [];
+            trafficHistoryLoading.value = false;
+            fetchTrafficHistory();
+            fetchTrafficLive();
+            liveTrafficTimer = setInterval(() => {
+                if (document.hidden) return;
+                fetchTrafficLive();
+            }, TRAFFIC_LIVE_SECONDS * 1000);
+        }
+
+        function closeInterfaceTraffic() {
+            if (liveTrafficTimer) clearInterval(liveTrafficTimer);
+            liveTrafficTimer = null;
+            destroyInsideTrafficCharts();
+            trafficLiveSeries.length = 0;
+            interfaceTraffic.value = null;
+        }
+
+        function onuTrafficCtx(onuIndex) {
+            const fi = onuIfaceByIndex.value[onuIndex];
+            let ifaceName = fi ? fi.interface_name : '';
+            let ifaceIndex = fi ? fi.interface_index : null;
+            let deviceName = '';
+            let deviceIp = '';
+            if (selectedOlt.value) {
+                deviceName = selectedOlt.value.olt_name || '';
+                deviceIp = selectedOlt.value.olt_ip || '';
+            }
+            if (!ifaceName && typeof onuIndex === 'string') {
+                const m = onuIndex.match(/^(\d+)_(\d+)$/);
+                if (m) ifaceName = 'GPON' + m[1].padStart(2, '0') + 'ONU' + m[2].padStart(2, '0');
+            }
+            return { device_type: 'olt', device_ip: deviceIp, device_name: deviceName, interface_name: ifaceName, interface_index: ifaceIndex };
+        }
+
+        let trafficLiveBusy = false;
+        async function fetchTrafficLive() {
+            const t = interfaceTraffic.value;
+            if (!t || trafficLiveBusy) return;
+            trafficLiveBusy = true;
+            try {
+                const params = new URLSearchParams({ device_type: t.device_type, device_ip: t.device_ip, interface_name: t.interface_name });
+                if (t.interface_index) params.set('interface_index', t.interface_index);
+                const res = await apiFetch('/api/v1/traffic/live?' + params.toString());
+                if (interfaceTraffic.value !== t) return;
+                trafficLive.rx_bps = res.rx_bps || 0;
+                trafficLive.tx_bps = res.tx_bps || 0;
+                trafficLive.ts = Date.now() / 1000;
+                trafficLive.error = '';
+                trafficLiveSeries.push({ ts: Date.now(), rx_bps: res.rx_bps || 0, tx_bps: res.tx_bps || 0 });
+                const cutoff = Date.now() - TRAFFIC_LIVE_WINDOW_SECONDS * 1000;
+                while (trafficLiveSeries.length && trafficLiveSeries[0].ts < cutoff) trafficLiveSeries.shift();
+                await nextTick();
+                if (interfaceTraffic.value === t) renderLiveTrafficChart();
+            } catch (e) {
+                if (interfaceTraffic.value !== t) return;
+                trafficLive.error = e.message || 'error leyendo SNMP';
+            } finally {
+                trafficLiveBusy = false;
+            }
+        }
+
+        function selectTrafficRange(key) {
+            trafficRange.value = key;
+            fetchTrafficHistory();
+        }
+
+        async function fetchTrafficHistory() {
+            const t = interfaceTraffic.value;
+            if (!t) return;
+            trafficHistoryLoading.value = true;
+            const params = new URLSearchParams({ device_type: t.device_type, device_ip: t.device_ip, device_name: t.device_name, interface_name: t.interface_name, range_key: trafficRange.value });
+            try {
+                const res = await apiFetch('/api/v1/traffic/history?' + params.toString());
+                if (interfaceTraffic.value !== t) return;
+                trafficHistory.value = res.points || [];
+                trafficDaily.value = res.daily || [];
+                await nextTick();
+                if (interfaceTraffic.value === t) {
+                    renderHistoryTrafficChart();
+                    renderDailyTrafficChart();
+                }
+            } catch (e) {
+                if (interfaceTraffic.value !== t) return;
+                trafficHistory.value = [];
+                showToast('Error historico: ' + e.message, 'error');
+            } finally {
+                trafficHistoryLoading.value = false;
+            }
+        }
+
+        function renderLiveTrafficChart() {
+            const el = document.getElementById('chart-traffic-live');
+            if (!el) { if (liveTrafficChart) { liveTrafficChart.destroy(); liveTrafficChart = null; } return; }
+            if (liveTrafficChart) liveTrafficChart.destroy();
+            liveTrafficChart = new ApexCharts(el, {
+                chart: { type: 'line', height: 160, toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: false }, ...apexChartTheme.value.chart },
+                series: [
+                    { name: 'RX', data: trafficLiveSeries.map(p => [p.ts, p.rx_bps]) },
+                    { name: 'TX', data: trafficLiveSeries.map(p => [p.ts, p.tx_bps]) },
+                ],
+                colors: ['#22d3ee', '#e879f9'],
+                stroke: { width: 2, curve: 'monotoneCubic' },
+                xaxis: { type: 'datetime', labels: { datetimeUTC: false, style: { colors: '#64748b', fontSize: '10px' } } },
+                yaxis: { labels: { style: { colors: '#64748b' }, formatter: v => formatBps(v) } },
+                grid: { borderColor: isDark.value ? '#1e293b' : '#e2e8f0' },
+                tooltip: { theme: isDark.value ? 'dark' : 'light', x: { format: 'HH:mm:ss' } },
+                legend: { show: true, position: 'top', labels: { colors: '#94a3b8' } },
+                dataLabels: { enabled: false },
+            });
+            liveTrafficChart.render();
+        }
+
+        function renderHistoryTrafficChart() {
+            const el = document.getElementById('chart-traffic-history');
+            if (!el) { if (historyTrafficChart) { historyTrafficChart.destroy(); historyTrafficChart = null; } return; }
+            if (historyTrafficChart) historyTrafficChart.destroy();
+            const pts = trafficHistory.value
+                .filter(p => (p.rx_bps ?? null) !== null && (p.tx_bps ?? null) !== null)
+                .map(p => [new Date(p.time).getTime(), p.rx_bps, p.tx_bps]);
+            historyTrafficChart = new ApexCharts(el, {
+                chart: { type: 'line', height: 208, toolbar: { show: false }, zoom: { type: 'x' }, ...apexChartTheme.value.chart },
+                series: [
+                    { name: 'RX', data: pts.map(p => [p[0], p[1]]) },
+                    { name: 'TX', data: pts.map(p => [p[0], p[2]]) },
+                ],
+                colors: ['#22d3ee', '#e879f9'],
+                stroke: { width: 2, curve: 'smooth' },
+                xaxis: { type: 'datetime', labels: { datetimeUTC: false, style: { colors: '#64748b', fontSize: '10px' } }, axisBorder: { show: false } },
+                yaxis: { labels: { style: { colors: '#64748b' }, formatter: v => formatBps(v) }, forceNiceScale: true },
+                grid: { borderColor: isDark.value ? '#1e293b' : '#e2e8f0' },
+                tooltip: { theme: isDark.value ? 'dark' : 'light', x: { format: 'dd MMM HH:mm' } },
+                legend: { show: true, position: 'top', labels: { colors: '#94a3b8' } },
+                dataLabels: { enabled: false },
+            });
+            historyTrafficChart.render();
+        }
+
+        function renderDailyTrafficChart() {
+            const el = document.getElementById('chart-traffic-daily');
+            if (!el) { if (dailyTrafficChart) { dailyTrafficChart.destroy(); dailyTrafficChart = null; } return; }
+            if (dailyTrafficChart) dailyTrafficChart.destroy();
+            const d = trafficDaily.value;
+            dailyTrafficChart = new ApexCharts(el, {
+                chart: { type: 'bar', height: 192, toolbar: { show: false }, ...apexChartTheme.value.chart },
+                series: [
+                    { name: 'RX', data: d.map(r => r.rx_bytes) },
+                    { name: 'TX', data: d.map(r => r.tx_bytes) },
+                ],
+                colors: ['#22d3ee', '#e879f9'],
+                plotOptions: { bar: { columnWidth: '55%', borderRadius: 4 } },
+                xaxis: { categories: d.map(r => (r.date || '').slice(5)), labels: { style: { colors: '#64748b', fontSize: '10px' } } },
+                yaxis: { labels: { style: { colors: '#64748b' }, formatter: v => v ? (v / 1e9).toFixed(1) + ' GB' : '0' } },
+                grid: { borderColor: isDark.value ? '#1e293b' : '#e2e8f0' },
+                tooltip: { theme: isDark.value ? 'dark' : 'light', y: { formatter: v => formatTrafficBytes(v) } },
+                legend: { show: true, position: 'top', labels: { colors: '#94a3b8' } },
+                dataLabels: { enabled: false },
+            });
+            dailyTrafficChart.render();
+        }
+
         function toggleIfaceColumn(key) {
             const idx = ifaceColumns.value.indexOf(key);
             if (idx >= 0) {
@@ -3436,6 +4089,7 @@ createApp({
         // ==================== LIFECYCLE ====================
         onMounted(() => {
             fetchAll();
+            fetchPingConfig();
             fetchReporteConfig();
             fetchReporteStatus();
             document.addEventListener('click', closeApiKeyMenu);
@@ -3448,9 +4102,11 @@ createApp({
         onUnmounted(() => {
             if (refreshTimer) clearInterval(refreshTimer);
             if (countdownTimer) clearInterval(countdownTimer);
+            if (liveTrafficTimer) clearInterval(liveTrafficTimer);
             document.removeEventListener('click', closeApiKeyMenu);
             if (onuStatusChart) onuStatusChart.destroy();
             if (opticalDistChart) opticalDistChart.destroy();
+            destroyInsideTrafficCharts();
         });
 
         // Re-fetch data when switching tabs
@@ -3472,7 +4128,9 @@ createApp({
                     fetchReporteConfig(),
                     fetchReporteStatus(),
                 ]);
+                fetchPingConfig();
                 fetchLLMConfig();
+                fetchAllOps();
             }
             if (tab === 'agent') {
                 try {
@@ -3538,6 +4196,10 @@ createApp({
             togglePon, isPonExpanded, expandAllPons, collapseAllPons,
             oltDeviceTraffic, oltNodo,
             openOltDetail, closeOltDetail, fetchOltMetrics,
+            // Trafico de interfaz (modal apilado)
+            interfaceTraffic, trafficRange, trafficRangeOptions, trafficLive,
+            trafficHistory, trafficDaily, trafficHistoryLoading,
+            openInterfaceTraffic, closeInterfaceTraffic, selectTrafficRange, onuTrafficCtx,
             // Clientes MAC por PON (detalle OLT)
             clientLocations, clientLocationsLoading, fetchClientLocations,
             macsForOnu, macsForPon,
@@ -3552,7 +4214,8 @@ createApp({
             agentStatus, agentInstructions, clientSearch, clientResults, clientStats, instructionsExpanded,
             llmConfigSectionExpanded, instructionsSectionExpanded,
             // Network (ping)
-            pingStatus, pingFilter, filteredPingTargets,
+            pingStatus, pingFilter, filteredPingTargets, pingConfig, refreshDevice, refreshingDevice,
+            fetchPingConfig, savePingConfig,
             // Computed
             navItems, currentTitle, summaryCards, allOltNames, totalInterfaces, filteredDevices,
             // Methods
@@ -3583,6 +4246,10 @@ createApp({
             fetchLLMConfig, fetchLLMStatus, fetchLLMEvents, saveLLMConfig, testLLMConnection, sendLLMChat,
             openLLMConfigModal, closeLLMConfigModal, saveLLMConfigDraft, testLLMConnectionDraft, fetchOllamaModels,
             openLLMEventDetailModal, closeLLMEventDetailModal, copyLLMEventDetail,
+            // Agente: Operaciones
+            opsSectionExpanded, opsServices, opsAgentHealth, opsAgentStats, opsEventbus, opsRag, opsAudit, opsBusy, opsError, opsLastRefresh,
+            fetchAllOps, fetchOpsServices, fetchOpsAgentHealth, fetchOpsAgentStats, fetchOpsEventbus, fetchOpsRag, fetchOpsAudit,
+            serviceAction, eventbusReplay, ragReindex, opsServiceStatusClass, opsHealthStatusClass,
             // TV Config
             tvConfig, allMikrotikInterfaces, fetchTVConfig, saveTVConfig,
         };

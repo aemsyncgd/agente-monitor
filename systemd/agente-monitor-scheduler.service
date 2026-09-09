@@ -1,0 +1,22 @@
+[Unit]
+Description=Agente Monitor - Scheduler (reportes, health checks, RAG reindex)
+Documentation=file:///home/server/agente-monitor/README_AGENT.md
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/server/agente-monitor
+Environment=CONFIG_PATH=config/config_ia.yaml
+EnvironmentFile=/home/server/agente-monitor/.env.ia
+ExecStart=/home/server/agente-monitor/venv/bin/python3 -m src.scheduler_cli
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Logs
+StandardOutput=append:/home/server/agente-monitor/logs/scheduler.log
+StandardError=append:/home/server/agente-monitor/logs/scheduler-error.log
+
+[Install]
+WantedBy=default.target

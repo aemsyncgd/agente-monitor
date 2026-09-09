@@ -8,8 +8,15 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
+import asyncio
+import os
+
 from ...config_manager import get_config_manager
 from ...config_ia import MikroTikDevice, OLTDevice, InterfaceInfo
+from ...storage.influx_client import InfluxClient
+from ...collectors.influx_writer import CollectorInfluxWriter
+from ...collectors.mikrotik_collector import MikroTikCollector, MikroTikConfig
+from ...collectors.olt_collector import OltCollector, OltConfig
 from ..influx_helper import get_active_device_ips
 
 
@@ -64,7 +71,6 @@ class DeviceTestResponse(BaseModel):
 @router.post("/test", response_model=DeviceTestResponse)
 async def test_device_connection(req: DeviceTestRequest):
     """Realiza una prueba en vivo de conectividad ICMP (Ping) y consulta SNMP contra un dispositivo."""
-    import asyncio
     import subprocess
 
     ip = req.ip.strip()
@@ -432,3 +438,76 @@ async def get_device_stats():
         "olt_by_model": olt_by_model,
         "devices_by_node": devices_by_node
     }
+
+
+# === Endpoint de Refresh / Recolección bajo demanda ===
+
+@router.post("/refresh/{device_type}/{device_ip}")
+async def refresh_device(device_type: str, device_ip: str):
+    """Ejecuta una recolección on-demand (rescan SNMP) para un dispositivo y escribe los datos en InfluxDB."""
+    try:
+        dev_type = device_type.lower()
+        if dev_type not in ("mikrotik", "olt"):
+            raise HTTPException(status_code=400, detail=f"Tipo de dispositivo inválido: {device_type}")
+
+        manager = get_config_manager()
+        node = None
+
+        if dev_type == "mikrotik":
+            mt = manager.get_mikrotik_by_ip(device_ip)
+            if mt is None:
+                raise HTTPException(status_code=404, detail="MikroTik no encontrado")
+            mikrotik_config = MikroTikConfig(
+                ip=mt.ip,
+                community=mt.community,
+                hostname=mt.hostname,
+                modelo=mt.modelo,
+                username=mt.username,
+                use_api=mt.use_api
+            )
+            node = manager.get_node_for_mikrotik(device_ip)
+            collector = MikroTikCollector(config=mikrotik_config)
+        else:
+            olt = manager.get_olt_by_ip(device_ip)
+            if olt is None:
+                raise HTTPException(status_code=404, detail="OLT no encontrada")
+            node = manager.get_node_for_olt(device_ip)
+            olt_config = OltConfig(
+                ip=olt.ip,
+                community=olt.community,
+                hostname=olt.hostname,
+                modelo=olt.modelo,
+                nodo=node.name if node else "",
+                capturar_mac=olt.capturar_mac
+            )
+            collector = OltCollector(config=olt_config, timeout=90)
+
+        result = await asyncio.to_thread(collector.collect)
+
+        influx = InfluxClient(
+            url=os.environ.get("INFLUXDB_URL", "http://localhost:8086"),
+            token=os.environ.get("INFLUXDB_TOKEN", ""),
+            org=os.environ.get("INFLUXDB_ORG", "vidanet"),
+            bucket=os.environ.get("INFLUXDB_BUCKET", "monitoreo")
+        )
+        if not influx.connect():
+            raise HTTPException(status_code=502, detail="No se pudo conectar a InfluxDB")
+
+        writer = CollectorInfluxWriter(influx)
+        written = writer.write_collector_result(result) if result else 0
+
+        return {
+            "ok": True,
+            "device_type": device_type,
+            "device_ip": device_ip,
+            "device_name": result.device_name if result else None,
+            "node": node.name if node else None,
+            "points_written": written,
+            "metrics_count": len(result.metrics) if result and result.metrics else 0,
+            "duration_seconds": result.duration_seconds if result else None,
+            "errors": result.errors if result else ["Collector devolvió None"],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

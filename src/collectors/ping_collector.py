@@ -27,6 +27,7 @@ class PingCollector(BaseCollector):
     def __init__(self, targets: List[PingTarget] = None, config_path: str = None):
         super().__init__("ping_collector")
         self.targets = targets or []
+        self.config_path = config_path
         self._previous_status: Dict[str, bool] = {}
         self._downtime_start: Dict[str, float] = {}
         self._downtime_threshold = 120  # 2 minutes to trigger alert
@@ -34,27 +35,60 @@ class PingCollector(BaseCollector):
         if config_path and not targets:
             self.targets = self._load_targets(config_path)
 
+    def reload_targets(self, config_path: str = None):
+        path = config_path or self.config_path
+        if path:
+            self.config_path = path
+            self.targets = self._load_targets(path)
+
     def _load_targets(self, config_path: str) -> List[PingTarget]:
         path = Path(config_path)
-        if not path.exists():
-            logger.warning(f"Ping targets config not found: {config_path}")
-            return []
-
-        with open(path) as f:
-            data = yaml.safe_load(f)
-
         targets = []
-        for t in data.get("targets", []):
-            if t.get("enabled", True):
-                targets.append(PingTarget(
-                    name=t["name"],
-                    ip=t["ip"],
-                    target_type=t.get("type", "unknown"),
-                    timeout_ms=t.get("timeout_ms", 3000),
-                    count=t.get("count", 3),
-                ))
+        if path.exists():
+            with open(path) as f:
+                data = yaml.safe_load(f) or {}
 
-        logger.info(f"Loaded {len(targets)} ping targets")
+            for t in data.get("targets", []):
+                if t.get("enabled", True):
+                    targets.append(PingTarget(
+                        name=t["name"],
+                        ip=t["ip"],
+                        target_type=t.get("type", "unknown"),
+                        timeout_ms=t.get("timeout_ms", 3000),
+                        count=t.get("count", 3),
+                    ))
+        else:
+            logger.warning(f"Ping targets config not found: {config_path}")
+
+        # Auto-merge devices from nodes.yaml (ConfigManager)
+        try:
+            from ..config_manager import get_config_manager
+            cm = get_config_manager()
+            existing_ips = {t.ip for t in targets}
+            for mt in cm.get_all_mikrotiks():
+                if mt.ip and mt.ip not in existing_ips:
+                    targets.append(PingTarget(
+                        name=mt.hostname or f"MK-{mt.ip}",
+                        ip=mt.ip,
+                        target_type="mikrotik",
+                        timeout_ms=3000,
+                        count=3,
+                    ))
+                    existing_ips.add(mt.ip)
+            for olt in cm.get_all_olts():
+                if olt.ip and olt.ip not in existing_ips:
+                    targets.append(PingTarget(
+                        name=olt.hostname or f"OLT-{olt.ip}",
+                        ip=olt.ip,
+                        target_type="olt",
+                        timeout_ms=5000,
+                        count=3,
+                    ))
+                    existing_ips.add(olt.ip)
+        except Exception as e:
+            logger.warning(f"Could not merge node devices into ping targets: {e}")
+
+        logger.info(f"Loaded {len(targets)} total ping targets (file + nodes)")
         return targets
 
     def collect(self) -> CollectorResult:

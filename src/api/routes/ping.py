@@ -42,11 +42,43 @@ async def get_ping_status():
             "loss": 0,
         }
 
+    # Auto-merge devices from nodes.yaml (mismo criterio que ping_collector)
+    try:
+        from ...config_manager import get_config_manager
+        cm = get_config_manager()
+        existing_ips = {v["ip"] for v in target_map.values()}
+        for mt in cm.get_all_mikrotiks():
+            if mt.ip and mt.ip not in existing_ips:
+                target_map[mt.hostname or f"MK-{mt.ip}"] = {
+                    "name": mt.hostname or f"MK-{mt.ip}",
+                    "ip": mt.ip,
+                    "type": "mikrotik",
+                    "enabled": True,
+                    "status": -1,
+                    "latency": 0.0,
+                    "loss": 0,
+                }
+                existing_ips.add(mt.ip)
+        for olt in cm.get_all_olts():
+            if olt.ip and olt.ip not in existing_ips:
+                target_map[olt.hostname or f"OLT-{olt.ip}"] = {
+                    "name": olt.hostname or f"OLT-{olt.ip}",
+                    "ip": olt.ip,
+                    "type": "olt",
+                    "enabled": True,
+                    "status": -1,
+                    "latency": 0.0,
+                    "loss": 0,
+                }
+                existing_ips.add(olt.ip)
+    except Exception:
+        pass
+
     # Query InfluxDB for live data
     try:
         flux = '''
         from(bucket: "monitoreo")
-            |> range(start: -30m)
+            |> range(start: -5m)
             |> filter(fn: (r) => r["_measurement"] == "ping_check")
             |> last()
         '''

@@ -14,12 +14,43 @@ from ..config_ia import ConfigIA, load_config_ia
 from ..config_manager import get_config_manager, init_config_manager, ConfigManager
 from ..storage.influx_client import InfluxClient
 from .olt_collector import OltCollector, OltConfig
+from .olt_traffic_sampler import OltTrafficSampler
 from .mikrotik_collector import MikroTikCollector, MikroTikConfig
 from .ping_collector import PingCollector
 from .influx_writer import CollectorInfluxWriter
-from .zabbix_sender import ZabbixBridge
 
 logger = logging.getLogger("snmp_collector")
+
+
+def _get_event_bus_publisher():
+    """Retorna un callable para publicar eventos en el bus, o None si está
+    deshabilitado/indisponible. Fire-and-forget: nunca bloquea la recolección."""
+    try:
+        from ..event_bus import WispEvent, get_event_bus
+        return get_event_bus()
+    except Exception as e:
+        logger.warning(f"Event bus unavailable: {e}")
+        return None
+
+
+def _publish_collector_event(bus, device_name, device_ip, device_type,
+                             event_type, severity="info", payload=None):
+    """Publica un evento al bus sin bloquear la recolección."""
+    if bus is None:
+        return
+    try:
+        from ..event_bus import WispEvent
+        event = WispEvent(
+            source="collector",
+            event_type=event_type,
+            severity=severity,
+            device_id=device_name,
+            device_type=device_type,
+            payload=payload or {},
+        )
+        bus.publish(event)
+    except Exception as e:
+        logger.debug(f"Event publish failed (non-blocking): {e}")
 
 
 def setup_logging(config):
@@ -110,7 +141,9 @@ def mikrotik_ping_worker(
     zabbix_bridge,
     mikrotik_interval,
     ping_collector,
-    ping_interval
+    ping_interval,
+    event_bus=None,
+    high_latency_threshold_ms: float = None,
 ):
     """Background thread: collects MikroTik metrics and ping independently of OLT cycle."""
     import concurrent.futures
@@ -164,6 +197,11 @@ def mikrotik_ping_worker(
                                   f"in {result.duration_seconds:.1f}s")
                     if result and result.errors:
                         logger.warning(f"{result.device_name}: {result.errors}")
+                        _publish_collector_event(
+                            event_bus, result.device_name, result.device_ip,
+                            "mikrotik", "collect_error", "warning",
+                            {"errors": result.errors},
+                        )
             last_mikrotik = time.time()
         
         # Ping collection
@@ -176,13 +214,55 @@ def mikrotik_ping_worker(
                     down_count = sum(1 for m in result.metrics if m["fields"]["status"] == 0)
                     logger.info(f"Ping: {up_count} up, {down_count} down, "
                               f"{written} points in {result.duration_seconds:.1f}s")
+                    # Publicar eventos de hosts caídos
+                    for m in result.metrics:
+                        if m["fields"].get("status") == 0:
+                            _publish_collector_event(
+                                event_bus, m["tags"].get("name", ""),
+                                m["tags"].get("ip", ""),
+                                m["tags"].get("type", "ping_target"),
+                                "host_down", "critical",
+                                {"status": 0, "latency_ms": m["fields"].get("latency_ms_avg", 0)},
+                            )
+                        elif m["fields"].get("status") == 1:
+                            _publish_collector_event(
+                                event_bus, m["tags"].get("name", ""),
+                                m["tags"].get("ip", ""),
+                                m["tags"].get("type", "ping_target"),
+                                "host_up", "info",
+                                {"status": 1, "latency_ms": m["fields"].get("latency_ms_avg", 0)},
+                            )
+                    # Rescan SNMP inmediato si la latencia supera el umbral
+                    if high_latency_threshold_ms:
+                        for m in result.metrics:
+                            if m["fields"].get("status") != 1:
+                                continue
+                            latency = m["fields"].get("latency_ms_avg") or 0
+                            if latency <= high_latency_threshold_ms:
+                                continue
+                            target_ip = m["tags"].get("ip")
+                            target_type = m["tags"].get("type", "ping_target")
+                            target_name = m["tags"].get("name", "")
+                            if target_type not in ("mikrotik", "olt", "ping_target"):
+                                continue
+                            # Buscar collector que tenga ese IP
+                            for c in mikrotik_collectors:
+                                if c.config.ip == target_ip:
+                                    logger.info(f"High latency {latency:.1f}ms on {target_name} "
+                                              f"({target_ip}) - triggering immediate SNMP rescan")
+                                    try:
+                                        res = c.collect()
+                                        if res and res.metrics:
+                                            writer.write_collector_result(res)
+                                            logger.info(f"Rescan {res.device_name}: {len(res.metrics)} "
+                                                      f"metrics in {res.duration_seconds:.1f}s")
+                                        if res and res.errors:
+                                            logger.warning(f"Rescan {res.device_name}: {res.errors}")
+                                    except Exception as e:
+                                        logger.error(f"Rescan failed {target_name}: {e}")
+                                    break
                 if result.errors:
                     logger.warning(f"Ping errors: {result.errors}")
-                if zabbix_bridge:
-                    try:
-                        zabbix_bridge.send_ping_result(result)
-                    except Exception as e:
-                        logger.warning(f"Zabbix ping send failed: {e}")
             except Exception as e:
                 logger.error(f"Ping collection failed: {e}")
             last_ping = time.time()
@@ -223,13 +303,16 @@ def main():
     
     writer = CollectorInfluxWriter(influx)
     
+    # Event bus (fase 4.2): retrocompatible, fire-and-forget
+    event_bus = None
+    if getattr(config, 'event_bus', None) and config.event_bus.enabled:
+        event_bus = _get_event_bus_publisher()
+        if event_bus:
+            logger.info(f"Event bus ENABLED: {config.event_bus.stream}")
+        else:
+            logger.warning("Event bus DISABLED (sin Redis — modo legacy)")
+    
     zabbix_bridge = None
-    if hasattr(config, 'zabbix') and config.zabbix.enabled:
-        zabbix_bridge = ZabbixBridge(
-            server=config.zabbix.server,
-            port=config.zabbix.port
-        )
-        logger.info(f"Zabbix bridge enabled: {config.zabbix.server}:{config.zabbix.port}")
     
     olt_collectors, _ = create_collectors_from_config(
         config_manager,
@@ -260,16 +343,47 @@ def main():
     mikrotik_interval = 60
     ping_interval = 60
     
+    if getattr(config, "ping_monitor", None) and config.ping_monitor.enabled:
+        logger.info(f"High-latency rescan ENABLED: threshold={config.ping_monitor.high_latency_threshold_ms}ms")
+    else:
+        logger.info("High-latency rescan disabled")
+
     bg_thread = threading.Thread(
         target=mikrotik_ping_worker,
         args=(running, config_manager, writer, zabbix_bridge,
-              mikrotik_interval, ping_collector, ping_interval),
+              mikrotik_interval, ping_collector, ping_interval, event_bus,
+              getattr(config.ping_monitor, "high_latency_threshold_ms", None) if getattr(config, "ping_monitor", None) and config.ping_monitor.enabled else None),
         daemon=True,
         name="mikrotik-ping"
     )
     bg_thread.start()
     logger.info(f"Background thread started: MikroTik every {mikrotik_interval}s, "
                 f"ping every {ping_interval}s")
+
+    # Thread de muestreo de trafico por interfaz (olt_traffic_history), cadencia
+    # propia (~5 min) independiente del ciclo completo de las OLTs.
+    ts_cfg = config.collectors.traffic_sampler
+    traffic_sampler = None
+    if ts_cfg.enabled and olt_collectors:
+        traffic_sampler = OltTrafficSampler(
+            config_manager, writer,
+            interval_seconds=ts_cfg.interval_seconds,
+            walk_delay_seconds=ts_cfg.walk_delay_seconds,
+            olt_timeout=config.collectors.olt_timeout,
+        )
+        ts_thread = threading.Thread(
+            target=traffic_sampler.run,
+            args=(running,),
+            daemon=True,
+            name="olt-traffic"
+        )
+        ts_thread.start()
+        logger.info(
+            f"OltTrafficSampler started: every {ts_cfg.interval_seconds}s "
+            f"sobre {len(olt_collectors)} OLTs"
+        )
+    elif ts_cfg.enabled:
+        logger.warning("OltTrafficSampler habilitado pero sin OLTs en config")
     
     # Main loop: OLT collection en paralelo, continua, con pausa olt_rest_seconds
     # entre pasadas. Antes el ciclo era secuencial (~22 min) y dejaba a las OLTs
@@ -329,13 +443,11 @@ def main():
                         )
                     if result.errors:
                         logger.warning(f"{result.device_name}: {result.errors}")
-                    if zabbix_bridge:
-                        try:
-                            zabbix_bridge.send_olt_result(result)
-                        except Exception as e:
-                            logger.warning(
-                                f"Zabbix OLT send failed for {result.device_name}: {e}"
-                            )
+                        _publish_collector_event(
+                            event_bus, result.device_name, result.device_ip,
+                            "olt", "collect_error", "warning",
+                            {"errors": result.errors},
+                        )
             
             cycle_duration = time.time() - cycle_start
             logger.info(f"OLT cycle completed in {cycle_duration:.1f}s")

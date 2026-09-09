@@ -37,6 +37,21 @@ def classify_fdb_interface(name: str) -> str:
     return "otro"
 
 
+def classify_interface_name(name: str) -> Optional[str]:
+    """Clasifica el ifName de la tabla IF-MIB: 'GE' | 'PON' | 'ONU' | None.
+
+    'GPON05ONU17' -> ONU; 'GPON0/5' -> PON; 'VLANxxx' -> PON; 'GE0/1' -> GE.
+    """
+    name_upper = str(name).upper()
+    if GE_IFACE_RE.match(name_upper):
+        return "GE"
+    if re.match(r'^GPON\d+/\d+$', name_upper) or name_upper.startswith("VLAN"):
+        return "PON"
+    if re.search(r'\dONU\d', name_upper):
+        return "ONU"
+    return None
+
+
 def parse_onu_iface(name: str) -> Optional[Tuple[int, int]]:
     """'GPON05ONU17' -> (5, 17); soporta sufijo '.N' de subinterfaz."""
     m = MAC_IFACE_RE.match(name)
@@ -267,7 +282,138 @@ class OltCollector(BaseCollector):
             device_name=self.config.hostname,
             device_ip=self.config.ip
         )
-    
+
+    def sample_traffic(
+        self,
+        if_desc: Optional[Dict[str, str]] = None,
+        if_status: Optional[Dict[str, str]] = None,
+        if_in: Optional[Dict[str, str]] = None,
+        if_out: Optional[Dict[str, str]] = None,
+        now: Optional[float] = None,
+    ) -> CollectorResult:
+        """Muestreo ligero de trafico por interfaz (measurement
+        `olt_traffic_history`) sin el ciclo completo (no escanea ONUs ni FDB).
+
+        Los parametros `if_*` permiten inyectar tablas SNMP en tests; si no se
+        entregan, se ejecutan los 4 walks IF-MIB con pausas para no saturar la
+        VSOL. `now` tambien se inyecta en tests para tasas deterministas.
+        """
+        start = time.time()
+        metrics: List[Dict[str, Any]] = []
+        errors: List[str] = []
+
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self._sample_traffic_async(
+                if_desc=if_desc, if_status=if_status,
+                if_in=if_in, if_out=if_out, now=now,
+            ))
+            metrics = result["metrics"]
+            errors = result["errors"]
+            loop.close()
+        except Exception as e:
+            errors.append(f"Traffic sample failed: {e}")
+            logger.error(f"{self.config.hostname}: {e}")
+
+        duration = time.time() - start
+        if errors:
+            self._record_error()
+        else:
+            self._record_success(duration)
+
+        return CollectorResult(
+            success=len(errors) == 0,
+            metrics=metrics,
+            errors=errors,
+            duration_seconds=duration,
+            device_name=self.config.hostname,
+            device_ip=self.config.ip
+        )
+
+    async def _sample_traffic_async(
+        self,
+        if_desc: Optional[Dict[str, str]] = None,
+        if_status: Optional[Dict[str, str]] = None,
+        if_in: Optional[Dict[str, str]] = None,
+        if_out: Optional[Dict[str, str]] = None,
+        now: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Cuerpo async del muestreo: 4 walks IF-MIB secuenciales y emision de
+        puntos `olt_traffic_history` (tasa rx/tx, contadores y estado)."""
+        metrics: List[Dict[str, Any]] = []
+        errors: List[str] = []
+        now_val = now if now is not None else time.time()
+        try:
+            if if_desc is None:
+                if_desc = await self._subprocess_bulkwalk(self.OID_IF_DESC, timeout=30)
+                await asyncio.sleep(self.mac_walk_delay)
+            if if_status is None:
+                if_status = await self._subprocess_bulkwalk(self.OID_IF_STATUS, timeout=30)
+                await asyncio.sleep(self.mac_walk_delay)
+            if if_in is None:
+                if_in = await self._subprocess_bulkwalk(self.OID_IF_HCIN, timeout=30)
+                await asyncio.sleep(self.mac_walk_delay)
+            if if_out is None:
+                if_out = await self._subprocess_bulkwalk(self.OID_IF_HCOUT, timeout=30)
+
+            if if_status is None:
+                if_status = {}
+
+            for idx, name_raw in (if_desc or {}).items():
+                iface_type = classify_interface_name(str(name_raw))
+                if iface_type is None:
+                    continue
+
+                rx_octets = self._parse_int(if_in.get(idx) if if_in else None)
+                tx_octets = self._parse_int(if_out.get(idx) if if_out else None)
+                status = self._parse_int(if_status.get(idx))
+                rx_bps, tx_bps = self._compute_rates(idx, rx_octets, tx_octets, now_val)
+
+                tags = {
+                    "olt_name": self.config.hostname,
+                    "olt_ip": self.config.ip,
+                    "interface_name": str(name_raw),
+                    "interface_type": iface_type,
+                    "interface_index": str(idx),
+                }
+                parsed = parse_onu_iface(str(name_raw))
+                if iface_type == "ONU" and parsed:
+                    pon, onu = parsed
+                    tags["pon_port"] = f"GPON0/{pon}"
+                    tags["onu_index"] = f"{pon}_{onu}"
+                elif iface_type == "PON":
+                    m = re.match(r'^GPON(\d+)/(\d+)$', str(name_raw).upper())
+                    if m:
+                        tags["pon_port"] = f"GPON0/{m.group(2)}"
+
+                fields = {}
+                if rx_bps is not None:
+                    fields["rx_bps"] = rx_bps
+                if tx_bps is not None:
+                    fields["tx_bps"] = tx_bps
+                if rx_octets is not None:
+                    fields["rx_octets"] = rx_octets
+                if tx_octets is not None:
+                    fields["tx_octets"] = tx_octets
+                if status is not None:
+                    fields["status"] = status
+
+                if fields:
+                    metrics.append({
+                        "measurement": "olt_traffic_history",
+                        "tags": dict(tags),
+                        "fields": dict(fields),
+                    })
+
+            if not metrics:
+                errors.append(f"Sin interfaces clasificables en {self.config.hostname}")
+        except Exception as e:
+            errors.append(f"Traffic sample failed: {e}")
+            logger.error(f"{self.config.hostname}: {e}")
+
+        return {"metrics": metrics, "errors": errors}
+
     async def _collect_async(self) -> Dict[str, Any]:
         metrics = []
         errors = []
@@ -396,7 +542,8 @@ class OltCollector(BaseCollector):
                         "device_name": self.config.hostname,
                         "device_ip": self.config.ip,
                         "interface_name": name,
-                        "interface_type": iface_type
+                        "interface_type": iface_type,
+                        "interface_index": str(idx)
                     },
                     "fields": fields
                 })
@@ -1122,16 +1269,7 @@ class OltCollector(BaseCollector):
         return result
     
     def _classify_interface(self, name: str) -> Optional[str]:
-        name_upper = name.upper()
-        
-        if re.match(r'^GE\d+/\d+$', name_upper):
-            return "GE"
-        elif re.match(r'^GPON\d+/\d+$', name_upper) or name_upper.startswith("VLAN"):
-            return "PON"
-        elif re.search(r'\dONU\d', name_upper):
-            return "ONU"
-        
-        return None
+        return classify_interface_name(name)
     
     def _parse_float(self, value: Any) -> Optional[float]:
         if value is None:

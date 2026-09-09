@@ -189,7 +189,7 @@ async def health():
 
 
 # ── Import & register routes ─────────────────────────────────────────────────
-from .routes import metrics, anomalies, health as health_route, nodes, devices, agent, ping, reporte, agent_llm, tv
+from .routes import metrics, anomalies, health as health_route, nodes, devices, agent, ping, reporte, agent_llm, tv, agent_ops, traffic
 
 app.include_router(metrics.router, prefix="/api/v1/metrics", tags=["metrics"])
 app.include_router(anomalies.router, prefix="/api/v1/anomalies", tags=["anomalies"])
@@ -201,6 +201,8 @@ app.include_router(ping.router, tags=["ping"])
 app.include_router(reporte.router, tags=["reporte"])
 app.include_router(agent_llm.router, tags=["agent-llm"])
 app.include_router(tv.router, tags=["tv"])
+app.include_router(agent_ops.router, tags=["agent-operations"])
+app.include_router(traffic.router, tags=["traffic"])
 
 # ── Startup log ──────────────────────────────────────────────────────────────
 @app.on_event("startup")
@@ -222,3 +224,12 @@ async def _log_security_status():
             "Set API_KEY env var to enable authentication."
         )
     logger.info("======================")
+
+    try:
+        from .influx_helper import set_status_window
+        from ..config_ia import load_config_ia
+        _ia_cfg = load_config_ia(os.environ.get("CONFIG_PATH", "config/config_ia.yaml"))
+        set_status_window(_ia_cfg.ping_monitor.status_window_minutes)
+        logger.info(f"Status window set to {_ia_cfg.ping_monitor.status_window_minutes} min")
+    except Exception as e:
+        logger.warning(f"Could not load ping config for status window: {e}")

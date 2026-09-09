@@ -222,12 +222,35 @@ class InfluxDBConfig:
 # === Configuración de Collectors ===
 
 @dataclass
+class TrafficSamplerConfig:
+    """Muestreo ligero de trafico por interfaz de OLT (measurement
+    `olt_traffic_history`) con cadencia independiente del ciclo completo."""
+    enabled: bool = True
+    interval_seconds: int = 300
+    walk_delay_seconds: int = 3  # pausa entre walks IF-MIB para no saturar VSOL
+
+
+@dataclass
 class CollectorsConfig:
     interval_seconds: int = 60
     olt_timeout: int = 90
     olt_config_path: str = "/app/config/olts.conf"
     nodes_config_path: str = "/app/config/nodes.yaml"
     olt_rest_seconds: int = 60  # pausa entre pasadas del ciclo OLT (escaneo paralelo)
+    traffic_sampler: TrafficSamplerConfig = field(default_factory=TrafficSamplerConfig)
+
+
+# === Configuración de Ping Monitor (ICMP) ===
+
+@dataclass
+class PingMonitorConfig:
+    enabled: bool = True
+    targets_path: str = "config/ping_targets.yaml"
+    interval_seconds: int = 60
+    alert_down_seconds: int = 120
+    alert_on_recovery: bool = True
+    status_window_minutes: int = 3
+    high_latency_threshold_ms: int = 10
 
 
 # === Configuración de AI ===
@@ -272,9 +295,10 @@ class TelegramIAConfig:
     chat_id: str = ""
     cooldown_minutes: int = 15
     enabled: bool = True
+    state_file: str = "data/alert_state.json"
 
 
-# === Configuración de Zabbix Bridge ===
+# === Configuración de Zabbix Bridge (DEPRECATED) ===
 
 @dataclass
 class ZabbixConfig:
@@ -291,6 +315,114 @@ class LoggingIAConfig:
     file: str = "/app/logs/monitor_ia.log"
     max_size_mb: int = 10
     backup_count: int = 3
+
+
+# === Configuración Redis ===
+
+@dataclass
+class RedisConfig:
+    url: str = "redis://localhost:6379/0"
+    max_connections: int = 10
+    socket_timeout: int = 5
+    decode_responses: bool = True
+
+
+# === Configuración Event Bus ===
+
+@dataclass
+class EventBusConfig:
+    enabled: bool = True
+    stream: str = "wisp:events"
+    consumer_group: str = "wisp-agent"
+    consumer_name: str = "agent-1"
+    max_retries: int = 3
+    retry_backoff_seconds: float = 1.0
+    dlq_stream: str = "wisp:events:dlq"
+    legacy_direct_write: bool = False
+
+
+# === Configuración RAG ===
+
+@dataclass
+class RAGConfig:
+    enabled: bool = True
+    collection_name: str = "wisp_knowledge"
+    persist_directory: str = "data/chromadb"
+    embedding_model: str = "all-MiniLM-L6-v2"
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+    reindex_interval_hours: int = 168
+    docs_directory: str = "docs/"
+
+
+# === Configuración Agent Loop ===
+
+@dataclass
+class AgentLoopConfig:
+    enabled: bool = False
+    heartbeat_interval_seconds: int = 30
+    max_llm_failures: int = 5
+    degraded_mode_enabled: bool = True
+    event_timeout_seconds: int = 300
+    stats_retention_hours: int = 168
+
+
+# === Configuración Correlator ===
+
+@dataclass
+class CorrelatorConfig:
+    enabled: bool = True
+    cascade_window_seconds: int = 300
+    cascade_min_nodes: int = 2
+    mass_threshold: int = 3
+    recurrence_window_hours: int = 24
+    recurrence_min_count: int = 3
+    degradation_window_hours: int = 6
+
+
+# === Configuración Policy ===
+
+@dataclass
+class PolicyConfig:
+    enabled: bool = True
+    work_hours_start: int = 8
+    work_hours_end: int = 18
+    work_days: List[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
+    max_alerts_per_hour_per_zone: int = 5
+    critical_always_immediate: bool = True
+    quiet_hours_summary_interval_minutes: int = 240
+
+
+# === Configuración Scheduler ===
+
+@dataclass
+class SchedulerConfig:
+    enabled: bool = True
+    daily_report_hour: str = "06:00"
+    weekly_report_day: str = "monday"
+    weekly_report_hour: str = "07:00"
+    monthly_report_day: int = 1
+    monthly_report_hour: str = "08:00"
+    health_check_interval_minutes: int = 5
+    rag_reindex_interval_hours: int = 168
+    memory_cleanup_interval_hours: int = 24
+
+
+# === Configuración Auditoría ===
+
+@dataclass
+class AuditConfig:
+    enabled: bool = True
+    log_file: str = "logs/audit.jsonl"
+    retention_days: int = 90
+
+
+# === Configuración Acciones ===
+
+@dataclass
+class ActionsConfig:
+    approval_timeout_seconds: int = 300
+    max_concurrent_actions: int = 3
 
 
 # === Configuración de CSV Clientes ===
@@ -376,7 +508,18 @@ class ConfigIA:
     csv: CSVConfig = field(default_factory=CSVConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     zabbix: ZabbixConfig = field(default_factory=ZabbixConfig)
+    redis: RedisConfig = field(default_factory=RedisConfig)
+    event_bus: EventBusConfig = field(default_factory=EventBusConfig)
+    rag: RAGConfig = field(default_factory=RAGConfig)
+    agent_loop: AgentLoopConfig = field(default_factory=AgentLoopConfig)
+    correlator: CorrelatorConfig = field(default_factory=CorrelatorConfig)
+    policy: PolicyConfig = field(default_factory=PolicyConfig)
+    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
+    audit: AuditConfig = field(default_factory=AuditConfig)
+    actions: ActionsConfig = field(default_factory=ActionsConfig)
+    ping_monitor: PingMonitorConfig = field(default_factory=PingMonitorConfig)
     nodes: List[Node] = field(default_factory=list)
+    live_refresh_seconds: int = 5  # polling de trafico en tiempo real (frontend)
 
 
 def _resolve_env_vars(value: str) -> str:
@@ -418,12 +561,32 @@ def load_config_ia(path: str) -> ConfigIA:
     
     if "collectors" in raw:
         c = raw["collectors"]
+        ts = c.get("traffic_sampler", {})
         config.collectors = CollectorsConfig(
             interval_seconds=c.get("interval_seconds", 60),
             olt_timeout=c.get("olt_timeout", 90),
             olt_config_path=c.get("olt_config_path", "/app/config/olts.conf"),
             nodes_config_path=c.get("nodes_config_path", "/app/config/nodes.yaml"),
-            olt_rest_seconds=c.get("olt_rest_seconds", 60)
+            olt_rest_seconds=c.get("olt_rest_seconds", 60),
+            traffic_sampler=TrafficSamplerConfig(
+                enabled=ts.get("enabled", True),
+                interval_seconds=ts.get("interval_seconds", 300),
+                walk_delay_seconds=ts.get("walk_delay_seconds", 3),
+            )
+        )
+
+    config.live_refresh_seconds = int(raw.get("live_refresh_seconds", 5))
+    
+    if "ping" in raw:
+        p = raw["ping"]
+        config.ping_monitor = PingMonitorConfig(
+            enabled=p.get("enabled", True),
+            targets_path=p.get("targets_path", "config/ping_targets.yaml"),
+            interval_seconds=p.get("interval_seconds", 60),
+            alert_down_seconds=p.get("alert_down_seconds", 120),
+            alert_on_recovery=p.get("alert_on_recovery", True),
+            status_window_minutes=p.get("status_window_minutes", 3),
+            high_latency_threshold_ms=p.get("high_latency_threshold_ms", 10),
         )
     
     if "ai" in raw:
@@ -462,7 +625,8 @@ def load_config_ia(path: str) -> ConfigIA:
             bot_token=t.get("bot_token", os.environ.get("TELEGRAM_BOT_TOKEN", "")),
             chat_id=t.get("chat_id", os.environ.get("TELEGRAM_CHAT_ID", "")),
             cooldown_minutes=t.get("cooldown_minutes", 15),
-            enabled=t.get("enabled", True)
+            enabled=t.get("enabled", True),
+            state_file=t.get("state_file", "data/alert_state.json")
         )
     
     if "logging" in raw:
@@ -523,7 +687,106 @@ def load_config_ia(path: str) -> ConfigIA:
             server=zb.get("server", "127.0.0.1"),
             port=zb.get("port", 10051)
         )
-    
+
+    if "redis" in raw:
+        rd = raw["redis"]
+        config.redis = RedisConfig(
+            url=rd.get("url", "redis://localhost:6379/0"),
+            max_connections=rd.get("max_connections", 10),
+            socket_timeout=rd.get("socket_timeout", 5),
+            decode_responses=rd.get("decode_responses", True)
+        )
+
+    if "event_bus" in raw:
+        eb = raw["event_bus"]
+        config.event_bus = EventBusConfig(
+            enabled=eb.get("enabled", True),
+            stream=eb.get("stream", "wisp:events"),
+            consumer_group=eb.get("consumer_group", "wisp-agent"),
+            consumer_name=eb.get("consumer_name", "agent-1"),
+            max_retries=eb.get("max_retries", 3),
+            retry_backoff_seconds=eb.get("retry_backoff_seconds", 1.0),
+            dlq_stream=eb.get("dlq_stream", "wisp:events:dlq"),
+            legacy_direct_write=eb.get("legacy_direct_write", False)
+        )
+
+    if "rag" in raw:
+        rg = raw["rag"]
+        config.rag = RAGConfig(
+            enabled=rg.get("enabled", True),
+            collection_name=rg.get("collection_name", "wisp_knowledge"),
+            persist_directory=rg.get("persist_directory", "data/chromadb"),
+            embedding_model=rg.get("embedding_model", "all-MiniLM-L6-v2"),
+            chunk_size=rg.get("chunk_size", 500),
+            chunk_overlap=rg.get("chunk_overlap", 50),
+            reindex_interval_hours=rg.get("reindex_interval_hours", 168),
+            docs_directory=rg.get("docs_directory", "docs/")
+        )
+
+    if "agent_loop" in raw:
+        al = raw["agent_loop"]
+        config.agent_loop = AgentLoopConfig(
+            enabled=al.get("enabled", False),
+            heartbeat_interval_seconds=al.get("heartbeat_interval_seconds", 30),
+            max_llm_failures=al.get("max_llm_failures", 5),
+            degraded_mode_enabled=al.get("degraded_mode_enabled", True),
+            event_timeout_seconds=al.get("event_timeout_seconds", 300),
+            stats_retention_hours=al.get("stats_retention_hours", 168)
+        )
+
+    if "correlator" in raw:
+        cr = raw["correlator"]
+        config.correlator = CorrelatorConfig(
+            enabled=cr.get("enabled", True),
+            cascade_window_seconds=cr.get("cascade_window_seconds", 300),
+            cascade_min_nodes=cr.get("cascade_min_nodes", 2),
+            mass_threshold=cr.get("mass_threshold", 3),
+            recurrence_window_hours=cr.get("recurrence_window_hours", 24),
+            recurrence_min_count=cr.get("recurrence_min_count", 3),
+            degradation_window_hours=cr.get("degradation_window_hours", 6)
+        )
+
+    if "policy" in raw:
+        pl = raw["policy"]
+        config.policy = PolicyConfig(
+            enabled=pl.get("enabled", True),
+            work_hours_start=pl.get("work_hours_start", 8),
+            work_hours_end=pl.get("work_hours_end", 18),
+            work_days=pl.get("work_days", [0, 1, 2, 3, 4]),
+            max_alerts_per_hour_per_zone=pl.get("max_alerts_per_hour_per_zone", 5),
+            critical_always_immediate=pl.get("critical_always_immediate", True),
+            quiet_hours_summary_interval_minutes=pl.get("quiet_hours_summary_interval_minutes", 240)
+        )
+
+    if "scheduler" in raw:
+        sc = raw["scheduler"]
+        config.scheduler = SchedulerConfig(
+            enabled=sc.get("enabled", True),
+            daily_report_hour=sc.get("daily_report_hour", "06:00"),
+            weekly_report_day=sc.get("weekly_report_day", "monday"),
+            weekly_report_hour=sc.get("weekly_report_hour", "07:00"),
+            monthly_report_day=sc.get("monthly_report_day", 1),
+            monthly_report_hour=sc.get("monthly_report_hour", "08:00"),
+            health_check_interval_minutes=sc.get("health_check_interval_minutes", 5),
+            rag_reindex_interval_hours=sc.get("rag_reindex_interval_hours", 168),
+            memory_cleanup_interval_hours=sc.get("memory_cleanup_interval_hours", 24)
+        )
+
+    if "audit" in raw:
+        au = raw["audit"]
+        config.audit = AuditConfig(
+            enabled=au.get("enabled", True),
+            log_file=au.get("log_file", "logs/audit.jsonl"),
+            retention_days=au.get("retention_days", 90)
+        )
+
+    if "actions" in raw:
+        ac = raw["actions"]
+        config.actions = ActionsConfig(
+            approval_timeout_seconds=ac.get("approval_timeout_seconds", 300),
+            max_concurrent_actions=ac.get("max_concurrent_actions", 3)
+        )
+
     return config
 
 

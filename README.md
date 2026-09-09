@@ -14,7 +14,7 @@
 
 | ![SNMP](https://img.shields.io/badge/SNMP-%2B%20ICMP-1F6FEB?style=for-the-badge) | ![Telegram](https://img.shields.io/badge/Telegram-Notificaciones-26A5E4?style=for-the-badge&logo=telegram&logoColor=white) | ![Ollama](https://img.shields.io/badge/Ollama-LLM-000000?style=for-the-badge&logo=ollama&logoColor=white) |
 
-| ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white) | ![Linux](https://img.shields.io/badge/Linux-Systemd-FCC624?style=for-the-badge&logo=linux&logoColor=black) | ![pytest](https://img.shields.io/badge/pytest-Passing-2E9E5B?style=for-the-badge&logo=pytest&logoColor=white) |
+| ![Podman](https://img.shields.io/badge/Podman-Compose-2496ED?style=for-the-badge&logo=podman&logoColor=white) | ![Linux](https://img.shields.io/badge/Linux-Systemd-FCC624?style=for-the-badge&logo=linux&logoColor=black) | ![pytest](https://img.shields.io/badge/pytest-Passing-2E9E5B?style=for-the-badge&logo=pytest&logoColor=white) |
 
 | ![GPL v3](https://img.shields.io/badge/License-GPL--3.0-orange?style=for-the-badge) | ![Status](https://img.shields.io/badge/Estado-Producci%C3%B3n-2E9E5B?style=for-the-badge) |
 
@@ -40,7 +40,7 @@ Sistema de **monitoreo autónomo** para proveedores de Internet **FTTH/GPON**. R
 
 | ⚡ Notificaciones Telegram | 📊 Dashboard en vivo | 🖥️ Operación simple |
 |:---:|:---:|:---:|
-| Alertas con cooldown, reportes programados con gráficos, resúmenes e incidencias **LOS / DyingGap**. | API REST FastAPI + panel web (MikroTiks, OLTs por puerto PON/ONU, anomalías, agentes, reportes). | Servicios **systemd** de usuario, `Docker Compose` para InfluxDB y `Dockerfiles` por componente. |
+| Alertas con cooldown, reportes programados con gráficos, resúmenes e incidencias **LOS / DyingGap**. | API REST FastAPI + panel web (MikroTiks, OLTs por puerto PON/ONU, anomalías, agentes, reportes). | Servicios **systemd** de usuario, `Podman` para InfluxDB y Redis (contenedores `influxdb-ia`/`redis-ia`). |
 
 ---
 
@@ -84,7 +84,7 @@ flowchart LR
     class API,WEB,AL,TG out;
 ```
 
-Los componentes corren como **servicios systemd de usuario**; InfluxDB puede ejecutarse en Docker (`compose.yml`).
+Los componentes corren como **servicios systemd de usuario** (`systemctl --user`, sin sudo); InfluxDB y Redis corren en contenedores **Podman** (`influxdb-ia`, `redis-ia`) vía `compose.yml`.
 
 ---
 
@@ -119,7 +119,7 @@ agente-monitor/
 ├── assets/                      # Banner y recursos del README
 ├── scripts/start-all.sh         # Arranque de todos los componentes
 ├── mantenimiento.sh             # Atajos systemctl --user
-├── compose.yml                  # InfluxDB en Docker
+├── compose.yml                  # InfluxDB/Redis en Podman
 ├── Dockerfile*                  # Imágenes por componente
 ├── requirements.txt             # Dependencias base
 └── requirements-ia.txt          # Dependencias IA/API/test
@@ -191,8 +191,19 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 ### 3 · Iniciar InfluxDB
 
 ```bash
-docker compose up -d
+podman compose up -d
 # o bien:  systemctl --user start influxdb-ia.service
+```
+
+Tráfico histórico de interfaces usa el bucket `monitoreo`. Para conservar ≥1 año de
+datos extender la retención (ejecutar una sola vez, 400 días = 9600h):
+
+```bash
+docker exec influxdb-ia influx bucket list \
+  --token "$INFLUXDB_ADMIN_TOKEN" --org vidanet   # anotar el id del bucket "monitoreo"
+docker exec influxdb-ia influx bucket update \
+  --id <id-del-bucket> --retention 9600h \
+  --token "$INFLUXDB_ADMIN_TOKEN" --org vidanet
 ```
 
 ### 4 · Ejecutar el agente
@@ -225,9 +236,9 @@ El dashboard queda en `http://<host>:8000/` (protegido con API key vía `X-API-K
 ### 5 · Containers (opcional)
 
 ```bash
-docker build -f Dockerfile.ai -t agente-monitor-ai .
-docker build -f Dockerfile.collector -t agente-monitor-collector .
-docker build -f Dockerfile.api -t agente-monitor-api .
+podman build -f Dockerfile.ai -t agente-monitor-ai .
+podman build -f Dockerfile.collector -t agente-monitor-collector .
+podman build -f Dockerfile.api -t agente-monitor-api .
 ```
 
 ---

@@ -74,16 +74,16 @@ def _check_ping_status(influx, notifier, config):
                         status="down",
                         downtime_seconds=downtime,
                     )
-                    _down_hosts[host_name] = now + 600  # Re-alert in 10 min
             else:
                 up_count += 1
                 if host_name in _down_hosts:
+                    downtime = now - _down_hosts[host_name]
                     notifier.send_ping_alert(
                         host_name=host_name,
                         host_ip=host_ip,
                         host_type=host_type,
                         status="up",
-                        downtime_seconds=0,
+                        downtime_seconds=downtime,
                         avg_latency=float(point.get("latency_ms_avg", 0)),
                     )
                     del _down_hosts[host_name]
@@ -204,6 +204,7 @@ def main():
         bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", config.telegram.bot_token),
         chat_id=os.environ.get("TELEGRAM_CHAT_ID", config.telegram.chat_id),
         cooldown_minutes=config.telegram.cooldown_minutes,
+        state_file=config.telegram.state_file,
     )
     notifier = TelegramNotifierAI(tg_config)
     logger.info("Telegram notifier initialized")

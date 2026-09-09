@@ -1,4 +1,5 @@
 # src/api/routes/metrics.py
+import asyncio
 from fastapi import APIRouter, Query
 from typing import Optional
 
@@ -11,6 +12,7 @@ from ..influx_helper import (
     get_olt_power,
     get_interface_history,
     get_client_locations,
+    get_status_window,
 )
 
 router = APIRouter()
@@ -38,7 +40,7 @@ async def get_olt_metrics(
     hours: int = Query(24, description="Hours of history")
 ):
     """Get OLT system metrics (CPU, memory, temperature)."""
-    data = get_olt_summary()
+    data = await asyncio.to_thread(get_olt_summary)
     if olt_name:
         data = [r for r in data if r.get("olt_name") == olt_name]
     return {
@@ -90,11 +92,10 @@ async def get_olt_interface_metrics(
 ):
     """Get OLT interface traffic (GE/PON/ONU) with latest rx/tx rate per interface.
 
-    Ventana de 25 min para capturar la ultima tasa de cada interfaz (las OLTs
-    escriben cada ~15-20 min por interfaz). `device_name` debe ser el olt_name
+    Data del ultimo ciclo (ventana 45m). `device_name` debe ser el olt_name
     (hostname) de la OLT para empatar con olt_system.
     """
-    data = get_olt_interfaces(device_name=device_name)
+    data = await asyncio.to_thread(get_olt_interfaces, device_name)
     if interface_type:
         data = [r for r in data if r.get("interface_type") == interface_type]
     return {
@@ -111,7 +112,7 @@ async def get_olt_power_metrics(
     online_only: bool = Query(False, description="Solo ONUs online (status=3)"),
 ):
     """Get ONU optical power/status by OLT (latest per ONU)."""
-    data = get_olt_power(olt_name=olt_name, online_only=online_only)
+    data = await asyncio.to_thread(get_olt_power, olt_name, online_only)
     return {
         "measurement": "optical_power",
         "filters": {"olt_name": olt_name, "online_only": online_only},
@@ -126,7 +127,7 @@ async def get_mikrotik_metrics(
     hours: int = Query(24, description="Hours of history")
 ):
     """Get MikroTik router system metrics (CPU, memory, uptime, firmware)."""
-    data = get_recent_metrics("mikrotik_system", limit=200)
+    data = get_recent_metrics("mikrotik_system", limit=200, minutes=get_status_window())
     if device_name:
         data = [r for r in data if r.get("device_name") == device_name]
     return {

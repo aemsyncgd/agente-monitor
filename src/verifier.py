@@ -3,9 +3,12 @@ import os
 import warnings
 import subprocess
 import logging
-from typing import Optional
+from typing import Optional, Any
 from .models import Event, FaultVerification, VerificationResult
-from .zabbix_client import ZabbixClient
+try:
+    from .zabbix_client import ZabbixClient
+except ImportError:
+    ZabbixClient = None
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -20,11 +23,17 @@ warnings.warn(
 STATUS_MAP = {"1": "LOS", "3": "Online", "4": "Dying Gaps", "6": "Offline"}
 
 class Verifier:
-    def __init__(self, config: Config, client: ZabbixClient):
+    def __init__(self, config: Config, client: Optional[Any] = None):
         self.config = config
         self.client = client
     
     def _verify_zabbix(self, olt_ip: str, puerto_pon: str) -> VerificationResult:
+        if not self.client:
+            return VerificationResult(
+                source="zabbix",
+                success=False,
+                error="Zabbix integration disabled or client unavailable"
+            )
         try:
             host = None
             hosts = self.client.get_hosts()

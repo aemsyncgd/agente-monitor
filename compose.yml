@@ -21,3 +21,23 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  redis-ia:
+    image: docker.io/library/redis:7-alpine
+    container_name: redis-ia
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - ./redis/data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s

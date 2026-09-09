@@ -1,6 +1,8 @@
 # src/api/influx_helper.py
 import os
 import logging
+import threading
+import time
 from typing import Optional, List, Dict, Any
 from influxdb_client import InfluxDBClient
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -12,8 +14,40 @@ INFLUX_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
 INFLUX_ORG = os.environ.get("INFLUXDB_ORG", "vidanet")
 INFLUX_BUCKET = os.environ.get("INFLUXDB_BUCKET", "monitoreo")
 
+# Caché TTL para las consultas pesadas "todas las OLTs" del dashboard.
+# Evita que el refresco periodico del front (~30s) y la apertura del detalle
+# disparen queries de varios MB contra InfluxDB de forma simultanea.
+_DASH_TTL = 45.0
+_DASH_CACHE: Dict[str, Any] = {}
+_DASH_LOCK = threading.Lock()
+
+
+def _dash_cache(key: str, loader, *args):
+    now = time.monotonic()
+    with _DASH_LOCK:
+        hit = _DASH_CACHE.get(key)
+        if hit is not None and now - hit[0] < _DASH_TTL:
+            return hit[1]
+    data = loader(*args)
+    with _DASH_LOCK:
+        _DASH_CACHE[key] = (time.monotonic(), data)
+        if len(_DASH_CACHE) > 16:
+            expired = [k for k, v in _DASH_CACHE.items() if now - v[0] >= _DASH_TTL]
+            for k in expired:
+                _DASH_CACHE.pop(k, None)
+    return data
+
 _client: Optional[InfluxDBClient] = None
 _query_api = None
+
+_status_window_minutes: int = 3  # default, overridden at startup
+
+def set_status_window(minutes: int):
+    global _status_window_minutes
+    _status_window_minutes = minutes
+
+def get_status_window() -> int:
+    return _status_window_minutes
 
 
 def _get_query_api():
@@ -55,6 +89,35 @@ def _query(flux: str) -> List[Dict[str, Any]]:
         return []
 
 
+def resolve_interface_index(device_name: str, interface_name: str) -> Optional[str]:
+    """Devuelve el tag interface_index (ifIndex) de una interfaz de OLT usando
+    los datos que ya muestrea `olt_traffic_history` (evita reandar SNMP).
+
+    None si no hay datos aún (por ejemplo mientras el sampler llena la base).
+    """
+    if not device_name or not interface_name:
+        return None
+    esc_device = str(device_name).replace("\\", "\\\\").replace('"', '\\"')
+    esc_iface = str(interface_name).replace("\\", "\\\\").replace('"', '\\"')
+    flux = (
+        f'from(bucket: "{INFLUX_BUCKET}")'
+        f' |> range(start: -168h)'
+        f' |> filter(fn: (r) => r["_measurement"] == "olt_traffic_history")'
+        f' |> filter(fn: (r) => r["_field"] == "rx_octets")'
+        f' |> filter(fn: (r) => r["olt_name"] == "{esc_device}")'
+        f' |> filter(fn: (r) => r["interface_name"] == "{esc_iface}")'
+        f' |> group()'
+        f' |> last()'
+        f' |> keep(columns: ["interface_index"])'
+    )
+    rows = _query(flux)
+    for r in rows:
+        val = r.get("interface_index")
+        if val is not None and str(val) not in ("", "None"):
+            return str(val)
+    return None
+
+
 def _check_connection() -> bool:
     try:
         api = _get_query_api()
@@ -69,6 +132,10 @@ def get_olt_summary() -> List[Dict[str, Any]]:
     Usa una ventana amplia (-30d) para encontrar la ultima medicion de cada OLT
     y filtra unicamente los hostnames que actualmente existen en config/nodes.yaml.
     """
+    return _dash_cache("olt_summary", _load_olt_summary)
+
+
+def _load_olt_summary() -> List[Dict[str, Any]]:
     from ..config_manager import get_config_manager
     manager = get_config_manager()
     valid_olts = {olt.hostname for olt in manager.get_all_olts()}
@@ -120,6 +187,8 @@ def get_olt_interfaces(device_name: Optional[str] = None) -> List[Dict[str, Any]
     pasadas), pero una pasada completa puede estirarse con OLTs lentas; 45m
     cubre siempre al menos el ciclo anterior completo.
     """
+    if device_name is None:
+        return _dash_cache("olt_interfaces", lambda: get_interfaces(device_name=None, minutes=45))
     return get_interfaces(device_name=device_name, minutes=45)
 
 
@@ -129,6 +198,16 @@ def get_olt_power(
     minutes: int = 45,
 ) -> List[Dict[str, Any]]:
     """Estado ONU (status, serial, rx/tx power) por OLT, ultima medicion por ONU."""
+    if olt_name is None and not online_only:
+        return _dash_cache("olt_power", _query_olt_power, olt_name, online_only, minutes)
+    return _query_olt_power(olt_name, online_only, minutes)
+
+
+def _query_olt_power(
+    olt_name: Optional[str],
+    online_only: bool,
+    minutes: int,
+) -> List[Dict[str, Any]]:
     filters = ""
     if olt_name:
         filters += f'|> filter(fn: (r) => r["olt_name"] == "{olt_name}")'
@@ -313,12 +392,47 @@ from(bucket: "{INFLUX_BUCKET}")
     return rows
 
 
-def get_active_device_ips(minutes: int = 30) -> dict:
-    """Check which device IPs have recent data in InfluxDB.
-    Returns dict: {ip: True} for devices with data in the last `minutes` minutes.
-    Checks optical_power (olt_ip tag) and interface_traffic (device_ip tag).
+def get_active_device_ips(minutes: int = None) -> dict:
+    if minutes is None:
+        minutes = get_status_window()
+    """Check which device IPs have recent online activity in InfluxDB within `minutes` lookback.
+    Returns dict: {ip: True} for devices active in the last `minutes` minutes.
+    Checks:
+    1. ping_check where status == 1
+    2. mikrotik_system
+    3. optical_power (olt_ip tag)
+    4. interface_traffic (device_ip tag)
     """
     active = {}
+    
+    # Check successful pings (status == 1)
+    flux_ping = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{minutes}m)
+    |> filter(fn: (r) => r["_measurement"] == "ping_check")
+    |> filter(fn: (r) => r["_field"] == "status")
+    |> filter(fn: (r) => r["_value"] == 1)
+    |> distinct(column: "ip")
+    |> yield(name: "ping_ips")
+'''
+    for row in _query(flux_ping):
+        ip = row.get("value") or row.get("ip")
+        if ip:
+            active[str(ip)] = True
+
+    # Check MikroTik system metrics
+    flux_mk = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{minutes}m)
+    |> filter(fn: (r) => r["_measurement"] == "mikrotik_system")
+    |> distinct(column: "device_ip")
+    |> yield(name: "mk_ips")
+'''
+    for row in _query(flux_mk):
+        ip = row.get("value") or row.get("device_ip")
+        if ip:
+            active[str(ip)] = True
+
     # Check OLT IPs from optical_power
     flux_olt = f'''
 from(bucket: "{INFLUX_BUCKET}")
@@ -376,6 +490,118 @@ from(bucket: "{INFLUX_BUCKET}")
     |> sort(columns: ["_time"])
 '''
     return _query(flux)
+
+
+TRAFFIC_RANGES = {
+    "1d": (24, "30s"),
+    "1sem": (168, "2m"),
+    "1mes": (720, "5m"),
+    "3m": (2160, "15m"),
+    "6m": (4320, "30m"),
+    "9m": (6480, "1h"),
+    "1año": (8760, "2h"),
+}
+
+
+def history_params(range_key: str):
+    """Mapea el rango del UI (1d/1sem/1mes/3m/6m/9m/1año) a (horas, every)."""
+    return TRAFFIC_RANGES.get((range_key or "").lower(), (24, "30s"))
+
+
+def _traffic_measurement(device_type: str) -> tuple:
+    """(measurement, tag_de_nombre, rx_field, tx_field) segun tipo de equipo."""
+    if (device_type or "").lower() == "olt":
+        return "olt_traffic_history", "olt_name", "rx_octets", "tx_octets"
+    return "mikrotik_interface", "device_name", "ifHCInOctets", "ifHCOutOctets"
+
+
+def get_traffic_history(
+    device_type: str,
+    device_name: str,
+    interface_name: str,
+    range_key: str = "1d",
+) -> List[Dict[str, Any]]:
+    """Serie temporal agregada de rx_bps/tx_bps para una interfaz.
+
+    Misma forma de respuesta para OLTs (`olt_traffic_history`) y MikroTik
+    (`mikrotik_interface`).
+    """
+    hours, every = history_params(range_key)
+    measurement, name_tag, _, _ = _traffic_measurement(device_type)
+    flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "{measurement}")
+    |> filter(fn: (r) => r["{name_tag}"] == "{device_name}")
+    |> filter(fn: (r) => r["interface_name"] == "{interface_name}")
+    |> filter(fn: (r) => r["_field"] == "rx_bps" or r["_field"] == "tx_bps")
+    |> aggregateWindow(every: {every}, fn: mean, createEmpty: false)
+    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> keep(columns: ["_time", "rx_bps", "tx_bps"])
+    |> sort(columns: ["_time"])
+'''
+    return _query(flux)
+
+
+def daily_deltas_from_rows(
+    rows: List[Dict[str, Any]],
+    rx_field: str = "rx",
+    tx_field: str = "tx",
+) -> List[Dict[str, Any]]:
+    """Deltas diarios de contadores de octetos a partir de filas ordenadas.
+
+    Cada fila tiene {time, rx_field, tx_field} con el primer valor del dia; la
+    diferencia entre dias consecutivos es el consumo de ese dia. Se descartan
+    deltas negativos (reset de contador) y el primer dia (sin referencia).
+    """
+    result: List[Dict[str, Any]] = []
+    prev_rx = prev_tx = None
+    prev_date = None
+    for r in rows:
+        date = (r.get("time") or "")[:10]
+        rx = r.get(rx_field)
+        tx = r.get(tx_field)
+        if (prev_date is not None and rx is not None and tx is not None
+                and prev_rx is not None and prev_tx is not None):
+            drx = rx - prev_rx
+            dtx = tx - prev_tx
+            if drx >= 0 and dtx >= 0:
+                result.append({
+                    "date": date,
+                    "rx_bytes": drx,
+                    "tx_bytes": dtx,
+                    "total": drx + dtx,
+                })
+        if rx is not None:
+            prev_rx = rx
+        if tx is not None:
+            prev_tx = tx
+        prev_date = date
+    return result
+
+
+def get_daily_consumption(
+    device_type: str,
+    device_name: str,
+    interface_name: str,
+    hours: int = 8760,
+) -> List[Dict[str, Any]]:
+    """Consumo diario por interfaz: deltas de contadores de octetos por dia."""
+    measurement, name_tag, rx_field, tx_field = _traffic_measurement(device_type)
+    flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "{measurement}")
+    |> filter(fn: (r) => r["{name_tag}"] == "{device_name}")
+    |> filter(fn: (r) => r["interface_name"] == "{interface_name}")
+    |> filter(fn: (r) => r["_field"] == "{rx_field}" or r["_field"] == "{tx_field}")
+    |> aggregateWindow(every: 1d, fn: first, createEmpty: false)
+    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> keep(columns: ["_time", "{rx_field}", "{tx_field}"])
+    |> sort(columns: ["_time"])
+'''
+    rows = _query(flux)
+    return daily_deltas_from_rows(rows, rx_field, tx_field)
 
 
 def get_anomalies_from_influx(
