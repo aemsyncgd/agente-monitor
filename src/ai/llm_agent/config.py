@@ -68,7 +68,6 @@ class LLMRuntimeConfig:
     state_file: str = "logs/llm_state.json"
     runtime_config_file: str = "config/llm_config.json"
     instructions_path: str = "config/instructions.json"
-    csv_path: str = "grid_servicios.csv"
 
     def api_key(self) -> str:
         return os.environ.get(self.api_key_env, "")
@@ -128,7 +127,6 @@ def build_default_from_llm_config(cfg, project_root: str) -> LLMRuntimeConfig:
     runtime.instructions_path = os.path.join(
         project_root, "config", "instructions.json"
     )
-    runtime.csv_path = os.path.join(project_root, "grid_servicios.csv")
     return runtime
 
 

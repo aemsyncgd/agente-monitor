@@ -224,16 +224,10 @@ def _get_chat_agent():
     )
     influx.connect()
 
-    from src.client_lookup import ClientLookup
-    lookup = ClientLookup()
-    csv_path = os.path.join(PROJECT_ROOT, "grid_servicios.csv")
-    if os.path.exists(csv_path):
-        lookup.load_from_csv(csv_path)
-
     events = EventStore(eff.events_file)
     registry = ToolRegistry(
         InfluxReader(influx),
-        lookup,
+        None,
         events,
         alert_sender=None,
     )

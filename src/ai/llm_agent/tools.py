@@ -183,6 +183,58 @@ class InfluxReader:
             })
         return out
 
+    def enriched_clients(self, search: Optional[str] = None,
+                         olt: Optional[str] = None,
+                         nap: Optional[str] = None,
+                         zona: Optional[str] = None,
+                         mismatched: bool = False,
+                         limit: int = 50) -> List[Dict]:
+        """Clientes enriquecidos (clientes_enriquecidos), ultima fila por MAC."""
+        bucket = self.influx.bucket
+        filters = ""
+        if olt:
+            filters += f'|> filter(fn: (r) => r["olt"] == "{olt}")'
+        if nap:
+            filters += f'|> filter(fn: (r) => r["nap"] == "{nap}")'
+        if zona:
+            filters += f'|> filter(fn: (r) => r["zona"] == "{zona}")'
+        if mismatched:
+            filters += '|> filter(fn: (r) => r["ubicacion_descuadrada"] == "true")'
+
+        flux = f'''
+        from(bucket: "{bucket}") |> range(start: -168h)
+            |> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos")
+            {filters}
+            |> group(columns: ["mac"]) |> last()
+            |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+            |> sort(columns: ["olt", "nap"]) |> limit(n: {limit})'''
+        rows = self._query(flux)
+        if search:
+            needle = search.strip().lower()
+            rows = [
+                r for r in rows
+                if needle in (r.get("nombre") or "").lower()
+                or needle in (r.get("documento") or "").lower()
+                or needle in (r.get("serial_onu") or "").lower()
+                or needle in (r.get("usuario_pppoe") or "").lower()
+                or needle in (r.get("mac") or "").lower()
+            ]
+        return rows
+
+    def client_by_documento(self, documento: str) -> Optional[Dict]:
+        """Ficha enriquecida de un cliente por documento."""
+        bucket = self.influx.bucket
+        esc = str(documento).replace("\\", "\\\\").replace('"', '\\"')
+        flux = f'''
+        from(bucket: "{bucket}") |> range(start: -168h)
+            |> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos")
+            |> filter(fn: (r) => r["documento"] == "{esc}")
+            |> last()
+            |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+            |> limit(n: 1)'''
+        rows = self._query(flux)
+        return rows[0] if rows else None
+
     def predict_failures(self, hours: int = 24, max_results: int = 20) -> List[Dict]:
         """Trend-based failure prediction per ONU (same logic as deterministic agent)."""
         bucket = self.influx.bucket
@@ -237,6 +289,19 @@ class InfluxReader:
 ToolFunc = Callable[..., Any]
 
 
+def _estado_label_legacy(c: Dict) -> str:
+    """Estado legible de la ONU para el tool legacy `lookup_client`."""
+    try:
+        estado = int(c.get("estado_onu", -1))
+    except (TypeError, ValueError):
+        estado = -1
+    if estado == 3:
+        return "Activo"
+    if estado in (1, 4, 6):
+        return "Caído"
+    return "N/A"
+
+
 class ToolRegistry:
     """Maps enabled instruction ids -> available tools."""
 
@@ -245,7 +310,9 @@ class ToolRegistry:
         "detect_anomaly": ["get_anomalies"],
         "predict_failure": ["predict_failures"],
         "check_ping_status": ["get_ping_status"],
-        "client_lookup": ["lookup_client"],
+        "client_lookup": ["lookup_client", "lookup_client_full",
+                          "clients_by_nap", "clients_by_zone",
+                          "mismatched_locations"],
         "zone_grouping": ["clients_on_pon"],
         "check_interface": ["get_interface_status"],
         "daily_summary": ["get_network_summary"],
@@ -258,9 +325,11 @@ class ToolRegistry:
     def __init__(self, reader: InfluxReader, client_lookup, event_store,
                  alert_sender):
         self.reader = reader
-        self.lookup = client_lookup
         self.events = event_store
         self.alert_sender = alert_sender  # callable (message, kind) -> bool
+        # client_lookup se conserva por compatibilidad de firma pero ya no se
+        # usa: las consultas de clientes van sobre la base enriquecida (Influx).
+        self.lookup = client_lookup
 
     # ---- handlers ---------------------------------------------------------
 
@@ -282,29 +351,115 @@ class ToolRegistry:
     def _lookup_client(self, serial: Optional[str] = None,
                        name: Optional[str] = None) -> Dict:
         if serial:
-            c = self.lookup.lookup_by_serial(serial)
-            if not c:
+            rows = self.reader.enriched_clients(search=str(serial).strip(), limit=10)
+            serial_u = str(serial).strip().upper()
+            exact = [c for c in rows
+                     if (c.get("serial_onu") or "").upper() == serial_u]
+            if not exact and rows:
+                exact = rows
+            if not exact:
                 return {"found": False, "query": {"serial": serial}}
+            c = exact[0]
             return {"found": True, "client": {
-                "nombre": c.nombre, "serial_onu": c.serial_onu,
-                "direccion": c.direccion, "nodo": c.nodo,
-                "puerto_pon": c.puerto_pon, "estado": c.estado,
+                "nombre": c.get("nombre", ""), "serial_onu": c.get("serial_onu", ""),
+                "direccion": c.get("direccion", ""), "nodo": c.get("nodo", ""),
+                "puerto_pon": c.get("pon_port", ""),
+                "estado": _estado_label_legacy(c),
             }}
         if name:
-            clients = self.lookup.search_by_name(name)[:10]
+            clients = self.reader.enriched_clients(search=name, limit=10)
             return {"found": bool(clients), "count": len(clients), "clients": [
-                {"nombre": c.nombre, "serial_onu": c.serial_onu,
-                 "direccion": c.direccion, "nodo": c.nodo,
-                 "puerto_pon": c.puerto_pon, "estado": c.estado}
+                {"nombre": c.get("nombre", ""), "serial_onu": c.get("serial_onu", ""),
+                 "direccion": c.get("direccion", ""), "nodo": c.get("nodo", ""),
+                 "puerto_pon": c.get("pon_port", ""),
+                 "estado": _estado_label_legacy(c)}
                 for c in clients
             ]}
         return {"found": False, "message": "Provide 'serial' or 'name'"}
 
+    # ---- clientes enriquecidos (3 fuentes) --------------------------------
+
+    def _client_to_dict(self, c: Dict) -> Dict:
+        try:
+            estado = int(c.get("estado_onu", -1))
+        except (TypeError, ValueError):
+            estado = -1
+        online = estado == 3
+        return {
+            "nombre": c.get("nombre", ""),
+            "documento": c.get("documento", ""),
+            "usuario_pppoe": c.get("usuario_pppoe", ""),
+            "serial_onu": c.get("serial_onu", ""),
+            "mac": c.get("mac", ""),
+            "olt": c.get("olt", ""),
+            "nodo": c.get("nodo", ""),
+            "nap": c.get("nap", ""),
+            "zona": c.get("zona", ""),
+            "pon_port": c.get("pon_port", ""),
+            "estado_onu": estado,
+            "online": online,
+            "coincidencia": c.get("coincidencia", ""),
+            "ubicacion_descuadrada": c.get("ubicacion_descuadrada") == "true",
+            "ultima_medicion": c.get("_time") or c.get("time"),
+        }
+
+    def _lookup_client_full(self, serial: Optional[str] = None,
+                            name: Optional[str] = None,
+                            documento: Optional[str] = None) -> Dict:
+        if documento:
+            c = self.reader.client_by_documento(documento)
+            if not c:
+                return {"found": False, "query": {"documento": documento}}
+            return {"found": True, "client": self._client_to_dict(c)}
+        if serial:
+            clients = self.reader.enriched_clients(search=serial, limit=10)
+            exact = [c for c in clients
+                     if (c.get("serial_onu") or "").upper()
+                     == str(serial).strip().upper()]
+            if not exact and clients:
+                exact = clients
+            return {"found": bool(exact), "query": {"serial": serial},
+                    "count": len(exact),
+                    "clients": [self._client_to_dict(c) for c in exact[:10]]}
+        if name:
+            clients = self.reader.enriched_clients(search=name, limit=10)
+            return {"found": bool(clients), "query": {"name": name},
+                    "count": len(clients),
+                    "clients": [self._client_to_dict(c) for c in clients]}
+        return {"found": False,
+                "message": "Provide 'serial', 'name' or 'documento'"}
+
+    def _clients_by_nap(self, nap: str, limit: int = 50) -> Dict:
+        clients = self.reader.enriched_clients(nap=nap, limit=limit)
+        down = [c for c in clients if self._client_to_dict(c)["online"] is False]
+        return {"nap": nap, "count": len(clients),
+                "onu_down": len(down),
+                "clientes_down": [self._client_to_dict(c) for c in down[:20]],
+                "clients": [self._client_to_dict(c) for c in clients[:limit]]}
+
+    def _clients_by_zone(self, zona: str, limit: int = 50) -> Dict:
+        clients = self.reader.enriched_clients(zona=zona, limit=limit)
+        down = [c for c in clients if self._client_to_dict(c)["online"] is False]
+        return {"zona": zona, "count": len(clients),
+                "onu_down": len(down),
+                "clientes_down": [self._client_to_dict(c) for c in down[:20]],
+                "clients": [self._client_to_dict(c) for c in clients[:limit]]}
+
+    def _mismatched_locations(self, limit: int = 50) -> Dict:
+        clients = self.reader.enriched_clients(mismatched=True, limit=limit)
+        return {"count": len(clients),
+                "mismatched": [self._client_to_dict(c) for c in clients]}
+
     def _clients_on_pon(self, olt_name: str, pon_port: str) -> Dict:
-        clients = self.lookup.clients_on_pon(olt_name, pon_port)
+        rows = self.reader.enriched_clients(olt=olt_name, limit=100)
+        pon = str(pon_port).strip().lower()
+        clients = [c for c in rows
+                   if pon in (c.get("pon_port") or "").lower()]
         return {"olt": olt_name, "pon_port": pon_port, "count": len(clients),
-                "clients": [{"nombre": c.nombre, "serial_onu": c.serial_onu,
-                             "direccion": c.direccion} for c in clients[:20]]}
+                "clients": [{"nombre": c.get("nombre", ""),
+                             "serial_onu": c.get("serial_onu", ""),
+                             "direccion": c.get("direccion", "")}
+                            for c in clients[:20]]}
 
     def _get_olt_status(self, limit: int = 30) -> Dict:
         items = self.reader.olt_status(limit=limit)
@@ -381,6 +536,10 @@ class ToolRegistry:
             "get_interface_status": self._get_interface_status,
             "get_recent_events": self._get_recent_events,
             "send_alert": self._send_alert,
+            "lookup_client_full": self._lookup_client_full,
+            "clients_by_nap": self._clients_by_nap,
+            "clients_by_zone": self._clients_by_zone,
+            "mismatched_locations": self._mismatched_locations,
         }
         return handlers.get(name)
 
@@ -427,6 +586,26 @@ _TOOL_DESCRIPTIONS = {
         "problema real que merezca atencion. Params: title (obligatorio), severity "
         "(info|warning|critical), message (detalle), channel. Usalo con moderacion "
         "y solo cuando haya evidencia."
+    ),
+    "lookup_client_full": (
+        "Busca un cliente en la base enriquecida (WISP + OLT + PPPoE) por serial "
+        "de ONU, nombre o documento. Devuelve ubicacion fisica (OLT/PON/NAP/zona), "
+        "estado de la ONU y flag de ubicacion descuadrada. Es mas completo que "
+        "lookup_client: usa este para ficha completa."
+    ),
+    "clients_by_nap": (
+        "Lista los clientes agrupados por NAP (tablero/caja de distribucion). "
+        "Incluye ONUs caidas y estados. Usarlo para evaluar el alcance de una "
+        "falla de NAP (sobre todo si hay muchos clientes caidos juntos)."
+    ),
+    "clients_by_zone": (
+        "Lista los clientes agrupados por zona. Incluye ONUs caidas y estados. "
+        "Usarlo para inforar sobre cortes que afectan una zona."
+    ),
+    "mismatched_locations": (
+        "Clientes con ubicacion descuadrada: el serial registrado en WISP no "
+        "coincide con el serial fisico de la ONU en la OLT del mismo PON/MAC. "
+        "Indica posibles errores de installacion o reasignacion."
     ),
 }
 
@@ -488,5 +667,35 @@ _TOOL_PARAMS: Dict[str, Dict] = {
             "channel": {"type": "string", "description": "Canal de salida (default telegram)"},
         },
         "required": ["title"],
+    },
+    "lookup_client_full": {
+        "type": "object",
+        "properties": {
+            "serial": {"type": "string", "description": "Serial de ONU (ej. OEMT...)"},
+            "name": {"type": "string", "description": "Nombre o parte del nombre del cliente"},
+            "documento": {"type": "string", "description": "Documento del cliente"},
+        },
+    },
+    "clients_by_nap": {
+        "type": "object",
+        "properties": {
+            "nap": {"type": "string", "description": "Identificador del NAP (ej. NAP-12)"},
+            "limit": {"type": "integer", "description": "Maximo de resultados (default 50)"},
+        },
+        "required": ["nap"],
+    },
+    "clients_by_zone": {
+        "type": "object",
+        "properties": {
+            "zona": {"type": "string", "description": "Nombre de la zona"},
+            "limit": {"type": "integer", "description": "Maximo de resultados (default 50)"},
+        },
+        "required": ["zona"],
+    },
+    "mismatched_locations": {
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer", "description": "Maximo de resultados (default 50)"},
+        },
     },
 }

@@ -60,7 +60,7 @@ def create_agent(config_yaml_path: str = "config/config_ia.yaml",
     influx.connect()
     registry = ToolRegistry(
         InfluxReader(influx),
-        _client_lookup(),
+        None,
         EventStore(eff.events_file),
         alert_sender=None,
     )
@@ -84,14 +84,6 @@ def create_agent(config_yaml_path: str = "config/config_ia.yaml",
 
 def project_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-
-def _client_lookup():
-    from src.client_lookup import ClientLookup
-    lookup = ClientLookup()
-    root = project_root()
-    lookup.load_from_csv(os.path.join(root, "grid_servicios.csv"))
-    return lookup
 
 
 def main():
