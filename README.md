@@ -106,7 +106,8 @@ agente-monitor/
 │   ├── storage/                 # Cliente InfluxDB
 │   ├── notifier*.py             # Notificaciones Telegram
 │   ├── grouper.py               # Agrupación de clientes por zona (ML)
-│   └── client_lookup.py         # Lookup ONU → cliente
+│   ├── client_enricher.py       # Cruce WISP + OLT + MikroTik → clientes_enriquecidos
+│   └── fault_detector.py        # Detección de caídas por NAP/OLT
 ├── config/
 │   ├── config.yaml              # Config base del agente
 │   ├── config_ia.yaml           # Config IA/colectores/LLM/API
@@ -256,7 +257,7 @@ Suite actual: **80 tests** · `pytest` + `pytest-asyncio`.
 
 ## 🔒 Seguridad
 
-- Los secretos **nunca se versionan**: `.env`, `.env.ia`, `backups/`, `logs/`, `apis.md` (tokens), `config/nodes.yaml` y `config/ping_targets.yaml` (topología + communities SNMP), `influxdb/` y `grid_servicios.csv` (datos de clientes) están en `.gitignore`.
+- Los secretos **nunca se versionan**: `.env`, `.env.ia`, `backups/`, `logs/`, `apis.md` (tokens), `config/nodes.yaml` y `config/ping_targets.yaml` (topología + communities SNMP) e `influxdb/` (datos de clientes enriquecidos) están en `.gitignore`.
 - La API usa autenticación por API key con roles (`admin` / `operator` / `viewer`) y CORS restringido.
 - Si un secreto se filtra alguna vez, **rótalo inmediatamente** (asume que está comprometido).
 

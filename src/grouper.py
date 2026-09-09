@@ -1,62 +1,14 @@
 # src/grouper.py
 import os
-import csv
 import pickle
 import logging
-from typing import List, Dict, Optional
-import pandas as pd
+from typing import List, Dict
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import DBSCAN
 from .models import Client
 from .config import Config
 
 logger = logging.getLogger(__name__)
-
-EXPECTED_CSV_COLS = 15
-# Last 9 columns (Router..Fecha Instalacion) never contain commas — used as anchor
-_CSV_TAIL_COUNT = 9
-# First 6 columns (Documento..Direccion Servicio) — left anchor
-_CSV_HEAD_COUNT = 6
-
-
-def _parse_csv_robust(path: str) -> pd.DataFrame:
-    """Parse grid_servicios.csv handling unquoted commas in Nombre Cliente
-    and Direccion Servicio fields.
-
-    Strategy: anchor from the RIGHT (last 9 cols are structurally stable)
-    and LEFT (first 5 cols are clean), merge any extra middle fields into
-    Direccion Servicio (col index 5).
-    """
-    rows: list[list[str]] = []
-    header: list[str] = []
-
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        reader = csv.reader(fh)
-        header = [h.strip() for h in next(reader)]
-
-        for line_num, raw in enumerate(reader, start=2):
-            n = len(raw)
-            if n == EXPECTED_CSV_COLS:
-                rows.append([f.strip() for f in raw])
-            elif n > EXPECTED_CSV_COLS:
-                tail = raw[-_CSV_TAIL_COUNT:]
-                head = raw[:_CSV_HEAD_COUNT]
-                middle = raw[_CSV_HEAD_COUNT:-_CSV_TAIL_COUNT]
-                if middle:
-                    head[5] = head[5] + ", " + ", ".join(middle)
-                recovered = head + tail
-                if len(recovered) == EXPECTED_CSV_COLS:
-                    rows.append([f.strip() for f in recovered])
-                else:
-                    logger.warning(
-                        f"CSV line {line_num}: could not recover "
-                        f"({n} fields, recovered {len(recovered)})"
-                    )
-            else:
-                padded = [f.strip() for f in raw] + [""] * (EXPECTED_CSV_COLS - n)
-                rows.append(padded[:EXPECTED_CSV_COLS])
-
-    return pd.DataFrame(rows, columns=header)
 
 
 class ZoneGrouper:
@@ -75,28 +27,6 @@ class ZoneGrouper:
         self.model_fitted = False
         self._label_map: Dict[int, str] = {}
 
-    def load_csv(self, path: str) -> List[Client]:
-        df = _parse_csv_robust(path)
-        df.columns = df.columns.str.strip()
-
-        clients = []
-        for _, row in df.iterrows():
-            client = Client(
-                nombre=str(row.get('Nombre Cliente', '')),
-                serial_onu=str(row.get('Serial Onu', '')),
-                olt="",
-                nodo=str(row.get('Router', '')),
-                puerto_pon=str(row.get('Puerto PON', row.get('Puerto PON ', ''))),
-                direccion=str(row.get('Direccion Servicio', '')),
-                documento=str(row.get('Documento', '')),
-                ip_servicio=str(row.get('Ip Servicio', '')),
-                estado=str(row.get('Estado', ''))
-            )
-            clients.append(client)
-
-        logger.info(f"Loaded {len(clients)} clients from CSV")
-        return clients
-    
     def fit(self, addresses: List[str]) -> None:
         if len(addresses) < self.config.ml.min_samples:
             logger.warning(f"Not enough addresses ({len(addresses)}) for clustering")

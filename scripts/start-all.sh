@@ -14,7 +14,6 @@ log "=== Iniciando Agente Monitor (servicio unificado) ==="
 
 export CONFIG_PATH=config/config_ia.yaml
 export NODES_PATH=config/nodes.yaml
-export CSV_PATH=/home/server/agente-monitor/grid_servicios.csv
 export INSTRUCTIONS_PATH=/home/server/agente-monitor/config/instructions.json
 export MODEL_PATH=/home/server/agente-monitor/models/optical_autoencoder.pt
 

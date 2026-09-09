@@ -3,7 +3,7 @@
 Enriquecedor de eventos WISP.
 
 Antes de que un evento llegue al agente LLM, lo enriquece con:
-- Clientes afectados (client_lookup + grouper)
+- Clientes afectados (base enriquecida clientes_enriquecidos en InfluxDB)
 - Zona geográfica
 - Si es parte de una cascada (topología en InfluxDB)
 - Histórico reciente del mismo dispositivo
@@ -13,16 +13,57 @@ import logging
 from typing import Dict, Optional, Any, List
 
 from .event_bus import WispEvent
-from .client_lookup import ClientLookup
+from .models import Client
 
 logger = logging.getLogger(__name__)
 
 
-class EventEnricher:
-    """Enriquece eventos con contexto de red, clientes y topología."""
+def _estado_label(estado_onu) -> str:
+    try:
+        estado = int(estado_onu)
+    except (TypeError, ValueError):
+        estado = -1
+    if estado == 3:
+        return "Activo"
+    if estado in (1, 4, 6):
+        return "Caído"
+    return "N/A"
 
-    def __init__(self, client_lookup: ClientLookup, influx_client=None):
+
+def _as_client(row) -> Optional[Client]:
+    """Normaliza una fila enriquecida (dict) o un Client ya cargado."""
+    if row is None:
+        return None
+    if isinstance(row, Client):
+        return row
+    if isinstance(row, dict):
+        return Client(
+            documento=str(row.get("documento", "") or ""),
+            nombre=str(row.get("nombre", "") or ""),
+            serial_onu=str(row.get("serial_onu", "") or ""),
+            mac=str(row.get("mac", "") or ""),
+            olt=str(row.get("olt", "") or ""),
+            nodo=str(row.get("nodo", "") or ""),
+            puerto_pon=str(row.get("pon_port", "") or row.get("puerto_pon", "") or ""),
+            direccion=str(row.get("direccion", "") or ""),
+            estado=_estado_label(row.get("estado_onu", -1)),
+            zona=str(row.get("zona", "") or ""),
+            ip_servicio=str(row.get("ip_servicio", "") or ""),
+        )
+    return None
+
+
+class EventEnricher:
+    """Enriquece eventos con contexto de red, clientes y topología.
+
+    Acepta `reader` (InfluxReader sobre clientes_enriquecidos) o, por
+    compatibilidad, un `client_lookup` legacy con `lookup_by_serial` /
+    `clients_on_pon` (p.ej. un MagicMock en tests).
+    """
+
+    def __init__(self, client_lookup=None, influx_client=None, reader=None):
         self.client_lookup = client_lookup
+        self.reader = reader
         self.influx = influx_client
         self._cache: Dict[str, Dict] = {}
         self._cache_ttl = 60.0
@@ -43,12 +84,36 @@ class EventEnricher:
 
         return event
 
+    def _find_client(self, serial: str) -> Optional[Client]:
+        if self.reader is not None:
+            serial_u = str(serial).strip().upper()
+            rows = self.reader.enriched_clients(search=str(serial).strip(), limit=10)
+            for r in rows:
+                if (r.get("serial_onu") or "").upper() == serial_u:
+                    return _as_client(r)
+            return _as_client(rows[0]) if rows else None
+        if self.client_lookup is not None:
+            return _as_client(self.client_lookup.lookup_by_serial(serial))
+        return None
+
+    def _clients_on_pon(self, olt_name: str, pon_port: str) -> List[Client]:
+        if self.reader is not None:
+            rows = self.reader.enriched_clients(olt=str(olt_name or ""), limit=100)
+            pon = str(pon_port or "").strip().lower()
+            matched = [r for r in rows
+                       if pon in (r.get("pon_port") or "").lower()]
+            return [_as_client(r) for r in matched[:50] if r]
+        if self.client_lookup is not None:
+            return [_as_client(c) for c in
+                    self.client_lookup.clients_on_pon(olt_name, pon_port)]
+        return []
+
     def _add_client_info(self, event: WispEvent) -> None:
         serial = event.payload.get("onu_serial", "")
         if not serial:
             return
 
-        client = self.client_lookup.lookup_by_serial(serial)
+        client = self._find_client(serial)
         if client:
             event.context["client_name"] = client.nombre
             event.context["client_address"] = client.direccion
@@ -74,7 +139,7 @@ class EventEnricher:
         if not olt_name or not pon_port:
             return
 
-        pon_clients = self.client_lookup.clients_on_pon(olt_name, pon_port)
+        pon_clients = self._clients_on_pon(olt_name, pon_port)
         event.context["clientes_afectados"] = len(pon_clients)
         event.context["affected_client_names"] = [
             c.nombre for c in pon_clients[:10] if c.nombre

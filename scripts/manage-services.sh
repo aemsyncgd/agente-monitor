@@ -35,7 +35,6 @@ ensure_env() {
     fi
     export CONFIG_PATH="${CONFIG_PATH:-config/config_ia.yaml}"
     export NODES_PATH="${NODES_PATH:-config/nodes.yaml}"
-    export CSV_PATH="${CSV_PATH:-${PROJECT_DIR}/grid_servicios.csv}"
     export INSTRUCTIONS_PATH="${INSTRUCTIONS_PATH:-${PROJECT_DIR}/config/instructions.json}"
     export MODEL_PATH="${MODEL_PATH:-${PROJECT_DIR}/models/optical_autoencoder.pt}"
 }

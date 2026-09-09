@@ -384,8 +384,8 @@ def create_agent_sync(config_path: str = "config/config_ia.yaml") -> WispAgent:
     from ..config_ia import load_config_ia
     from ..event_bus import get_event_bus
     from ..enricher import EventEnricher
-    from ..client_lookup import ClientLookup
     from ..storage.influx_client import InfluxClient
+    from .llm_agent.tools import InfluxReader
     from .reasoner import WispReasoner
     from .rag import get_rag_store
     from .memory_ext import WispMemory
@@ -404,10 +404,7 @@ def create_agent_sync(config_path: str = "config/config_ia.yaml") -> WispAgent:
     )
     influx.connect()
 
-    lookup = ClientLookup()
-    csv_path = os.environ.get("CSV_PATH", "grid_servicios.csv")
-    if os.path.exists(csv_path):
-        lookup.load_from_csv(csv_path)
+    reader = InfluxReader(influx)
 
     bus = get_event_bus()
 
@@ -424,7 +421,7 @@ def create_agent_sync(config_path: str = "config/config_ia.yaml") -> WispAgent:
             logger.warning(f"LLM provider unavailable, using fallback-rules: {e}")
 
     reasoner = WispReasoner(provider=llm_provider, rag_store=rag, influx_client=influx)
-    enricher = EventEnricher(lookup, influx_client=influx)
+    enricher = EventEnricher(None, influx_client=influx, reader=reader)
     memory = WispMemory(redis_url=config.redis.url)
     correlator = WispCorrelator(
         cascade_window=config.correlator.cascade_window_seconds,
@@ -468,7 +465,6 @@ def create_agent_sync(config_path: str = "config/config_ia.yaml") -> WispAgent:
         notification_service=notifier,
         config=config,
         influx_client=influx,
-        client_lookup=lookup,
         rag_store=rag,
     )
     return agent

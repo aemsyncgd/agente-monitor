@@ -110,13 +110,12 @@
   {
     "id": "client_lookup",
     "name": "Lookup de Clientes",
-    "description": "Resuelve serial ONU a nombre y direccion del cliente para enriquecer alertas",
+    "description": "Resuelve serial ONU a nombre y direccion del cliente para enriquecer alertas (base clientes_enriquecidos en InfluxDB)",
     "instruction_type": "client_lookup",
     "enabled": true,
     "priority": 15,
     "params": {
-      "csv_path": "grid_servicios.csv",
-      "reload_hours": 24
+      "source": "clientes_enriquecidos (InfluxDB)"
     },
     "last_run": 0.0,
     "last_result": "",

@@ -138,11 +138,11 @@ DEFAULT_INSTRUCTIONS: List[Instruction] = [
     Instruction(
         id="client_lookup",
         name="Lookup de Clientes",
-        description="Resuelve serial ONU a nombre y direccion del cliente para enriquecer alertas",
+        description="Resuelve serial ONU a nombre y direccion del cliente para enriquecer alertas (base clientes_enriquecidos en InfluxDB)",
         instruction_type=InstructionType.CLIENT_LOOKUP,
         enabled=True,
         priority=15,
-        params={"csv_path": "grid_servicios.csv", "reload_hours": 24},
+        params={"source": "clientes_enriquecidos (InfluxDB)"},
     ),
     Instruction(
         id="check_ping_status",

@@ -408,6 +408,56 @@ class SchedulerConfig:
     memory_cleanup_interval_hours: int = 24
 
 
+# === Configuración de API czwisp (Fuente 3) ===
+
+@dataclass
+class WISPConfig:
+    """Configuración de la API HTTP de czwisp (base de datos de clientes WISP).
+
+    - `list_endpoint`: listado masivo (paginado). Se deja vacío si el ISP no
+      lo expone; en ese caso se usan `document_endpoint` + semilla CSV.
+    - `document_endpoint`: lookup por documento, formato
+      ``GET {base_url}{document_endpoint.format(slug=isp_slug, documento=doc)}``
+      con header ``x-api-key``.
+    """
+    enabled: bool = True
+    base_url: str = "https://czwisp.com"
+    api_key_env: str = "WISP_API_KEY"
+    isp_slug: str = ""
+    list_endpoint: str = ""
+    document_endpoint: str = "/api/webhooks/cliente/{slug}/cliente"
+    page_size: int = 100
+    timeout_seconds: int = 30
+    documents_csv: str = "data/wisp_documentos.csv"
+    cache_hours: int = 24
+
+
+# === Configuración de Enriquecimiento de Clientes ===
+
+@dataclass
+class EnrichmentConfig:
+    enabled: bool = True
+    interval_minutes: int = 15
+    lookback_hours: int = 168
+    state_file: str = "data/enrichment_state.json"
+
+
+# === Configuración de Detección de Fallas NAP/Zona ===
+
+@dataclass
+class FaultDetectionConfig:
+    enabled: bool = True
+    interval_minutes: int = 5
+    threshold_clients_los: int = 3
+    broadcast_down_ratio: float = 0.6
+    onu_lookback_minutes: int = 360
+    status_down_values: List[int] = field(default_factory=lambda: [1, 4, 6])
+    status_online_value: int = 3
+    refresh_after_grouping: bool = True
+    refresh_timeout_seconds: int = 30
+    state_file: str = "data/fault_state.json"
+
+
 # === Configuración Auditoría ===
 
 @dataclass
@@ -423,15 +473,6 @@ class AuditConfig:
 class ActionsConfig:
     approval_timeout_seconds: int = 300
     max_concurrent_actions: int = 3
-
-
-# === Configuración de CSV Clientes ===
-
-@dataclass
-class CSVConfig:
-    path: str = "grid_servicios.csv"
-    reload_hours: int = 24
-    enabled: bool = True
 
 
 # === Configuración de Agente IA ===
@@ -505,7 +546,6 @@ class ConfigIA:
     api: APIConfig = field(default_factory=APIConfig)
     telegram: TelegramIAConfig = field(default_factory=TelegramIAConfig)
     logging: LoggingIAConfig = field(default_factory=LoggingIAConfig)
-    csv: CSVConfig = field(default_factory=CSVConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     zabbix: ZabbixConfig = field(default_factory=ZabbixConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
@@ -518,6 +558,9 @@ class ConfigIA:
     audit: AuditConfig = field(default_factory=AuditConfig)
     actions: ActionsConfig = field(default_factory=ActionsConfig)
     ping_monitor: PingMonitorConfig = field(default_factory=PingMonitorConfig)
+    wisp: WISPConfig = field(default_factory=WISPConfig)
+    enrichment: EnrichmentConfig = field(default_factory=EnrichmentConfig)
+    fault_detection: FaultDetectionConfig = field(default_factory=FaultDetectionConfig)
     nodes: List[Node] = field(default_factory=list)
     live_refresh_seconds: int = 5  # polling de trafico en tiempo real (frontend)
 
@@ -636,14 +679,6 @@ def load_config_ia(path: str) -> ConfigIA:
             file=lg.get("file", "/app/logs/monitor_ia.log"),
             max_size_mb=lg.get("max_size_mb", 10),
             backup_count=lg.get("backup_count", 3)
-        )
-    
-    if "csv" in raw:
-        csv = raw["csv"]
-        config.csv = CSVConfig(
-            path=csv.get("path", "grid_servicios.csv"),
-            reload_hours=csv.get("reload_hours", 24),
-            enabled=csv.get("enabled", True)
         )
     
     if "agent" in raw:
@@ -785,6 +820,46 @@ def load_config_ia(path: str) -> ConfigIA:
         config.actions = ActionsConfig(
             approval_timeout_seconds=ac.get("approval_timeout_seconds", 300),
             max_concurrent_actions=ac.get("max_concurrent_actions", 3)
+        )
+
+    if "wisp" in raw:
+        w = raw["wisp"]
+        config.wisp = WISPConfig(
+            enabled=w.get("enabled", True),
+            base_url=w.get("base_url", "https://czwisp.com"),
+            api_key_env=w.get("api_key_env", "WISP_API_KEY"),
+            isp_slug=w.get("isp_slug") or os.environ.get("WISP_ISP_SLUG", ""),
+            list_endpoint=w.get("list_endpoint") or os.environ.get("WISP_LIST_ENDPOINT", ""),
+            document_endpoint=w.get(
+                "document_endpoint", "/api/webhooks/cliente/{slug}/cliente"),
+            page_size=w.get("page_size", 100),
+            timeout_seconds=w.get("timeout_seconds", 30),
+            documents_csv=w.get("documents_csv", "data/wisp_documentos.csv"),
+            cache_hours=w.get("cache_hours", 24)
+        )
+
+    if "enrichment" in raw:
+        en = raw["enrichment"]
+        config.enrichment = EnrichmentConfig(
+            enabled=en.get("enabled", True),
+            interval_minutes=en.get("interval_minutes", 15),
+            lookback_hours=en.get("lookback_hours", 168),
+            state_file=en.get("state_file", "data/enrichment_state.json")
+        )
+
+    if "fault_detection" in raw:
+        fd = raw["fault_detection"]
+        config.fault_detection = FaultDetectionConfig(
+            enabled=fd.get("enabled", True),
+            interval_minutes=fd.get("interval_minutes", 5),
+            threshold_clients_los=fd.get("threshold_clients_los", 3),
+            broadcast_down_ratio=fd.get("broadcast_down_ratio", 0.6),
+            onu_lookback_minutes=fd.get("onu_lookback_minutes", 360),
+            status_down_values=fd.get("status_down_values", [1, 4, 6]),
+            status_online_value=fd.get("status_online_value", 3),
+            refresh_after_grouping=fd.get("refresh_after_grouping", True),
+            refresh_timeout_seconds=fd.get("refresh_timeout_seconds", 30),
+            state_file=fd.get("state_file", "data/fault_state.json")
         )
 
     return config

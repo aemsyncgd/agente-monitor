@@ -38,10 +38,6 @@ ai:
     early_stopping_patience: 5
   retrain_hours: 24
   min_samples: 500
-csv:
-  path: grid_servicios.csv
-  reload_hours: 24
-  enabled: true
 agent:
   enabled: true
   check_interval_seconds: 60
@@ -143,6 +139,33 @@ scheduler:
   health_check_interval_minutes: 5
   rag_reindex_interval_hours: 168
   memory_cleanup_interval_hours: 24
+wisp:
+  enabled: true
+  base_url: https://czwisp.com
+  api_key_env: WISP_API_KEY
+  isp_slug: ''
+  list_endpoint: ''
+  document_endpoint: /api/webhooks/cliente/{slug}/cliente
+  page_size: 100
+  timeout_seconds: 30
+  documents_csv: data/wisp_documentos.csv
+  cache_hours: 24
+enrichment:
+  enabled: true
+  interval_minutes: 15
+  lookback_hours: 168
+  state_file: data/enrichment_state.json
+fault_detection:
+  enabled: true
+  interval_minutes: 5
+  threshold_clients_los: 3
+  broadcast_down_ratio: 0.6
+  onu_lookback_minutes: 360
+  status_down_values: [1, 4, 6]
+  status_online_value: 3
+  refresh_after_grouping: true
+  refresh_timeout_seconds: 30
+  state_file: data/fault_state.json
 audit:
   enabled: true
   log_file: logs/audit.jsonl

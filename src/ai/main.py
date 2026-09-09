@@ -16,18 +16,45 @@ from typing import List, Dict, Optional
 
 from ..config_ia import load_config_ia, load_nodes_config, ConfigIA
 from ..storage.influx_client import InfluxClient
-from ..client_lookup import ClientLookup
 from ..notifier_ai import TelegramNotifierAI, TelegramConfig
 from ..reporte.reporter import DailyReporter
 from .autoencoder import OpticalPowerAutoencoder
 from .trainer import ModelTrainer, TrainingConfig
 from .detector import AnomalyDetector
 from .instructions import InstructionManager, InstructionType
+from .llm_agent.tools import InfluxReader
 
 logger = logging.getLogger("ai_engine")
 
 # Track down hosts to avoid repeated alerts
 _down_hosts: Dict[str, float] = {}
+
+
+def _lookup_by_serial(reader: InfluxReader, serial: str) -> Optional[Dict]:
+    """Cliente enriquecido por serial ONU (fuente InfluxDB)."""
+    if not serial:
+        return None
+    rows = reader.enriched_clients(search=str(serial).strip(), limit=10)
+    serial_u = str(serial).strip().upper()
+    for r in rows:
+        if (r.get("serial_onu") or "").upper() == serial_u:
+            return r
+    return rows[0] if rows else None
+
+
+def _clients_on_pon(reader: InfluxReader, olt_name: str, pon_port: str) -> List[Dict]:
+    """Clientes enriquecidos servidos por el puerto PON indicado."""
+    rows = reader.enriched_clients(olt=str(olt_name or ""), limit=100)
+    pon = str(pon_port or "").strip().lower()
+    return [r for r in rows if pon in (r.get("pon_port") or "").lower()]
+
+
+def _enriched_client_count() -> int:
+    try:
+        from ..api.influx_helper import get_clientes_stats
+        return int(get_clientes_stats().get("enriquecidos", 0))
+    except Exception:
+        return 0
 
 
 def _check_ping_status(influx, notifier, config):
@@ -143,20 +170,9 @@ def main():
         logger.error("Failed to connect to InfluxDB")
         return 1
 
-    # === Load client lookup ===
-    client_lookup = ClientLookup()
-    csv_path = os.environ.get(
-        "CSV_PATH",
-        os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            config.csv.path,
-        ),
-    )
-    if config.csv.enabled and os.path.exists(csv_path):
-        count = client_lookup.load_from_csv(csv_path)
-        logger.info(f"Client lookup loaded: {count} clients from {csv_path}")
-    else:
-        logger.warning(f"CSV not found or disabled: {csv_path}")
+    # === Reader de clientes enriquecidos (InfluxDB, sin grid_servicios.csv) ===
+    client_reader = InfluxReader(influx)
+    logger.info("Client lookup listo sobre clientes_enriquecidos (InfluxDB)")
 
     # === Load instruction manager ===
     instr_path = os.environ.get(
@@ -229,11 +245,10 @@ def main():
 
     logger.info(
         f"AI Agent running | Interval: {config.agent.check_interval_seconds}s | "
-        f"Retrain: {config.ai.retrain_hours}h | Clients: {client_lookup.count}"
+        f"Retrain: {config.ai.retrain_hours}h | Clients: {_enriched_client_count()}"
     )
 
     last_train_time = 0
-    last_csv_reload = time.time()
     last_daily_summary_hour = -1
     report_times_sent: Dict[str, str] = {}
 
@@ -243,17 +258,6 @@ def main():
             current_time = time.time()
             enabled_instructions = instructions.get_enabled()
             enabled_ids = {i.id for i in enabled_instructions}
-
-            # --- Periodic CSV reload ---
-            if (
-                config.csv.enabled
-                and client_lookup.needs_reload(config.csv.reload_hours)
-            ):
-                if os.path.exists(csv_path):
-                    count = client_lookup.load_from_csv(csv_path)
-                    logger.info(f"Reloaded {count} clients from CSV")
-                    last_csv_reload = current_time
-                    instructions.record_run("client_lookup", f"loaded {count}")
 
             # --- Retrain model ---
             if (
@@ -337,11 +341,11 @@ def main():
                     # --- Enrich and send alerts ---
                     if "send_telegram" in enabled_ids:
                         for anomaly in anomalies:
-                            # Client lookup
-                            client = client_lookup.lookup_by_serial(anomaly.onu_serial)
-                            client_name = client.nombre if client else ""
-                            client_address = client.direccion if client else ""
-                            client_node = client.nodo if client else ""
+                            # Client lookup (base enriquecida)
+                            client = _lookup_by_serial(client_reader, anomaly.onu_serial)
+                            client_name = (client or {}).get("nombre", "")
+                            client_address = (client or {}).get("direccion", "")
+                            client_node = (client or {}).get("nodo", "")
 
                             # Zone grouping
                             zone = ""
@@ -352,9 +356,14 @@ def main():
                             affected_count = 0
                             affected_names = []
                             if "zone_grouping" in enabled_ids and olt_name and pon_port:
-                                pon_clients = client_lookup.clients_on_pon(olt_name, pon_port)
+                                pon_clients = _clients_on_pon(
+                                    client_reader, olt_name, pon_port
+                                )
                                 affected_count = len(pon_clients)
-                                affected_names = [c.nombre for c in pon_clients if c.nombre][:10]
+                                affected_names = [
+                                    c.get("nombre", "") for c in pon_clients
+                                    if c.get("nombre")
+                                ][:10]
 
                             # Send enriched alert
                             notifier.send_anomaly_alert(
@@ -397,10 +406,10 @@ def main():
                                     confidence = min(1.0, abs(trend) / 2.0)
 
                                     if hours_to_failure < 48:
-                                        client = client_lookup.lookup_by_serial(onu_serial)
+                                        client = _lookup_by_serial(client_reader, onu_serial)
                                         zone = ""
-                                        if client and client.direccion:
-                                            zone = _extract_zone(client.direccion)
+                                        if client and client.get("direccion"):
+                                            zone = _extract_zone(client.get("direccion", ""))
 
                                         notifier.send_ai_prediction(
                                             olt_name=olt_name,
@@ -410,8 +419,8 @@ def main():
                                             confidence=confidence,
                                             hours_to_failure=hours_to_failure,
                                             current_power=recent_avg,
-                                            client_name=client.nombre if client else "",
-                                            client_address=client.direccion if client else "",
+                                            client_name=(client or {}).get("nombre", ""),
+                                            client_address=(client or {}).get("direccion", ""),
                                             zone=zone,
                                         )
 
@@ -427,7 +436,7 @@ def main():
                 stats = {
                     "olt_count": len(config.nodes) if hasattr(config, "nodes") else 0,
                     "onu_count": 0,
-                    "client_count": client_lookup.count,
+                    "client_count": _enriched_client_count(),
                     "anomaly_count": 0,
                     "prediction_count": 0,
                     "by_type": {},

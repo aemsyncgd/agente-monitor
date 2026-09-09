@@ -22,7 +22,6 @@ except ImportError:
 from .buffer import EventBuffer
 from .monitor import Monitor
 from .verifier import Verifier
-from .grouper import ZoneGrouper
 from .notifier import TelegramNotifier
 
 logger = logging.getLogger("zabbix_agent")
@@ -104,24 +103,10 @@ def main():
     buffer = EventBuffer(window_seconds=config.monitoring.threshold_window_minutes * 60 * 2)
     monitor = Monitor(config, zabbix_client, buffer)
     verifier = Verifier(config, zabbix_client)
-    grouper = ZoneGrouper(config)
     notifier = TelegramNotifier(config)
-    
-    csv_path = config.csv.path
-    if os.path.exists(csv_path):
-        clients = grouper.load_csv(csv_path)
-        
-        if config.ml.model_path and os.path.exists(config.ml.model_path):
-            grouper.load_model(config.ml.model_path)
-        
-        if not grouper.model_fitted:
-            addresses = [c.direccion for c in clients]
-            grouper.fit(addresses)
-        
-        logger.info(f"Loaded {len(clients)} clients, {len(set(c.nodo for c in clients if c.nodo))} nodes")
-    else:
-        clients = []
-        logger.warning(f"CSV not found: {csv_path}")
+
+    # Base de clientes enriquecida (InfluxDB): el CSV grid_servicios.csv ya no se usa
+    clients = []
     
     running = True
     
@@ -169,7 +154,7 @@ def main():
                                 # Agrupar por zona (ML o por defecto)
                                 zone_groups: dict[str, list] = {}
                                 for c in zone_clients:
-                                    zone = c.zona or grouper.predict_zone(c.direccion)
+                                    zone = c.zona or ""
                                     if zone not in zone_groups:
                                         zone_groups[zone] = []
                                     zone_groups[zone].append(c)

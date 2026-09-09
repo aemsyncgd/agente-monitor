@@ -15,10 +15,6 @@ telegram:
   cooldown_minutes: 15
   update_interval_minutes: 30
 
-csv:
-  path: "/home/server/agente-monitor/grid_servicios.csv"
-  refresh_hours: 24
-
 ml:
   model_path: "/home/server/agente-monitor/models/zone_model.pkl"
   retrain_hours: 24
