@@ -330,6 +330,209 @@ from(bucket: "{INFLUX_BUCKET}")
     }
 
 
+def _client_kw_match(row: Dict[str, Any], needle: str) -> bool:
+    """Match full-text case-insensitive sobre los campos clave de un cliente."""
+    return (
+        needle in (row.get("nombre") or "").lower()
+        or needle in (row.get("documento") or "").lower()
+        or needle in (row.get("direccion") or "").lower()
+        or needle in (row.get("serial_onu") or "").lower()
+        or needle in (row.get("usuario_pppoe") or "").lower()
+        or needle in (row.get("mac") or "").lower()
+        or needle in (row.get("olt") or "").lower()
+        or needle in (row.get("nap") or "").lower()
+        or needle in (row.get("zona") or "").lower()
+    )
+
+
+def get_enriched_clients(
+    search: Optional[str] = None,
+    olt: Optional[str] = None,
+    nap: Optional[str] = None,
+    zona: Optional[str] = None,
+    pon: Optional[str] = None,
+    limit: int = 500,
+    hours: int = 168,
+) -> List[Dict[str, Any]]:
+    """Clientes enriquecidos (clientes_enriquecidos), ultima fila por MAC.
+
+    `search` se aplica en Python (case-insensitive) para evitar inyeccion Flux;
+    `olt`/`nap`/`zona` se aplican en el query (tags); `pon` se filtra en Python
+    sobre el field `pon_port` (post-pivot).
+    """
+    filters = ""
+    if olt:
+        filters += f'|> filter(fn: (r) => r["olt"] == "{olt}")'
+    if nap:
+        filters += f'|> filter(fn: (r) => r["nap"] == "{nap}")'
+    if zona:
+        filters += f'|> filter(fn: (r) => r["zona"] == "{zona}")'
+
+    flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos")
+    {filters}
+    |> group(columns: ["mac"], mode: "by")
+    |> last()
+    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> sort(columns: ["olt", "nap"])
+    |> yield(name: "clientes_enriquecidos")
+'''
+    rows = _query(flux)
+    if search:
+        needle = search.strip().lower()
+        rows = [r for r in rows if _client_kw_match(r, needle)]
+    if pon:
+        needle_pon = str(pon).strip().lower()
+        rows = [r for r in rows if needle_pon in (r.get("pon_port") or "").lower()]
+    return rows[:limit]
+
+
+def get_client_by_documento(documento: str, hours: int = 168) -> Dict[str, Any]:
+    """Ficha enriquecida por documento (clientes_enriquecidos, ultima fila)."""
+    esc = str(documento).replace("\\", "\\\\").replace('"', '\\"')
+    flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos")
+    |> filter(fn: (r) => r["documento"] == "{esc}")
+    |> last()
+    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> sort(columns: ["_time"], desc: true)
+    |> limit(n: 1)
+    |> yield(name: "ficha")
+'''
+    rows = _query(flux)
+    return rows[0] if rows else {}
+
+
+def get_pending_clients(hours: int = 168, limit: int = 500) -> List[Dict[str, Any]]:
+    """Clientes pendientes (clientes_pendientes), ultima fila por documento+causa."""
+    flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "clientes_pendientes")
+    |> group(columns: ["documento", "causa"], mode: "by")
+    |> last()
+    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> yield(name: "clientes_pendientes")
+'''
+    rows = _query(flux)
+    return rows[:limit]
+
+
+def get_pending_by_documento(documento: str, hours: int = 168) -> Dict[str, Any]:
+    """Ficha de un cliente pendiente por documento (clientes_pendientes)."""
+    esc = str(documento).replace("\\", "\\\\").replace('"', '\\"')
+    flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "clientes_pendientes")
+    |> filter(fn: (r) => r["documento"] == "{esc}")
+    |> last()
+    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> sort(columns: ["_time"], desc: true)
+    |> limit(n: 1)
+    |> yield(name: "pendiente")
+'''
+    rows = _query(flux)
+    return rows[0] if rows else {}
+
+
+def search_clientes(
+    search: Optional[str] = None,
+    olt: Optional[str] = None,
+    nap: Optional[str] = None,
+    zona: Optional[str] = None,
+    limit: int = 500,
+    hours: int = 168,
+    include_pending: bool = True,
+) -> List[Dict[str, Any]]:
+    """Busqueda unificada para el dashboard: enriquecidos + pendientes.
+
+    Los pendientes se normalizan al mismo shape (claves vacias donde no aplica),
+    se marcan con `pendiente: "true"` y conservan su `causa`. Los enriquecidos
+    tienen prioridad: si el limite se llena con ellos, los pendientes no entran.
+    """
+    rows = get_enriched_clients(
+        search=search, olt=olt, nap=nap, zona=zona, limit=limit, hours=hours,
+    )
+    if include_pending and len(rows) < limit:
+        pend_rows = get_pending_clients(hours=hours, limit=limit)
+        needle = (search or "").strip().lower()
+        for p in pend_rows:
+            normalized = {
+                "documento": p.get("documento", ""),
+                "usuario_pppoe": p.get("usuario_pppoe", ""),
+                "serial_onu": p.get("serial_onu", ""),
+                "mac": "",
+                "nombre": p.get("nombre", ""),
+                "direccion": "",
+                "olt": "",
+                "nodo": "",
+                "nap": p.get("nap", ""),
+                "zona": p.get("zona", ""),
+                "estado_onu": -1,
+                "coincidencia": "",
+                "ubicacion_descuadrada": "false",
+                "telefono": "",
+                "time": p.get("time"),
+                "causa": p.get("causa", ""),
+                "pendiente": "true",
+                "estado_servicio": "",
+                "pppoe_status": "",
+            }
+            if nap and (normalized["nap"] or "").lower() != str(nap).strip().lower():
+                continue
+            if zona and (normalized["zona"] or "").lower() != str(zona).lower():
+                continue
+            if needle and not _client_kw_match(normalized, needle):
+                continue
+            rows.append(normalized)
+            if len(rows) >= limit:
+                break
+    return rows[:limit]
+
+
+def get_clientes_stats(hours: int = 168) -> Dict[str, Any]:
+    """Totales de enriquecidos / pendientes / descuadrados para el panel."""
+    def _count_measurement(measurement: str, extra: str = "") -> int:
+        flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "{measurement}")
+    {extra}
+    |> group()
+    |> count()
+    |> yield(name: "count")
+'''
+        rows = _query(flux)
+        if rows and "value" in rows[0]:
+            val = rows[0]["value"]
+            return int(val) if val is not None else 0
+        return 0
+
+    def _count_field(measurement: str, field: str) -> int:
+        return _count_measurement(
+            measurement,
+            f'|> filter(fn: (r) => r["_field"] == "{field}")\n',
+        )
+
+    total = _count_field("clientes_enriquecidos", "estado_onu")
+    descuadrados = _count_measurement(
+        "clientes_enriquecidos",
+        '|> filter(fn: (r) => r["_field"] == "estado_onu")\n'
+        '|> filter(fn: (r) => r["ubicacion_descuadrada"] == "true")\n',
+    )
+    pendientes = _count_field("clientes_pendientes", "nombre")
+    return {
+        "enriquecidos": total,
+        "descuadrados": descuadrados,
+        "pendientes": pendientes,
+    }
+
+
 def get_recent_metrics(measurement: str, limit: int = 100, minutes: int = 60) -> List[Dict[str, Any]]:
     """Get the latest data point per device (or device+interface) from a measurement.
 

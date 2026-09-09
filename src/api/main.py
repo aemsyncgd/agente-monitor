@@ -189,7 +189,7 @@ async def health():
 
 
 # ── Import & register routes ─────────────────────────────────────────────────
-from .routes import metrics, anomalies, health as health_route, nodes, devices, agent, ping, reporte, agent_llm, tv, agent_ops, traffic
+from .routes import metrics, anomalies, health as health_route, nodes, devices, agent, ping, reporte, agent_llm, tv, agent_ops, traffic, clientes
 
 app.include_router(metrics.router, prefix="/api/v1/metrics", tags=["metrics"])
 app.include_router(anomalies.router, prefix="/api/v1/anomalies", tags=["anomalies"])
@@ -203,6 +203,7 @@ app.include_router(agent_llm.router, tags=["agent-llm"])
 app.include_router(tv.router, tags=["tv"])
 app.include_router(agent_ops.router, tags=["agent-operations"])
 app.include_router(traffic.router, tags=["traffic"])
+app.include_router(clientes.router, tags=["clientes"])
 
 # ── Startup log ──────────────────────────────────────────────────────────────
 @app.on_event("startup")
