@@ -834,3 +834,171 @@ from(bucket: "{INFLUX_BUCKET}")
     |> yield(name: "anomalies")
 '''
     return _query(flux)
+
+
+# ---------------------------------------------------------------------------
+# Anomalias: ventanas, series, predicciones por tendencia e historico por ONU
+# ---------------------------------------------------------------------------
+
+_ANOMALY_WARNING_DBM = -28.0
+_ANOMALY_RISK_DBM = -30.0
+_ANOMALY_CRITICAL_DBM = -32.0
+
+
+def _normalize_anomaly_series(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Filas pivoteadas por hora -> {time, total, critical, warning, risk}.
+
+    `risk` agrega la banda media (-32..-30) + critical (< -32): serie que
+    origina las predicciones (sparkline morado).
+    """
+    out = []
+    for r in rows:
+        critical = int(r.get("critical") or 0)
+        warning = int(r.get("warning") or 0)
+        risk = int(r.get("risk") or 0)
+        out.append({
+            "time": r.get("time"),
+            "total": critical + warning,
+            "critical": critical,
+            "warning": warning,
+            "risk": risk + critical,
+        })
+    out.sort(key=lambda x: x.get("time") or "")
+    return out
+
+
+def _counts_from_bands(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Filas {band, value} -> {total, critical, warning, risk}."""
+    critical = 0
+    warning = 0
+    risk = 0
+    for r in rows:
+        v = int(r.get("value") or 0)
+        band = r.get("band")
+        if band == "critical":
+            critical = v
+        elif band == "risk":
+            risk = v
+        else:
+            warning = v
+    return {"total": critical + warning, "critical": critical,
+            "warning": warning, "risk": risk + critical}
+
+
+def get_anomaly_series(hours: int = 24) -> List[Dict[str, Any]]:
+    """Conteos por hora (ultimas `hours` horas) para los sparklines de KPIs."""
+    flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours + 1}h)
+    |> filter(fn: (r) => r["_measurement"] == "optical_power")
+    |> filter(fn: (r) => r["_field"] == "rx_power")
+    |> aggregateWindow(every: 1h, fn: last, createEmpty: false)
+    |> filter(fn: (r) => r["_value"] < -28.0)
+    |> map(fn: (r) => ({{
+        r with
+        band: if r["_value"] < -32.0 then "critical" else if r["_value"] < -30.0 then "risk" else "warning"
+    }}))
+    |> group(columns: ["band"])
+    |> aggregateWindow(every: 1h, fn: count, createEmpty: false)
+    |> pivot(rowKey: ["_time"], columnKey: ["band"], valueColumn: "_value")
+    |> yield(name: "series")
+'''
+    return _normalize_anomaly_series(_query(flux))
+
+
+def get_anomaly_previous(hours: int = 24) -> Dict[str, Any]:
+    """Conteos en la ventana previa (-2h..-1h) base del % de cambio."""
+    flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{(hours * 2) + 1}h, stop: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "optical_power")
+    |> filter(fn: (r) => r["_field"] == "rx_power")
+    |> last()
+    |> filter(fn: (r) => r["_value"] < -28.0)
+    |> map(fn: (r) => ({{
+        r with
+        band: if r["_value"] < -32.0 then "critical" else if r["_value"] < -30.0 then "risk" else "warning"
+    }}))
+    |> group(columns: ["band"])
+    |> count()
+    |> yield(name: "previous")
+'''
+    return _counts_from_bands(_query(flux))
+
+
+def predict_failures(hours: int = 24, max_results: int = 20) -> List[Dict[str, Any]]:
+    """Prediccion de fallo por tendencia por ONU (misma logica del agente:
+    `InfluxReader.predict_failures`). Solo ONUs en caida con riesgo < 48h."""
+    rows = _query(f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "optical_power")
+    |> filter(fn: (r) => r["_field"] == "rx_power")
+    |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)''')
+
+    onu_data: Dict[tuple, List[float]] = {}
+    for r in rows:
+        key = (r.get("olt_name"), r.get("pon_port"), r.get("onu_index"),
+               r.get("onu_serial"))
+        if key not in onu_data:
+            onu_data[key] = []
+        v = r.get("value")
+        if v is not None:
+            onu_data[key].append(float(v))
+
+    risks = []
+    for (olt, pon, idx, serial), values in onu_data.items():
+        if len(values) < 12:
+            continue
+        recent = values[-12:]
+        older = values[-24:-12] if len(values) >= 24 else values[: len(values) // 2]
+        if not older:
+            continue
+        recent_avg = sum(recent) / len(recent)
+        older_avg = sum(older) / len(older)
+        hours_data = len(recent) * 5 / 60
+        if hours_data <= 0:
+            continue
+        trend = (recent_avg - older_avg) / hours_data
+        if trend < -0.5 and recent_avg > -30:
+            hours_to_failure = (recent_avg + 30) / abs(trend)
+            confidence = min(1.0, abs(trend) / 2.0)
+            if hours_to_failure < 48:
+                risks.append({
+                    "olt_name": olt,
+                    "pon_port": pon,
+                    "onu_index": idx,
+                    "onu_serial": serial,
+                    "current_power": round(recent_avg, 2),
+                    "trend_db_per_hour": round(trend, 3),
+                    "hours_to_failure": round(hours_to_failure, 1),
+                    "confidence": round(confidence, 2),
+                })
+    risks.sort(key=lambda r: r["hours_to_failure"])
+    return risks[:max_results]
+
+
+def get_onu_optical_history(
+    olt_name: str, onu_serial: str, hours: int = 24
+) -> Dict[str, Any]:
+    """Serie 24h rx/tx de una ONU (media cada 30m) para los historicos por card."""
+    esc_olt = str(olt_name).replace("\\", "\\\\").replace('"', '\\"')
+    esc_serial = str(onu_serial).replace("\\", "\\\\").replace('"', '\\"')
+    flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "optical_power")
+    |> filter(fn: (r) => r["_field"] == "rx_power" or r["_field"] == "tx_power")
+    |> filter(fn: (r) => r["olt_name"] == "{esc_olt}")
+    |> filter(fn: (r) => r["onu_serial"] == "{esc_serial}")
+    |> aggregateWindow(every: 30m, fn: mean, createEmpty: false)
+    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> sort(columns: ["_time"])
+    |> yield(name: "history")
+'''
+    times, rx, tx = [], [], []
+    for r in _query(flux):
+        times.append(r.get("time"))
+        rx.append(r.get("rx_power"))
+        tx.append(r.get("tx_power"))
+    return {"times": times, "rx": rx, "tx": tx}
