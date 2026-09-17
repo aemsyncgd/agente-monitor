@@ -2617,6 +2617,9 @@ createApp({
         // Anomaly filters
         const anomalyOltFilter = ref('');
         const anomalyTypeFilter = ref('');
+        // Anomaly filters v2
+        const anomalyPredictionFilter = ref('');
+        const anomalyHistoryCache = ref({});
 
         // Network tab (ping)
         const pingStatus = ref([]);
@@ -4139,10 +4142,17 @@ createApp({
             if (onuStatusChart) onuStatusChart.destroy();
             if (opticalDistChart) opticalDistChart.destroy();
             destroyInsideTrafficCharts();
+            destroySparklines();
+            destroyAnomalyCharts();
         });
 
         // Re-fetch data when switching tabs
         watch(activeTab, async (tab) => {
+            if (tab !== 'anomalies') {
+                destroySparklines();
+                destroyAnomalyCharts();
+                anomalyHistoryCache.value = {};
+            }
             if (tab === 'anomalies') {
                 try {
                     const [fullAnom, sumRes, predsRes] = await Promise.allSettled([
@@ -4153,6 +4163,8 @@ createApp({
                     if (fullAnom.status === 'fulfilled') anomalies.value = fullAnom.value?.anomalies || [];
                     if (sumRes.status === 'fulfilled') anomalySummary.value = sumRes.value || {};
                     if (predsRes.status === 'fulfilled') predictions.value = predsRes.value?.predictions || [];
+                    await nextTick();
+                    renderAnomalyTabCharts();
                 } catch(e) {}
             }
             if (tab === 'config') {
@@ -4207,14 +4219,261 @@ createApp({
             try {
                 const res = await apiFetch(url);
                 anomalies.value = res.anomalies || [];
-            } catch(e) {}
+            } catch (e) {}
+            anomalyHistoryCache.value = {};
+            await nextTick();
+            if (activeTab.value === 'anomalies') {
+                renderKpiSparklines();
+                visibleAnomalies.value.forEach((a, i) => loadAnomalyHistory(a, i));
+            }
         });
+
+        // Re-render charts al cambiar el filtro de prediccion (cambian los ids del DOM)
+        watch(anomalyPredictionFilter, async () => {
+            await nextTick();
+            if (activeTab.value !== 'anomalies') return;
+            destroyAnomalyCharts();
+            const list = visibleAnomalies.value;
+            for (let i = 0; i < list.length && i < 60; i++) {
+                loadAnomalyHistory(list[i], i);
+            }
+        });
+
+        // ==================== ANOMALIAS v2 (KPIs / panel IA / historicos) ====================
+        const predictionSerials = computed(() => new Set((predictions.value || []).map(p => p.onu_serial)));
+
+        const visibleAnomalies = computed(() => {
+            if (anomalyPredictionFilter.value !== 'prediction') return anomalies.value;
+            return anomalies.value.filter(a => predictionSerials.value.has(a.onu_serial));
+        });
+
+        const aiQuotes = computed(() =>
+            [...(predictions.value || [])]
+                .sort((x, y) => (x.hours_to_failure ?? 999) - (y.hours_to_failure ?? 999))
+                .slice(0, 6)
+        );
+
+        const anomalyKpis = computed(() => {
+            const s = anomalySummary.value || {};
+            const prev = s.previous || {};
+            const cur = {
+                total: s.total_anomalies || 0,
+                critical: s.by_type?.critical || 0,
+                warning: (s.by_type?.low_power ?? s.by_type?.warning) || 0,
+                predictions: (s.predictions?.count ?? predictions.value.length) || 0,
+            };
+            const base = {
+                total: prev.total ?? 0,
+                critical: prev.critical ?? 0,
+                warning: prev.warning ?? 0,
+                predictions: prev.risk ?? 0,
+            };
+            const label = { total: 'Total', critical: 'Criticas', warning: 'Advertencias', predictions: 'Predicciones' };
+            const key = { total: 'total', critical: 'critical', warning: 'warning', predictions: 'prediction' };
+            return ['total', 'critical', 'warning', 'predictions'].map(k => {
+                const value = cur[k];
+                const baseV = base[k];
+                const delta = baseV > 0 ? Math.round(((value - baseV) / baseV) * 100) : (value > 0 ? 100 : 0);
+                let trendClass = 'bg-surface-700/50 text-surface-400';
+                if (delta > 0) trendClass = 'bg-red-500/15 text-red-400';
+                if (delta < 0) trendClass = 'bg-emerald-500/15 text-emerald-400';
+                return {
+                    key: key[k],
+                    label: label[k],
+                    value,
+                    trendText: (delta > 0 ? '+' : '') + delta + '%',
+                    trendClass,
+                };
+            });
+        });
+
+        function formatDbm(v) {
+            if (v === null || v === undefined || v === '') return '—';
+            return Number(v).toFixed(2) + ' dBm';
+        }
+
+        function historyKey(a) {
+            return (a.olt_name || '') + '|' + (a.onu_serial || '') + '|' + (a.time || '');
+        }
+
+        function anomalyMessage(a) {
+            const desc = a.description || '';
+            const p = desc.indexOf(':');
+            if (p > 0) return desc.slice(0, p).trim();
+            return desc || 'Anomalia detectada';
+        }
+
+        function anomalyValue(a) {
+            return formatDbm(a.rx_power);
+        }
+
+        function anomalyGrid(a, i) {
+            const h = anomalyHistoryCache.value[historyKey(a)] || null;
+            let tx = '—';
+            if (h && (h.tx || []).length) {
+                for (let k = h.tx.length - 1; k >= 0; k--) {
+                    if (h.tx[k] != null) { tx = Number(h.tx[k]).toFixed(2) + ' dBm'; break; }
+                }
+            }
+            const oltTemp = oltMetrics.value.find(o => o.olt_name === a.olt_name);
+            const temp = (oltTemp && oltTemp.temperature != null)
+                ? Number(oltTemp.temperature).toFixed(1) + ' °C'
+                : '—';
+            return [
+                { label: 'RX Power', value: formatDbm(a.rx_power), color: 'text-cyan-300' },
+                { label: 'TX Power', value: tx, color: 'text-fuchsia-300' },
+                { label: 'SNR', value: '—', color: 'text-surface-400' },
+                { label: 'Temp', value: temp, color: 'text-amber-300' },
+            ];
+        }
+
+        function chartColor(anomalyType) {
+            return anomalyType === 'critical' ? '#f87171' : '#fbbf24';
+        }
+
+        function renderKpiSparklines() {
+            const s = anomalySummary.value?.series || [];
+            const toPts = k => s.map(p => [new Date(p.time).getTime(), p[k] || 0]);
+            const configs = [
+                { key: 'total', color: '#f1f5f9', data: toPts('total') },
+                { key: 'critical', color: '#f87171', data: toPts('critical') },
+                { key: 'warning', color: '#fb923c', data: toPts('warning') },
+                { key: 'prediction', color: '#c084fc', data: toPts('risk') },
+            ];
+            for (const c of configs) {
+                const el = document.getElementById('spark-' + c.key);
+                const storeKey = 'spark-' + c.key;
+                if (window[storeKey]) { window[storeKey].destroy(); delete window[storeKey]; }
+                if (!el) continue;
+                window[storeKey] = new ApexCharts(el, {
+                    chart: { type: 'area', height: 40, sparkline: { enabled: true }, toolbar: { show: false }, animations: { enabled: false } },
+                    series: [{ data: c.data }],
+                    colors: [c.color],
+                    stroke: { width: 1.5, curve: 'smooth' },
+                    fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.02, stops: [0, 95] } },
+                    tooltip: { enabled: false },
+                    dataLabels: { enabled: false },
+                    xaxis: { type: 'datetime' },
+                    yaxis: { show: false },
+                    grid: { show: false },
+                });
+                window[storeKey].render();
+            }
+        }
+
+        function destroySparklines() {
+            ['total', 'critical', 'warning', 'prediction'].forEach(k => {
+                const storeKey = 'spark-' + k;
+                if (window[storeKey]) { window[storeKey].destroy(); delete window[storeKey]; }
+            });
+        }
+
+        function renderAnomalyCharts(a, i, h) {
+            if (activeTab.value !== 'anomalies') return;
+            const color = chartColor(a.anomaly_type);
+            const pts = (h.times || []).map((t, k) => ({
+                t: new Date(t).getTime(),
+                rx: h.rx[k] != null ? h.rx[k] : null,
+                tx: h.tx[k] != null ? h.tx[k] : null,
+            })).filter(p => p.rx !== null || p.tx !== null);
+            const theme = apexChartTheme.value.chart;
+            const baseY = { labels: { style: { colors: '#64748b', fontSize: '9px' }, formatter: v => v + ' dB' }, forceNiceScale: true };
+            const baseX = { type: 'datetime', labels: { format: 'HH:mm', datetimeUTC: false, style: { colors: '#64748b', fontSize: '9px' } }, axisBorder: { show: false }, axisTicks: { show: false } };
+            const grid = { borderColor: isDark.value ? '#1e293b' : '#e2e8f0' };
+            const tooltip = { theme: isDark.value ? 'dark' : 'light', x: { format: 'dd MMM HH:mm' } };
+
+            const elRx = document.getElementById('hist-rx-' + i);
+            if (elRx) {
+                if (window['anomRx' + i]) { window['anomRx' + i].destroy(); }
+                const rxData = pts.filter(p => p.rx !== null).map(p => [p.t, p.rx]);
+                if (rxData.length) {
+                    window['anomRx' + i] = new ApexCharts(elRx, {
+                        chart: { ...theme, type: 'line', height: 96, toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: true } },
+                        series: [{ name: 'RX', data: rxData }],
+                        colors: [color],
+                        stroke: { width: 1.5, curve: 'smooth' },
+                        xaxis: baseX,
+                        yaxis: baseY,
+                        grid,
+                        tooltip,
+                        legend: { show: false },
+                        dataLabels: { enabled: false },
+                    });
+                    window['anomRx' + i].render();
+                }
+            }
+
+            const elRt = document.getElementById('hist-rxtx-' + i);
+            if (elRt) {
+                if (window['anomRt' + i]) { window['anomRt' + i].destroy(); }
+                const rxData = pts.filter(p => p.rx !== null).map(p => [p.t, p.rx]);
+                const txData = pts.filter(p => p.tx !== null).map(p => [p.t, p.tx]);
+                if (rxData.length || txData.length) {
+                    window['anomRt' + i] = new ApexCharts(elRt, {
+                        chart: { ...theme, type: 'line', height: 96, toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: true } },
+                        series: [
+                            { name: 'RX', data: rxData },
+                            { name: 'TX', data: txData },
+                        ],
+                        colors: [color, '#e879f9'],
+                        stroke: { width: 1.5, curve: 'smooth' },
+                        xaxis: baseX,
+                        yaxis: baseY,
+                        grid,
+                        tooltip,
+                        legend: { show: false },
+                        dataLabels: { enabled: false },
+                    });
+                    window['anomRt' + i].render();
+                }
+            }
+        }
+
+        function destroyAnomalyCharts() {
+            for (let i = 0; i < 120; i++) {
+                if (window['anomRx' + i]) { window['anomRx' + i].destroy(); delete window['anomRx' + i]; }
+                if (window['anomRt' + i]) { window['anomRt' + i].destroy(); delete window['anomRt' + i]; }
+            }
+        }
+
+        async function loadAnomalyHistory(a, i) {
+            if (!a.olt_name || !a.onu_serial) return;
+            const key = historyKey(a);
+            if (anomalyHistoryCache.value[key]) {
+                await nextTick();
+                renderAnomalyCharts(a, i, anomalyHistoryCache.value[key]);
+                return;
+            }
+            try {
+                const params = new URLSearchParams({ olt_name: a.olt_name, onu_serial: a.onu_serial, hours: '24' });
+                const res = await apiFetch('/api/v1/anomalies/history?' + params.toString());
+                anomalyHistoryCache.value = { ...anomalyHistoryCache.value, [key]: res };
+                await nextTick();
+                renderAnomalyCharts(a, i, res);
+            } catch (e) {
+                /* sin historial para esta ONU */
+            }
+        }
+
+        async function renderAnomalyTabCharts() {
+            await nextTick();
+            if (activeTab.value !== 'anomalies') return;
+            renderKpiSparklines();
+            destroyAnomalyCharts();
+            const list = visibleAnomalies.value;
+            for (let i = 0; i < list.length; i++) {
+                if (i >= 60) break;
+                loadAnomalyHistory(list[i], i);
+            }
+        }
 
         return {
             // State
             sidebarOpen, activeTab, loading, refreshCountdown, isDark,
             nodes, allDevices, oltMetrics, opticalData, interfaceData,
             recentAnomalies, anomalies, predictions, anomalySummary,
+            anomalyPredictionFilter, visibleAnomalies, anomalyKpis, aiQuotes,
+            anomalyMessage, anomalyValue, anomalyGrid, historyKey,
             mikrotikMetrics, mikrotikTemps, mikrotikInterfaces,
             mikrotikLoading, mikrotikLastUpdated,
             selectedMikrotik, IFACE_COLUMNS, ifaceColumns,
