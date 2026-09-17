@@ -1005,27 +1005,23 @@
 
                 <!-- ==================== TAB: Anomalias ==================== -->
                 <div v-if="activeTab === 'anomalies'" class="slide-in space-y-6">
-                    <!-- Summary Cards -->
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div class="bg-surface-900 rounded-xl p-4 border border-surface-700/50">
-                            <div class="text-xs text-surface-400 uppercase tracking-wider mb-1">Total (24h)</div>
-                            <div class="text-2xl font-bold text-surface-100">{{ anomalySummary.total_anomalies || 0 }}</div>
-                        </div>
-                        <div class="bg-surface-900 rounded-xl p-4 border border-surface-700/50">
-                            <div class="text-xs text-surface-400 uppercase tracking-wider mb-1">Criticas</div>
-                            <div class="text-2xl font-bold text-red-400">{{ anomalySummary.by_type?.critical || 0 }}</div>
-                        </div>
-                        <div class="bg-surface-900 rounded-xl p-4 border border-surface-700/50">
-                            <div class="text-xs text-surface-400 uppercase tracking-wider mb-1">Advertencias</div>
-                            <div class="text-2xl font-bold text-amber-400">{{ anomalySummary.by_type?.low_power || 0 }}</div>
-                        </div>
-                        <div class="bg-surface-900 rounded-xl p-4 border border-surface-700/50">
-                            <div class="text-xs text-surface-400 uppercase tracking-wider mb-1">Predicciones</div>
-                            <div class="text-2xl font-bold text-purple-400">{{ predictions.length }}</div>
+                    <!-- KPIs -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <div v-for="kpi in anomalyKpis" :key="kpi.key" class="relative overflow-hidden rounded-xl bg-surface-900/60 border border-surface-700/50 p-4">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                    <div class="text-[11px] uppercase tracking-wider text-surface-400">{{ kpi.label }}</div>
+                                    <div class="mt-1 flex items-baseline gap-2">
+                                        <span class="text-3xl font-bold text-surface-100">{{ kpi.value }}</span>
+                                        <span :class="kpi.trendClass" class="text-[11px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap">{{ kpi.trendText }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div :id="'spark-' + kpi.key" class="absolute inset-x-0 bottom-0 h-10"></div>
                         </div>
                     </div>
 
-                    <!-- Filters -->
+                    <!-- Filtros -->
                     <div class="flex flex-wrap gap-3">
                         <select v-model="anomalyOltFilter" class="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 focus:outline-none focus:border-brand-500">
                             <option value="">Todas las OLTs</option>
@@ -1036,49 +1032,69 @@
                             <option value="critical">Criticas</option>
                             <option value="warning">Advertencias</option>
                         </select>
+                        <select v-model="anomalyPredictionFilter" class="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 focus:outline-none focus:border-brand-500">
+                            <option value="">Prediccion</option>
+                            <option value="prediction">Solo con prediccion</option>
+                        </select>
                     </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <!-- Anomaly List -->
-                        <div class="lg:col-span-2 space-y-3">
-                            <h3 class="text-sm font-semibold text-surface-300">Anomalias Detectadas</h3>
-                            <div v-if="anomalies.length === 0" class="bg-surface-900 rounded-xl border border-surface-700/50 p-8 text-center text-surface-500 text-sm">Sin anomalias en el periodo seleccionado</div>
-                            <div v-for="(a, i) in anomalies" :key="i" class="bg-surface-900 rounded-xl border border-surface-700/50 p-4 border-l-4" :class="a.anomaly_type === 'critical' ? 'border-l-red-500' : 'border-l-amber-500'">
-                                <div class="flex items-start justify-between">
-                                    <div class="flex items-center gap-3">
-                                        <span :class="a.anomaly_type === 'critical' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'" class="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0">{{ a.anomaly_type }}</span>
-                                        <div>
-                                            <div class="flex items-center gap-2 text-sm">
-                                                <span class="font-medium text-surface-200">{{ a.olt_name }}</span>
-                                                <span class="text-surface-600">|</span>
-                                                <span class="font-mono text-xs text-surface-400">{{ a.onu_serial }}</span>
-                                                <span class="text-surface-600">|</span>
-                                                <span class="text-xs text-surface-500">PON {{ a.pon_port }}</span>
-                                            </div>
-                                            <p class="text-xs text-surface-500 mt-1">{{ a.description }}</p>
-                                            <div class="flex items-center gap-3 mt-1.5 text-xs text-surface-600">
-                                                <span v-if="a.rx_power">RX: {{ a.rx_power }} dBm</span>
-                                                <span>{{ formatTime(a.time) }}</span>
+                    <!-- Panel Analisis Predictivo de IA -->
+                    <div class="w-full rounded-xl border border-teal-700/60 bg-teal-950/20 p-5">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
+                            <h3 class="text-sm font-semibold text-teal-300">Analisis Predictivo de IA</h3>
+                        </div>
+                        <div v-if="aiQuotes.length === 0" class="text-sm text-surface-500">Sin predicciones activas en este momento.</div>
+                        <div v-else class="space-y-2">
+                            <div v-for="q in aiQuotes" :key="q.olt_name + '|' + q.onu_serial" class="text-sm leading-relaxed">
+                                <span class="font-mono font-bold text-teal-400">[EQUIPO {{ q.olt_name }}]</span>
+                                <span class="text-surface-300"> ONU {{ q.onu_serial }} · RX {{ q.current_power }} dBm · tendencia {{ q.trend_db_per_hour }} dB/h · fallo estimado en {{ q.hours_to_failure }} h · confianza {{ (q.confidence * 100).toFixed(0) }}%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Lista de Anomalias Detectadas -->
+                    <div>
+                        <h3 class="text-sm font-semibold text-surface-300 mb-3">Anomalias Detectadas</h3>
+                        <div class="flex flex-col gap-4">
+                            <div v-if="visibleAnomalies.length === 0" class="bg-surface-900 rounded-xl border border-surface-700/50 p-8 text-center text-surface-500 text-sm">Sin anomalias en el periodo seleccionado</div>
+                            <div v-for="(a, i) in visibleAnomalies" :key="historyKey(a)" class="overflow-hidden rounded-xl bg-surface-900 border border-surface-700/50 border-l-4" :class="a.anomaly_type === 'critical' ? 'border-l-red-500' : 'border-l-amber-500'">
+                                <div class="grid grid-cols-1 xl:grid-cols-12">
+                                    <!-- Bloque izquierdo: info + detalles tecnicos -->
+                                    <div class="xl:col-span-5 flex flex-col gap-2.5 p-4">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span :class="a.anomaly_type === 'critical' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'" class="text-[10px] uppercase px-2 py-0.5 rounded-full font-semibold">{{ a.anomaly_type }}</span>
+                                            <span class="text-sm font-bold text-surface-100">{{ a.olt_name }}</span>
+                                            <span class="text-surface-600">|</span>
+                                            <span class="font-mono text-xs text-surface-500">{{ a.onu_index }} · {{ a.onu_serial }} · PON {{ a.pon_port }}</span>
+                                        </div>
+                                        <div class="flex items-baseline justify-between gap-3">
+                                            <span class="text-sm text-surface-400">{{ anomalyMessage(a) }}</span>
+                                            <span :class="a.anomaly_type === 'critical' ? 'text-red-400' : 'text-amber-400'" class="text-2xl font-bold font-mono whitespace-nowrap">{{ anomalyValue(a) }}</span>
+                                        </div>
+                                        <div class="mt-auto">
+                                            <div class="text-[10px] uppercase tracking-wider text-surface-500 mb-1.5">Detalles Tecnicos</div>
+                                            <div class="grid grid-cols-4 gap-2">
+                                                <div v-for="cell in anomalyGrid(a, i)" :key="cell.label" class="rounded-lg border border-surface-700/50 bg-surface-800 px-2 py-1.5">
+                                                    <div class="text-[10px] text-surface-500">{{ cell.label }}</div>
+                                                    <div class="text-sm font-mono font-semibold" :class="cell.color">{{ cell.value }}</div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Predictions -->
-                        <div class="space-y-3">
-                            <h3 class="text-sm font-semibold text-surface-300">Predicciones de Fallo</h3>
-                            <div v-if="predictions.length === 0" class="bg-surface-900 rounded-xl border border-surface-700/50 p-8 text-center text-surface-500 text-sm">Sin predicciones activas</div>
-                            <div v-for="(p, i) in predictions.slice(0,10)" :key="i" class="bg-surface-900 rounded-xl border border-surface-700/50 p-4">
-                                <div class="flex items-center gap-2 mb-1">
-                                    <span :class="p.risk_level === 'high' ? 'bg-red-500' : 'bg-amber-500'" class="w-2 h-2 rounded-full"></span>
-                                    <span class="text-sm font-medium text-surface-200">{{ p.onu_serial }}</span>
-                                </div>
-                                <p class="text-xs text-surface-500">{{ p.reason }}</p>
-                                <div class="flex items-center justify-between mt-2">
-                                    <span :class="p.risk_level === 'high' ? 'text-red-400' : 'text-amber-400'" class="text-xs font-medium uppercase">{{ p.risk_level }}</span>
-                                    <span class="text-xs text-surface-600">{{ p.olt_name }}</span>
+                                    <!-- Bloque derecho: historicos 24h -->
+                                    <div class="xl:col-span-7 border-t border-surface-700/50 p-3 xl:border-l xl:border-t-0">
+                                        <div class="flex h-full flex-row gap-2">
+                                            <div class="min-w-0 flex-1">
+                                                <div class="mb-1 text-[10px] text-surface-500">Historial 24h - Rx</div>
+                                                <div :id="'hist-rx-' + i" class="h-24"></div>
+                                            </div>
+                                            <div class="min-w-0 flex-1">
+                                                <div class="mb-1 text-[10px] text-surface-500">Historial 24h - Rx/Tx</div>
+                                                <div :id="'hist-rxtx-' + i" class="h-24"></div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
