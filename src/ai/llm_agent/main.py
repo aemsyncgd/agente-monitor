@@ -58,11 +58,15 @@ def create_agent(config_yaml_path: str = "config/config_ia.yaml",
         bucket=os.environ.get("INFLUXDB_BUCKET", "monitoreo"),
     )
     influx.connect()
+    from src.client_search import ClientSearchService
+    from src.wisp_client import WispClient
     registry = ToolRegistry(
         InfluxReader(influx),
         None,
         EventStore(eff.events_file),
         alert_sender=None,
+        client_search=ClientSearchService(
+            wisp=WispClient(yaml_config.wisp), influx=influx),
     )
     events = EventStore(eff.events_file)
     alert_state = AlertState(eff.state_file)

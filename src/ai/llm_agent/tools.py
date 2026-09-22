@@ -312,8 +312,8 @@ class ToolRegistry:
         "check_ping_status": ["get_ping_status"],
         "client_lookup": ["lookup_client", "lookup_client_full",
                           "clients_by_nap", "clients_by_zone",
-                          "mismatched_locations"],
-        "zone_grouping": ["clients_on_pon"],
+                          "mismatched_locations", "group_analysis"],
+        "zone_grouping": ["clients_on_pon", "group_analysis"],
         "check_interface": ["get_interface_status"],
         "daily_summary": ["get_network_summary"],
         "llm_analyze": ["get_olt_status"],
@@ -323,10 +323,11 @@ class ToolRegistry:
     ALWAYS = ["get_recent_events"]
 
     def __init__(self, reader: InfluxReader, client_lookup, event_store,
-                 alert_sender):
+                 alert_sender, client_search=None):
         self.reader = reader
         self.events = event_store
         self.alert_sender = alert_sender  # callable (message, kind) -> bool
+        self.client_search = client_search  # ClientSearchService (opcional)
         # client_lookup se conserva por compatibilidad de firma pero ya no se
         # usa: las consultas de clientes van sobre la base enriquecida (Influx).
         self.lookup = client_lookup
@@ -474,6 +475,20 @@ class ToolRegistry:
         items = self.events.recent(limit=limit)
         return {"count": len(items), "events": items}
 
+    def _group_analysis(self, serials=None, olt_name=None, pon_port=None,
+                        nap=None) -> Dict:
+        """Análisis de un grupo de clientes (WISP+Influx vía servicio)."""
+        if not self.client_search:
+            return {"ok": False,
+                    "error": "ClientSearchService no disponible en este agente"}
+        try:
+            return self.client_search.group_analysis(
+                serials=serials or None, olt_name=olt_name or None,
+                pon_port=pon_port or None, nap=nap or None)
+        except Exception as e:
+            logger.warning(f"group_analysis falló: {e}")
+            return {"ok": False, "error": f"group_analysis falló: {e}"}
+
     def _send_alert(self, title: str, severity: str = "warning",
                     message: str = "", channel: str = "telegram") -> Dict:
         if not title:
@@ -540,6 +555,7 @@ class ToolRegistry:
             "clients_by_nap": self._clients_by_nap,
             "clients_by_zone": self._clients_by_zone,
             "mismatched_locations": self._mismatched_locations,
+            "group_analysis": self._group_analysis,
         }
         return handlers.get(name)
 
@@ -606,6 +622,14 @@ _TOOL_DESCRIPTIONS = {
         "Clientes con ubicacion descuadrada: el serial registrado en WISP no "
         "coincide con el serial fisico de la ONU en la OLT del mismo PON/MAC. "
         "Indica posibles errores de installacion o reasignacion."
+    ),
+    "group_analysis": (
+        "Analiza un grupo de clientes para evaluar el alcance de una falla. "
+        "Entrada: lista de seriales explicitos (serials), o descubrir el grupo "
+        "por OLT/PON (olt_name + pon_port) o por NAP (nap). Devuelve total, "
+        "afectados con direccion, perdida de senal (loss), baja potencia "
+        "(low_power) y distribucion de estados. Usalo cuando haya varias ONUs "
+        "cayendo juntas para saber cuantos clientes y quienes estan afectados."
     ),
 }
 
@@ -697,5 +721,19 @@ _TOOL_PARAMS: Dict[str, Dict] = {
         "properties": {
             "limit": {"type": "integer", "description": "Maximo de resultados (default 50)"},
         },
+    },
+    "group_analysis": {
+        "type": "object",
+        "properties": {
+            "serials": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Lista de seriales de ONU del grupo (opcional si se da olt/pon o nap)",
+            },
+            "olt_name": {"type": "string", "description": "Nombre de la OLT (ej. OLT-SISAL-1)"},
+            "pon_port": {"type": "string", "description": "Puerto PON (ej. GPON0/3)"},
+            "nap": {"type": "string", "description": "NAP (caja de distribucion, ej. I01313)"},
+        },
+        "required": [],
     },
 }

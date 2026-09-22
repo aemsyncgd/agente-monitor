@@ -202,3 +202,95 @@ def test_agent_run_cycle(tmp_path):
     res = agent.run_cycle(reason="test")
     assert "normalmente" in res
     assert events.count() == 1
+
+
+def test_agent_chat_respects_disabled(tmp_path):
+    base = LLMRuntimeConfig(enabled=False,
+                            runtime_config_file=str(tmp_path / "llm_config.json"))
+    store = RuntimeConfigStore(base)
+
+    provider_mock = MagicMock()
+    provider_mock.api_key = "sk-dummy"
+
+    reader_mock = MagicMock()
+    reader_mock.overall_stats.return_value = {"olts": 2, "onus_online": 100, "onus_total": 105, "onus_offline": 5, "low_power_alerts": 1, "hosts_down": 0}
+
+    events = EventStore(str(tmp_path / "events.json"))
+    registry = ToolRegistry(reader=reader_mock, client_lookup=MagicMock(),
+                            event_store=events, alert_sender=None)
+    alert_state = AlertState(str(tmp_path / "state.json"))
+    cost = CostTracker(str(tmp_path / "cost.json"))
+
+    agent = LLMAgent(store, provider_mock, registry, events, alert_state, cost)
+
+    result = agent.chat("¿estado de la red?")
+    assert result["ok"] is False
+    provider_mock.chat.assert_not_called()
+
+
+# --- 6. Tool group_analysis (buscador de grupos) ---
+
+def _make_registry(reader_mock, events, client_search=None):
+    return ToolRegistry(reader=reader_mock, client_lookup=MagicMock(),
+                        event_store=events, alert_sender=None,
+                        client_search=client_search)
+
+
+def test_group_analysis_gated_por_zone_grouping():
+    events = EventStore("")
+    registry = _make_registry(MagicMock(), events)
+    tools, dispatch = registry.build(enabled_instruction_ids=["zone_grouping"])
+    names = [t["function"]["name"] for t in tools]
+    assert "group_analysis" in names
+    assert "group_analysis" in dispatch
+
+
+def test_group_analysis_gated_por_client_lookup():
+    events = EventStore("")
+    registry = _make_registry(MagicMock(), events)
+    tools, dispatch = registry.build(enabled_instruction_ids=["client_lookup"])
+    names = [t["function"]["name"] for t in tools]
+    assert "group_analysis" in names
+    assert "group_analysis" in dispatch
+
+
+def test_group_analysis_ausente_sin_gate():
+    events = EventStore("")
+    registry = _make_registry(MagicMock(), events)
+    tools, dispatch = registry.build(enabled_instruction_ids=["daily_summary"])
+    names = [t["function"]["name"] for t in tools]
+    assert "group_analysis" not in names
+
+
+def test_group_analysis_sin_client_search():
+    events = EventStore("")
+    registry = _make_registry(MagicMock(), events)
+    _, dispatch = registry.build(enabled_instruction_ids=["zone_grouping"])
+    res = dispatch["group_analysis"](serials=["GPON00A1"])
+    assert res["ok"] is False
+
+
+def test_group_analysis_llama_servicio():
+    events = EventStore("")
+    svc = MagicMock()
+    svc.group_analysis.return_value = {"total": 2, "afectados": [], "loss": 2}
+    registry = _make_registry(MagicMock(), events, client_search=svc)
+    _, dispatch = registry.build(enabled_instruction_ids=["zone_grouping"])
+    res = dispatch["group_analysis"](olt_name="OLT-SISAL-2",
+                                     pon_port="GPON0/2")
+    assert res["total"] == 2
+    svc.group_analysis.assert_called_once_with(
+        serials=None, olt_name="OLT-SISAL-2", pon_port="GPON0/2", nap=None)
+
+
+def test_group_analysis_schema_params():
+    events = EventStore("")
+    registry = _make_registry(MagicMock(), events)
+    tools, _ = registry.build(enabled_instruction_ids=["zone_grouping"])
+    schema = [t for t in tools
+              if t["function"]["name"] == "group_analysis"][0]
+    props = schema["function"]["parameters"]["properties"]
+    assert "serials" in props
+    assert "olt_name" in props
+    assert "pon_port" in props
+    assert "nap" in props

@@ -224,12 +224,16 @@ def _get_chat_agent():
     )
     influx.connect()
 
+    from src.client_search import ClientSearchService
+    from src.wisp_client import WispClient
     events = EventStore(eff.events_file)
     registry = ToolRegistry(
         InfluxReader(influx),
         None,
         events,
         alert_sender=None,
+        client_search=ClientSearchService(
+            wisp=WispClient(cm.config.wisp), influx=influx),
     )
     alert_state = AlertState(eff.state_file)
     cost_tracker = CostTracker(
