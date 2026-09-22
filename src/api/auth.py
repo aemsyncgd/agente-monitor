@@ -40,6 +40,7 @@ PUBLIC_PATHS: Set[str] = {
     "/api/v1/health/",
     "/api/v1/health/collectors",
     "/api/v1/health/ai",
+    "/api/v1/health/pipeline",
     "/docs",
     "/openapi.json",
     "/redoc",
@@ -56,6 +57,8 @@ ADMIN_PATHS: Set[str] = {
 # button on the dashboard to re-collect a single device on click.
 VIEWER_WRITE_PREFIXES: tuple = (
     "/api/devices/refresh/",
+    "/api/clientes/vital",
+    "/api/clientes/grupo/analizar",
 )
 
 # Paths that are deprecated
