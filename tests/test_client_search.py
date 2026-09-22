@@ -42,7 +42,9 @@ class FakeInflux:
         out = []
         for r in rows:
             if self._tag_filter_match(flux, r):
-                out.append(r)
+                if self._field_filter_match(flux, r):
+                    if self._contains_match(flux, r):
+                        out.append(r)
         return out
 
     @staticmethod
@@ -53,6 +55,22 @@ class FakeInflux:
             if str(row.get(tag, "")).lower() != value and str(row.get("value", "")).lower() != value:
                 return False
         return True
+
+    @staticmethod
+    def _field_filter_match(flux, row):
+        import re as _re
+        m = _re.search(r'\[\"_field\"\] == \"([^\"]+)\"', flux)
+        if not m:
+            return True
+        return str(row.get("field", "")) == m.group(1)
+
+    @staticmethod
+    def _contains_match(flux, row):
+        import re as _re
+        m = _re.search(r'subv: \"([^\"]+)\"', flux)
+        if not m:
+            return True
+        return m.group(1).lower() in str(row.get("value", "")).lower()
 
 
 def _opt_row(field, value, **tags):
@@ -130,6 +148,32 @@ def test_find_por_documento_deriva_serial():
     assert res["found"] is True
     assert res["ficha"]["serial_onu"] == "GPON00F58B52"
     assert svc.wisp.calls_doc == ["v-5384589"]
+
+
+def test_find_por_nombre_resuelve_serial_por_base():
+    svc = _mk_service(
+        serials={"VSOL005ECDCA": {**WISP_SERIAL, "serial_onu": "VSOL005ECDCA"}},
+        clientes_enriquecidos=[{
+            "measurement": "clientes_enriquecidos", "field": "nombre",
+            "value": "FREDDY MANUEL SIFONTES ROSALES",
+            "serial_onu": "VSOL005ECDCA", "mac": "a1:b2:c3:d4:e5:f6",
+            "time": datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc),
+        }],
+        optical_power=[_opt_row("status", 3, onu_serial="VSOL005ECDCA")],
+    )
+    res = svc.find(nombre="sifontes")
+    assert res["found"] is True
+    assert res["ficha"]["serial_onu"] == "VSOL005ECDCA"
+    assert svc.wisp.calls_serial == ["VSOL005ECDCA"]
+
+
+def test_find_por_nombre_sin_coincidencia_found_false():
+    svc = _mk_service(
+        clientes_enriquecidos=[],
+        optical_power=[],
+    )
+    res = svc.find(nombre="inexistente")
+    assert res["found"] is False
 
 
 def test_find_por_mac_resuelve_serial_via_influx():

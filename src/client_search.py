@@ -96,6 +96,28 @@ class ClientSearchService:
                 return serial
         return None
 
+    def _serial_by_nombre(self, nombre: str, hours: int = 168) -> Optional[str]:
+        """Resuelve un serial candidato por nombre (regex sobre la base enriquecida)."""
+        bucket = self.influx.bucket
+        flux = (
+            f'from(bucket: "{bucket}") '
+            f'|> range(start: -{hours}h) '
+            f'|> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos") '
+            f'|> filter(fn: (r) => r["_field"] == "nombre") '
+            f'|> filter(fn: (r) => contains(v: r["_value"], subv: "{re.escape(str(nombre))}")) '
+            f'|> group(columns: ["_field"]) '
+            f'|> last()'
+        )
+        rows = self._query(flux)
+        serials = set()
+        for r in rows:
+            serial = _norm_serial(r.get("serial_onu"))
+            if serial:
+                serials.add(serial)
+        if serials:
+            return sorted(serials)[0]
+        return None
+
     def _location_by_mac(self, mac: str, hours: int = 168) -> str:
         """Devuelve la ubicación declarada (onu_location) para una MAC."""
         bucket = self.influx.bucket
@@ -147,6 +169,14 @@ class ClientSearchService:
                 eff_serial = _norm_serial(fetched.get("serial_onu"))
         elif mac:
             eff_serial = self._serial_by_mac(str(mac).lower()) or ""
+            if eff_serial:
+                try:
+                    wisp_cli = self.wisp.fetch_by_serial(eff_serial)
+                except Exception as e:
+                    logger.warning(f"WISP fetch_by_serial({eff_serial}) falló: {e}")
+                    wisp_cli = None
+        elif nombre:
+            eff_serial = self._serial_by_nombre(str(nombre)) or ""
             if eff_serial:
                 try:
                     wisp_cli = self.wisp.fetch_by_serial(eff_serial)

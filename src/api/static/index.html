@@ -39,6 +39,7 @@
     </script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -83,6 +84,25 @@
         .collapse-enter-active, .collapse-leave-active { transition: max-height 0.25s ease, opacity 0.2s ease; overflow: hidden; }
         .collapse-enter-from, .collapse-leave-to { max-height: 0; opacity: 0; }
         .collapse-enter-to, .collapse-leave-from { max-height: 2000px; opacity: 1; }
+        #device-map { width: 100%; height: 560px; }
+        #device-map .vis-tooltip {
+            background: rgb(var(--surface-900));
+            border: 1px solid rgb(var(--surface-700) / 0.6);
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+            color: rgb(var(--surface-100));
+            font-family: 'Inter', system-ui, sans-serif;
+            font-size: 0.8rem;
+            line-height: 1.55;
+            padding: 0.6rem 0.8rem;
+            white-space: nowrap;
+            pointer-events: none;
+        }
+        .device-map-legend { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+        .device-map-legend .dot { width: 0.65rem; height: 0.65rem; border-radius: 9999px; display: inline-block; }
+        .map-panel { max-height: 480px; overflow-y: auto; }
+        .map-panel::-webkit-scrollbar { width: 4px; }
+        .map-path-chip { font-family: 'JetBrains Mono', 'Inter', monospace; font-size: 0.7rem; padding: 0.12rem 0.5rem; border-radius: 9999px; background: rgb(var(--surface-800)); border: 1px solid rgb(var(--surface-700) / 0.5); white-space: nowrap; }
     </style>
     <script>
         (function() {
@@ -790,7 +810,7 @@
                                                         </div>
                                                     </td>
                                                     <td class="px-4 py-2 text-xs font-mono font-semibold text-surface-200">{{ g.pon_port }}</td>
-                                                    <td class="px-4 py-2 text-xs font-mono text-surface-400" :title="macsForPon(g.pon_port)">{{ macsForPon(g.pon_port) || '—' }}</td>
+                                                    <td class="px-4 py-2 text-xs font-mono text-surface-400">—</td>
                                                     <td class="px-4 py-2 text-xs">
                                                         <span :class="g.ponIface && g.ponIface.ifOperStatus === 1 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'" class="px-2 py-0.5 rounded-full font-medium">{{ g.ponIface && g.ponIface.ifOperStatus === 1 ? 'Up' : 'Down' }}</span>
                                                     </td>
@@ -936,6 +956,10 @@
                 <div v-if="activeTab === 'devices'" class="slide-in">
                     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
                         <div class="flex items-center gap-3">
+                            <div class="flex bg-surface-800 rounded-lg border border-surface-700 p-0.5">
+                                <button @click="deviceView = 'list'" :class="deviceView === 'list' ? 'bg-surface-700 text-surface-100' : 'text-surface-400'" class="px-3 py-1 rounded-md text-xs font-medium transition-all">Lista</button>
+                                <button @click="deviceView = 'map'" :class="deviceView === 'map' ? 'bg-emerald-600/30 text-emerald-300' : 'text-surface-400'" class="px-3 py-1 rounded-md text-xs font-medium transition-all">Mapa</button>
+                            </div>
                             <div class="relative">
                                 <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-surface-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                                 <input v-model="deviceSearch" type="text" placeholder="Buscar por IP, hostname, nodo..." class="bg-surface-800 border border-surface-700 rounded-lg pl-9 pr-4 py-2 text-sm text-surface-200 placeholder-surface-500 focus:outline-none focus:border-brand-500 w-72 transition-colors">
@@ -946,7 +970,7 @@
                                 <button @click="deviceFilter = 'olt'" :class="deviceFilter === 'olt' ? 'bg-amber-600/30 text-amber-300' : 'text-surface-400'" class="px-3 py-1 rounded-md text-xs font-medium transition-all">OLTs</button>
                             </div>
                         </div>
-                        <div class="flex gap-2">
+                        <div v-if="deviceView === 'list'" class="flex gap-2">
                             <button @click="openMikrotikModal()" class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-medium transition-colors">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg> MikroTik
                             </button>
@@ -956,7 +980,82 @@
                         </div>
                     </div>
 
+                    <!-- Mapa topológico -->
+                    <div v-if="deviceView === 'map'" class="slide-in">
+                        <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-4 mb-4">
+                            <div class="device-map-legend text-xs">
+                                <span class="font-semibold text-surface-300">Estado de dispositivos</span>
+                                <span class="flex items-center gap-1.5 text-surface-400"><span class="dot bg-emerald-500"></span>{{ deviceLegend.online }} en línea (datos)</span>
+                                <span class="flex items-center gap-1.5 text-surface-400"><span class="dot bg-amber-500"></span>{{ deviceLegend.ping }} ping sin datos</span>
+                                <span class="flex items-center gap-1.5 text-surface-400"><span class="dot bg-red-500"></span>{{ deviceLegend.down }} inaccesibles</span>
+                                <span class="flex items-center gap-1.5 text-surface-500 ml-auto"><span class="dot" style="background:#6366f1"></span>Core</span>
+                                <span class="flex items-center gap-1.5 text-surface-500"><span class="dot" style="background:#94a3b8"></span>Enlace externo</span>
+                            </div>
+                            <p class="text-[11px] text-surface-500 mt-2">Arrastrá los equipos · scroll para zoom · doble clic en el fondo para limpiar · clic en un equipo para ver ruta al Core e impacto de falla</p>
+                        </div>
+
+                        <div class="relative bg-surface-900 rounded-xl border border-surface-700/50 overflow-hidden">
+                            <div id="device-map" class="bg-transparent"></div>
+
+                            <!-- Panel de selección -->
+                            <div v-if="mapSelection" class="absolute top-3 right-3 w-80 max-w-[calc(100%-1.5rem)] bg-surface-800/95 backdrop-blur border border-surface-600/60 rounded-xl shadow-2xl p-4 map-panel">
+                                <div class="flex items-start justify-between gap-2 mb-2">
+                                    <div class="min-w-0">
+                                        <div class="flex items-center gap-2">
+                                            <span :class="mapSelection.node.type === 'olt' ? 'bg-amber-500/20 text-amber-400' : mapSelection.node.type === 'mikrotik' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/20 text-indigo-400'" class="text-xs px-2 py-0.5 rounded-full font-medium">{{ mapSelection.node.type === 'olt' ? 'OLT' : mapSelection.node.type === 'mikrotik' ? 'MikroTik' : mapSelection.node.type === 'core' ? 'Core' : 'Externo' }}</span>
+                                            <h4 class="font-semibold text-surface-100 truncate">{{ mapSelection.node.label }}</h4>
+                                        </div>
+                                        <p class="text-xs text-surface-500 font-mono mt-0.5">{{ mapSelection.node.ip || (mapSelection.node.type === 'external' ? 'uplink externo' : '') }}</p>
+                                    </div>
+                                    <button @click="clearMapSelection" class="text-surface-500 hover:text-surface-200 transition-colors shrink-0" title="Limpiar selección">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
+
+                                <div class="mb-3">
+                                    <span :class="deviceStatusClass(mapSelection.node)" class="text-xs px-2 py-0.5 rounded-full font-medium">{{ deviceStatusText(mapSelection.node) }}</span>
+                                    <span v-if="mapSelection.node.node" class="text-xs text-brand-400 ml-2">Nodo {{ mapSelection.node.node }}</span>
+                                </div>
+
+                                <!-- Métricas en vivo -->
+                                <div v-if="mapSelection.metrics" class="grid grid-cols-2 gap-2 mb-3">
+                                    <div v-for="(val, key) in mapSelection.metrics" :key="key" class="bg-surface-900 rounded-lg p-2">
+                                        <div class="text-[11px] text-surface-500">{{ key }}</div>
+                                        <div class="text-sm font-semibold text-surface-200">{{ val }}</div>
+                                    </div>
+                                </div>
+
+                                <!-- Ruta al Core -->
+                                <div class="mb-3">
+                                    <div class="text-[11px] font-semibold text-surface-400 uppercase tracking-wider mb-1.5">Ruta al Core</div>
+                                    <div class="flex flex-wrap items-center gap-1">
+                                        <template v-for="(p, i) in mapSelection.path" :key="p.id">
+                                            <span v-if="i > 0" class="text-surface-600 text-xs">→</span>
+                                            <span class="map-path-chip" :class="p.id === '__core__' ? 'text-indigo-400' : 'text-surface-200'">{{ p.label }}</span>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <!-- Impacto de falla -->
+                                <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                                    <div class="text-[11px] font-semibold text-red-400 uppercase tracking-wider mb-1">Impacto de falla</div>
+                                    <div class="text-sm text-surface-200">{{ mapSelection.impactText }}</div>
+                                    <button v-if="mapSelection.affected.length" @click="mapSelection.showAffected = !mapSelection.showAffected" class="text-xs text-red-400 hover:text-red-300 mt-1.5 transition-colors">
+                                        {{ mapSelection.showAffected ? 'Ocultar lista' : 'Ver dispositivos afectados' }} ({{ mapSelection.affected.length }})
+                                    </button>
+                                    <div v-if="mapSelection.showAffected" class="mt-1.5 space-y-0.5 max-h-32 overflow-y-auto">
+                                        <div v-for="a in mapSelection.affected" :key="a.id" class="text-xs text-surface-300 flex items-center justify-between">
+                                            <span class="truncate">{{ a.label }}</span>
+                                            <span class="text-surface-500 shrink-0 ml-2 font-mono">{{ a.ip }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Device Table -->
+                    <div v-if="deviceView === 'list'">
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50 overflow-hidden">
                         <div class="overflow-x-auto">
                             <table class="w-full">
@@ -1000,6 +1099,7 @@
                                 </tbody>
                             </table>
                         </div>
+                    </div>
                     </div>
                 </div>
 
@@ -1216,10 +1316,11 @@
                             <button @click="searchClients" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Buscar</button>
                         </div>
                         <div v-if="clientResults.length > 0" class="space-y-2">
-                            <div v-for="c in clientResults" :key="`${c.documento}-${c.serial_onu}`" class="bg-surface-800 rounded-lg p-3 border border-surface-700/50">
+                            <div v-for="c in clientResults" :key="`${c.documento}-${c.serial_onu}-${c.mac}`" class="bg-surface-800 rounded-lg p-3 border border-surface-700/50">
                                 <div class="flex items-center gap-2 flex-wrap">
                                     <span class="font-medium text-surface-200 text-sm">{{ c.nombre }}</span>
                                     <span class="text-xs text-surface-500 font-mono">{{ c.serial_onu }}</span>
+                                    <span v-if="c.mac" title="MAC aprendida en el puerto de la ONU" class="text-xs text-amber-400/90 font-mono">{{ c.mac }}</span>
                                     <span :class="onuChipClass(c.estado_onu)" class="text-xs px-1.5 py-0.5 rounded-full">{{ onuChipLabel(c.estado_onu) }}</span>
                                     <span v-if="c.pendiente" title="Cliente sin certificar en la OLT (pendiente)" class="text-xs px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">Sin cruce ONU</span>
                                     <span v-if="c.ubicacion_descuadrada" class="text-xs px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400">Descuadrado</span>
@@ -1235,9 +1336,92 @@
                                     <span v-if="c.pppoe_status" class="ml-2">PPPoE: {{ c.pppoe_status }}</span>
                                     <span v-if="c.olt" class="ml-2">| {{ c.olt }}</span>
                                 </div>
+                                <div class="mt-2 flex gap-2">
+                                    <button @click="openClientDetail(c)" class="px-3 py-1.5 bg-surface-700 hover:bg-surface-600 rounded-lg text-xs text-surface-300">Ver detalle</button>
+                                </div>
                             </div>
                         </div>
                         <div v-else-if="clientSearch && clientResults.length === 0" class="text-center py-4 text-surface-500 text-sm">No se encontraron clientes</div>
+                    </div>
+
+                    <!-- Client Detail Modal -->
+                    <div v-if="showClientDetailModal && clientDetail" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.7);">
+                        <div class="bg-surface-900 rounded-xl border border-surface-700 p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-bold text-surface-200">Detalle del Cliente</h3>
+                                <button @click="closeClientDetail" class="p-1 rounded hover:bg-surface-800 text-surface-400">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex items-center gap-2 flex-wrap mb-1">
+                                        <span class="font-semibold text-surface-200 text-base">{{ clientDetail.nombre || '—' }}</span>
+                                        <span :class="onuChipClass(clientDetail.estado_onu)" class="text-xs px-1.5 py-0.5 rounded-full">{{ onuChipLabel(clientDetail.estado_onu) }}</span>
+                                    </div>
+                                    <div class="text-xs text-surface-500">{{ clientDetail.documento || '—' }}</div>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-3 text-sm">
+                                    <div class="col-span-2">
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">Dirección</label>
+                                        <div class="text-surface-300">{{ clientDetail.direccion || '—' }}</div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">Teléfono</label>
+                                        <div class="text-surface-300">{{ clientDetail.telefono || '—' }}</div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">PPPoE</label>
+                                        <div class="text-surface-300 font-mono text-xs">{{ clientDetail.usuario_pppoe || '—' }}</div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">IP de servicio</label>
+                                        <div class="text-surface-300 font-mono text-xs">{{ clientDetail.ip_servicio || clientDetail.ip || '—' }}</div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">Estado del servicio</label>
+                                        <div class="text-surface-300">{{ clientDetail.estado_servicio || '—' }}</div>
+                                    </div>
+                                    <div class="col-span-2">
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">ONU</label>
+                                        <div class="text-surface-300 font-mono text-xs">
+                                            {{ clientDetail.serial_onu || '—' }}
+                                            <span v-if="clientDetail.onu_model" class="text-surface-500 ml-2">{{ clientDetail.onu_model }}</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">MAC</label>
+                                        <div class="text-surface-300 font-mono text-xs">{{ clientDetail.mac || '—' }}</div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">NAP / Zona</label>
+                                        <div class="text-surface-300 text-xs">{{ clientDetail.nap || '—' }}<span v-if="clientDetail.zona" class="text-surface-500 ml-1">· {{ clientDetail.zona }}</span></div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">OLT</label>
+                                        <div class="text-surface-300 text-xs">{{ clientDetail.olt || clientDetail.nodo || '—' }}</div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">PON</label>
+                                        <div class="text-surface-300 font-mono text-xs">{{ clientDetail.pon_port || clientDetail.puerto_pon || '—' }}</div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">Rx / Tx (dBm)</label>
+                                        <div class="text-surface-300 font-mono text-xs">
+                                            <span :class="clientDetail.rx_power != null && Number(clientDetail.rx_power) < -28 ? 'text-red-400' : ''">{{ clientDetail.rx_power != null ? clientDetail.rx_power : '—' }}</span>
+                                            <span class="text-surface-500 mx-1">/</span>
+                                            {{ clientDetail.tx_power != null ? clientDetail.tx_power : '—' }}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-if="clientDetail.ultima_medicion" class="text-[10px] text-surface-500">
+                                    Última medición: {{ formatTime(clientDetail.ultima_medicion) }}
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- LLM Agent Panel -->
@@ -1560,6 +1744,28 @@
                                 <div class="flex justify-between"><span class="text-surface-400">OLTs monitoreadas</span><span class="text-surface-300">{{ collectorStats.olts_tracked || 0 }}</span></div>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Pipeline de datos (frescura de escritura por medicion) -->
+                    <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
+                        <div class="flex items-center gap-2 mb-4">
+                            <svg class="w-4 h-4 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            <h3 class="text-sm font-semibold text-surface-300">Pipeline de datos (ultima escritura)</h3>
+                        </div>
+                        <div v-if="pipelineData.measurements && pipelineData.measurements.length" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div v-for="m in pipelineData.measurements" :key="m.measurement" class="bg-surface-800 rounded-lg p-3">
+                                <div class="flex items-center justify-between mb-1 gap-2">
+                                    <span class="text-xs font-medium text-surface-300 truncate">{{ m.label }}</span>
+                                    <span :class="m.stale ? 'bg-red-500' : 'bg-emerald-500'" class="w-2 h-2 rounded-full shrink-0"></span>
+                                </div>
+                                <div class="text-sm text-surface-200">
+                                    <template v-if="m.last_write">{{ formatAgo(m.last_write) }}</template>
+                                    <template v-else><span class="text-surface-500">sin datos</span></template>
+                                </div>
+                                <div class="text-[11px] text-surface-500">puntos 24h: {{ m.count_24h }}</div>
+                            </div>
+                        </div>
+                        <div v-else class="text-sm text-surface-500">Cargando frescura del pipeline...</div>
                     </div>
 
                     <!-- Config Summary -->
@@ -2553,6 +2759,7 @@ createApp({
         const anomalySummary = ref({});
         const healthData = ref({});
         const collectorStats = ref({});
+        const pipelineData = ref({ measurements: [] });
         const configSummary = ref({});
 
         // TV Dashboards (Monitoreo en Sala)
@@ -2606,12 +2813,22 @@ createApp({
         // Device tab
         const deviceSearch = ref('');
         const deviceFilter = ref('all');
+        const deviceView = ref(localStorage.getItem('device_view') || 'list');
+        const selectedMapNode = ref(null);
+        const mapSelection = ref(null);
+        let deviceNetwork = null;
+        let deviceMapSignature = '';
+        let deviceMapContainer = null;
+        let deviceMapPositions = null;
+        const CORE_ID = '__core__';
 
         // Agent tab
         const agentStatus = ref({});
         const agentInstructions = ref([]);
         const clientSearch = ref('');
         const clientResults = ref([]);
+        const clientDetail = ref(null);
+        const showClientDetailModal = ref(false);
         const clientStats = ref({});
 
         // Anomaly filters
@@ -2821,6 +3038,128 @@ createApp({
             return all;
         });
 
+        function resolveDeviceStatus(d) {
+            if (d.status === 'online') return 'online';
+            const t = pingStatus.value.find(x => x.ip === d.ip);
+            if (t && Number(t.status) === 1) return 'ping';
+            return 'down';
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        const deviceTopology = computed(() => {
+            const nodesMap = {};
+            const edges = [];
+            const addManaged = (d, type) => {
+                const id = `${type}:${d.ip}`;
+                nodesMap[id] = { id, label: d.hostname || d.ip, ip: d.ip, node: d.node || '', type, status: resolveDeviceStatus(d), device: d };
+            };
+            for (const mt of allDevices.value.mikrotiks || []) addManaged(mt, 'mikrotik');
+            for (const olt of allDevices.value.olts || []) addManaged(olt, 'olt');
+            nodesMap[CORE_ID] = { id: CORE_ID, label: 'Internet / Core', ip: '', node: '', type: 'core', status: 'core', device: null };
+
+            const resolveRef = (ref) => {
+                const key = String(ref || '').trim().toLowerCase();
+                if (!key) return null;
+                for (const id of Object.keys(nodesMap)) {
+                    if (id === CORE_ID) continue;
+                    const nn = nodesMap[id];
+                    if ((nn.ip || '').toLowerCase() === key || (nn.device?.hostname || '').toLowerCase() === key) return id;
+                }
+                return `ext:${ref}`;
+            };
+
+            for (const id of Object.keys(nodesMap)) {
+                if (id === CORE_ID) continue;
+                const n = nodesMap[id];
+                const con = n.device?.conectado_a;
+                let parent = null;
+                if (con) {
+                    const r = resolveRef(con);
+                    if (r === id) parent = CORE_ID;
+                    else if (r) parent = r;
+                    else parent = CORE_ID;
+                } else {
+                    parent = CORE_ID;
+                }
+                if (parent && parent.startsWith('ext:')) {
+                    if (!nodesMap[parent]) {
+                        nodesMap[parent] = { id: parent, label: parent.slice(4), ip: '', node: '', type: 'external', status: 'external', device: null };
+                    }
+                    edges.push({ from: parent, to: CORE_ID, virtual: true });
+                    edges.push({ from: id, to: parent });
+                } else {
+                    edges.push({ from: id, to: parent || CORE_ID });
+                }
+            }
+            const seen = new Set();
+            const deduped = edges.filter(e => {
+                const k = e.from + '\u0000' + e.to;
+                if (seen.has(k)) return false;
+                seen.add(k);
+                return true;
+            });
+            return { nodesMap, nodes: Object.values(nodesMap), edges: deduped };
+        });
+
+        const deviceLegend = computed(() => {
+            const top = deviceTopology.value;
+            const count = s => top.nodes.filter(n => n.status === s).length;
+            return { online: count('online'), ping: count('ping'), down: count('down') };
+        });
+
+        function matchesSearch(n, q) {
+            if (!q) return false;
+            const ql = q.toLowerCase();
+            const hay = `${n.label} ${n.ip} ${n.node} ${n.device?.role || ''} ${n.device?.modelo || ''} ${n.device?.descripcion || ''}`.toLowerCase();
+            return hay.includes(ql);
+        }
+
+        function topoSignature(t) {
+            const ids = t.nodes.map(n => n.id).sort().join('|');
+            const es = t.edges.map(e => e.from + '|' + e.to).sort().join('|');
+            return ids + '##' + es;
+        }
+
+        function computeSelection(id) {
+            const top = deviceTopology.value;
+            const byId = top.nodesMap;
+            const parentOf = {};
+            const childrenOf = {};
+            for (const e of top.edges) {
+                parentOf[e.from] = e.to;
+                (childrenOf[e.to] = childrenOf[e.to] || []).push(e.from);
+            }
+            const seen = new Set();
+            const stack = [id];
+            const affected = [];
+            while (stack.length) {
+                const cur = stack.pop();
+                for (const c of (childrenOf[cur] || [])) {
+                    if (seen.has(c)) continue;
+                    seen.add(c);
+                    stack.push(c);
+                    const nn = byId[c];
+                    if (nn && (nn.type === 'mikrotik' || nn.type === 'olt')) affected.push(nn);
+                }
+            }
+            const path = [];
+            let cur0 = id;
+            const seenPath = new Set();
+            while (cur0 && !seenPath.has(cur0)) {
+                seenPath.add(cur0);
+                const nn = byId[cur0];
+                if (!nn) break;
+                path.push(cur0);
+                if (cur0 === CORE_ID) break;
+                cur0 = parentOf[cur0];
+            }
+            if (path[path.length - 1] !== CORE_ID && !path.includes(CORE_ID)) path.push(CORE_ID);
+            return { path, affected };
+        }
+
         const filteredPingTargets = computed(() => {
             let targets = pingStatus.value;
             if (pingFilter.value === 'up') {
@@ -2942,14 +3281,6 @@ createApp({
                 .filter(Boolean);
             return [...new Set(macs)].join(' · ');
         }
-        function macsForPon(ponPort) {
-            if (!ponPort) return '';
-            const macs = selectedOltMacRows()
-                .filter(c => String(c.pon_port) === String(ponPort))
-                .map(c => c.mac)
-                .filter(Boolean);
-            return [...new Set(macs)].join(' · ');
-        }
 
         // ==================== API CALLS ====================
         function getApiKey() { return localStorage.getItem('api_key') || ''; }
@@ -2977,14 +3308,21 @@ createApp({
             });
             return apiPromptLock;
         }
+        const API_FETCH_TIMEOUT_MS = 20000;
         async function apiFetch(url, options = {}, authRetried = false) {
             let key = getApiKey();
             if (!key && !authRetried) key = await promptForKey();
             const headers = { ...(options.headers || {}), 'Content-Type': 'application/json' };
             if (key) headers['X-API-Key'] = key;
             options.headers = headers;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), API_FETCH_TIMEOUT_MS);
+            const signal = options.signal;
+            if (signal) {
+                signal.addEventListener('abort', () => controller.abort(), { once: true });
+            }
             try {
-                const res = await fetch(url, options);
+                const res = await fetch(url, { ...options, signal: controller.signal });
                 if (res.status === 401) {
                     if (authRetried) throw new Error('API Key inválida. Verifica la clave con el administrador.');
                     clearApiKey();
@@ -2998,7 +3336,12 @@ createApp({
                 }
                 return await res.json();
             } catch (e) {
+                if (e && e.name === 'AbortError') {
+                    throw new Error('La API está tardando demasiado. Reintentando en el próximo ciclo…');
+                }
                 throw e;
+            } finally {
+                clearTimeout(timer);
             }
         }
 
@@ -3009,11 +3352,20 @@ createApp({
             setTimeout(() => { toast.show = false; }, 3000);
         }
 
+        async function fetchDeviceList() {
+            try {
+                const devAll = await apiFetch('/api/devices/all');
+                allDevices.value = devAll || { mikrotiks: [], olts: [] };
+            } catch (e) {
+            }
+        }
+
         async function fetchAll() {
             loading.value = true;
             refreshCountdown.value = 30;
             try {
-                const [health, stats, olt, optical, ifaces, recentAnom, anomSumm, nodesData, devAll, preds, pingData] = await Promise.allSettled([
+                fetchDeviceList();
+                const [health, stats, olt, optical, ifaces, recentAnom, anomSumm, nodesData, preds, pingData, pipeline] = await Promise.allSettled([
                     apiFetch('/api/v1/health/'),
                     apiFetch('/api/devices/stats'),
                     apiFetch('/api/v1/metrics/olt'),
@@ -3022,9 +3374,9 @@ createApp({
                     apiFetch('/api/v1/anomalies/recent'),
                     apiFetch('/api/v1/anomalies/summary'),
                     apiFetch('/api/nodes/'),
-                    apiFetch('/api/devices/all'),
                     apiFetch('/api/v1/anomalies/predictions'),
                     apiFetch('/api/ping/status'),
+                    apiFetch('/api/v1/health/pipeline'),
                 ]);
 
                 if (health.status === 'fulfilled') { healthData.value = health.value; systemHealth.value = health.value?.components?.influxdb === 'connected' ? 'healthy' : health.value?.status || 'unknown'; }
@@ -3035,10 +3387,14 @@ createApp({
                 if (recentAnom.status === 'fulfilled') recentAnomalies.value = recentAnom.value || [];
                 if (anomSumm.status === 'fulfilled') anomalySummary.value = anomSumm.value || {};
                 if (nodesData.status === 'fulfilled') nodes.value = nodesData.value || [];
-                if (devAll.status === 'fulfilled') allDevices.value = devAll.value || { mikrotiks: [], olts: [] };
                 if (preds.status === 'fulfilled') predictions.value = preds.value?.predictions || [];
                 if (pingData.status === 'fulfilled') {
                     pingStatus.value = pingData.value?.targets || [];
+                }
+                if (pipeline.status === 'fulfilled') {
+                    pipelineData.value = pipeline.value?.detail?.measurements
+                        ? pipeline.value.detail
+                        : { measurements: [] };
                 }
 
                 // Also fetch full anomaly list for anomaly tab
@@ -3623,11 +3979,35 @@ createApp({
             if (!clientSearch.value) return;
             try {
                 const q = clientSearch.value.trim();
-                const res = await apiFetch(`/api/clientes/buscar?q=${encodeURIComponent(q)}`);
-                clientResults.value = Array.isArray(res) ? res : [];
+                const params = clientSearchParams(q);
+                const res = await apiFetch('/api/clientes/vital', {
+                    method: 'POST',
+                    body: JSON.stringify(params),
+                });
+                if (res && res.found) {
+                    clientResults.value = [res.ficha];
+                } else {
+                    clientResults.value = [];
+                }
             } catch(e) {
                 clientResults.value = [];
             }
+        }
+
+        function clientSearchParams(q) {
+            if (/^[0-9]+$/.test(q)) return { documento: q };
+            if (/^[vjegVJEG]-?[0-9]+$/.test(q)) return { documento: q };
+            if (/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(q)) return { mac: q.toLowerCase() };
+            return { serial: q.toUpperCase() };
+        }
+
+        function openClientDetail(c) {
+            clientDetail.value = c || null;
+            showClientDetailModal.value = true;
+        }
+
+        function closeClientDetail() {
+            showClientDetailModal.value = false;
         }
 
         function onuChipLabel(estadoOnu) {
@@ -3686,6 +4066,18 @@ createApp({
             if (d > 0) return d + 'd ' + h + 'h';
             if (h > 0) return h + 'h ' + m + 'm';
             return m + 'm';
+        }
+
+        function formatAgo(iso) {
+            if (!iso) return 'sin datos';
+            let ago = (Date.now() - new Date(iso).getTime()) / 1000;
+            if (isNaN(ago) || ago < 0) ago = 0;
+            const min = Math.floor(ago / 60);
+            if (min < 1) return 'ahora';
+            if (min < 60) return min + ' min';
+            const h = Math.floor(min / 60);
+            if (h < 24) return h + ' h';
+            return Math.floor(h / 24) + ' d';
         }
 
         function formatClock(iso) {
@@ -4144,6 +4536,7 @@ createApp({
             destroyInsideTrafficCharts();
             destroySparklines();
             destroyAnomalyCharts();
+            if (deviceNetwork) { deviceNetwork.destroy(); deviceNetwork = null; }
         });
 
         // Re-fetch data when switching tabs
@@ -4208,6 +4601,14 @@ createApp({
             }
             if (tab === 'olt') {
                 fetchOltMetrics();
+            }
+            if (tab === 'devices') {
+                fetchDeviceList();
+                if (deviceView.value === 'map') {
+                    fetchMikrotikMetrics();
+                    await nextTick();
+                    initDeviceMap();
+                }
             }
         });
 
@@ -4331,6 +4732,8 @@ createApp({
             return anomalyType === 'critical' ? '#f87171' : '#fbbf24';
         }
 
+        const apexCharts = {};
+
         function renderKpiSparklines() {
             const s = anomalySummary.value?.series || [];
             const toPts = k => s.map(p => [new Date(p.time).getTime(), p[k] || 0]);
@@ -4343,9 +4746,9 @@ createApp({
             for (const c of configs) {
                 const el = document.getElementById('spark-' + c.key);
                 const storeKey = 'spark-' + c.key;
-                if (window[storeKey]) { window[storeKey].destroy(); delete window[storeKey]; }
+                if (apexCharts[storeKey]) { apexCharts[storeKey].destroy(); delete apexCharts[storeKey]; }
                 if (!el) continue;
-                window[storeKey] = new ApexCharts(el, {
+                apexCharts[storeKey] = new ApexCharts(el, {
                     chart: { type: 'area', height: 40, sparkline: { enabled: true }, toolbar: { show: false }, animations: { enabled: false } },
                     series: [{ data: c.data }],
                     colors: [c.color],
@@ -4357,14 +4760,14 @@ createApp({
                     yaxis: { show: false },
                     grid: { show: false },
                 });
-                window[storeKey].render();
+                apexCharts[storeKey].render();
             }
         }
 
         function destroySparklines() {
             ['total', 'critical', 'warning', 'prediction'].forEach(k => {
                 const storeKey = 'spark-' + k;
-                if (window[storeKey]) { window[storeKey].destroy(); delete window[storeKey]; }
+                if (apexCharts[storeKey]) { apexCharts[storeKey].destroy(); delete apexCharts[storeKey]; }
             });
         }
 
@@ -4384,10 +4787,11 @@ createApp({
 
             const elRx = document.getElementById('hist-rx-' + i);
             if (elRx) {
-                if (window['anomRx' + i]) { window['anomRx' + i].destroy(); }
+                const rxKey = 'anomRx' + i;
+                if (apexCharts[rxKey]) { apexCharts[rxKey].destroy(); }
                 const rxData = pts.filter(p => p.rx !== null).map(p => [p.t, p.rx]);
                 if (rxData.length) {
-                    window['anomRx' + i] = new ApexCharts(elRx, {
+                    apexCharts[rxKey] = new ApexCharts(elRx, {
                         chart: { ...theme, type: 'line', height: 96, toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: true } },
                         series: [{ name: 'RX', data: rxData }],
                         colors: [color],
@@ -4399,17 +4803,18 @@ createApp({
                         legend: { show: false },
                         dataLabels: { enabled: false },
                     });
-                    window['anomRx' + i].render();
+                    apexCharts[rxKey].render();
                 }
             }
 
             const elRt = document.getElementById('hist-rxtx-' + i);
             if (elRt) {
-                if (window['anomRt' + i]) { window['anomRt' + i].destroy(); }
+                const rtKey = 'anomRt' + i;
+                if (apexCharts[rtKey]) { apexCharts[rtKey].destroy(); }
                 const rxData = pts.filter(p => p.rx !== null).map(p => [p.t, p.rx]);
                 const txData = pts.filter(p => p.tx !== null).map(p => [p.t, p.tx]);
                 if (rxData.length || txData.length) {
-                    window['anomRt' + i] = new ApexCharts(elRt, {
+                    apexCharts[rtKey] = new ApexCharts(elRt, {
                         chart: { ...theme, type: 'line', height: 96, toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: true } },
                         series: [
                             { name: 'RX', data: rxData },
@@ -4424,15 +4829,17 @@ createApp({
                         legend: { show: false },
                         dataLabels: { enabled: false },
                     });
-                    window['anomRt' + i].render();
+                    apexCharts[rtKey].render();
                 }
             }
         }
 
         function destroyAnomalyCharts() {
             for (let i = 0; i < 120; i++) {
-                if (window['anomRx' + i]) { window['anomRx' + i].destroy(); delete window['anomRx' + i]; }
-                if (window['anomRt' + i]) { window['anomRt' + i].destroy(); delete window['anomRt' + i]; }
+                const rxKey = 'anomRx' + i;
+                const rtKey = 'anomRt' + i;
+                if (apexCharts[rxKey]) { apexCharts[rxKey].destroy(); delete apexCharts[rxKey]; }
+                if (apexCharts[rtKey]) { apexCharts[rtKey].destroy(); delete apexCharts[rtKey]; }
             }
         }
 
@@ -4467,6 +4874,290 @@ createApp({
             }
         }
 
+        // ==================== DISPOSITIVOS: MAPA TOPOLÓGICO ====================
+        function nodeStatusMeta(status) {
+            return {
+                online: ['#22c55e', '#34d399', 'Activo · datos recientes'],
+                ping: ['#f59e0b', '#fbbf24', 'Ping OK · sin datos recientes'],
+                down: ['#ef4444', '#f87171', 'Sin respuesta / inaccesible'],
+                core: ['#6366f1', '#a5b4fc', 'Nodo raíz de la red'],
+                external: ['#94a3b8', '#cbd5e1', 'Enlace externo (uplink)'],
+            }[status] || ['#94a3b8', '#cbd5e1', 'Desconocido'];
+        }
+
+        function nodeTitle(n) {
+            if (n.type === 'core') return '<b>Internet / Core</b><br><span style="color:#a5b4fc">Nodo raíz de la red</span>';
+            if (n.type === 'external') return `<b>Uplink externo</b><br><span style="font-family:monospace;color:#cbd5e1">${escapeHtml(n.label)}</span>`;
+            const [, , msg] = nodeStatusMeta(n.status);
+            const parts = [
+                `<b>${escapeHtml(n.label)}</b>`,
+                n.type === 'olt' ? 'OLT' : 'MikroTik',
+                n.node ? `Nodo ${escapeHtml(n.node)}` : '',
+                n.ip ? `<span style="font-family:monospace">${escapeHtml(n.ip)}</span>` : '',
+                `<span style="color:${nodeStatusMeta(n.status)[1]}">${msg}</span>`,
+            ].filter(Boolean);
+            return parts.join('<br>');
+        }
+
+        function buildVisTitle(n) {
+            const el = document.createElement('div');
+            el.innerHTML = nodeTitle(n);
+            return el;
+        }
+
+        function buildVisData() {
+            const top = deviceTopology.value;
+            const nodes = top.nodes.map(n => {
+                const managed = n.type === 'mikrotik' || n.type === 'olt';
+                const size = n.type === 'olt' ? 26
+                    : n.type === 'mikrotik' ? (n.device?.role === 'principal' ? 22 : 15)
+                    : n.type === 'core' ? 30 : 12;
+                const [border] = nodeStatusMeta(n.status);
+                const bg = {
+                    online: 'rgba(34,197,94,0.20)',
+                    ping: 'rgba(245,158,11,0.20)',
+                    down: 'rgba(239,68,68,0.22)',
+                    core: 'rgba(99,102,241,0.28)',
+                    external: 'rgba(148,163,184,0.14)',
+                }[n.status] || 'rgba(148,163,184,0.14)';
+                return {
+                    id: n.id,
+                    label: n.label,
+                    size,
+                    shape: n.type === 'core' ? 'star' : 'dot',
+                    color: { border, background: bg, highlight: { border: '#ffffff', background: bg } },
+                    borderWidth: managed ? 4 : n.type === 'core' ? 3 : 2,
+                    font: { color: '#e2e8f0', size: n.type === 'core' ? 14 : 12, face: 'Inter' },
+                    title: buildVisTitle(n),
+                    shadow: true,
+                };
+            });
+            const edges = top.edges.map(e => ({
+                id: e.from + '\u2192' + e.to,
+                from: e.from,
+                to: e.to,
+                arrows: { to: { enabled: true, scaleFactor: 0.6 } },
+                color: { color: 'rgba(148,163,184,0.5)', highlight: '#22c55e' },
+                width: e.virtual ? 0.8 : 1.4,
+                dashes: e.virtual ? [4, 3] : false,
+                smooth: { type: 'dynamic' },
+            }));
+            return { nodes, edges };
+        }
+
+        async function initDeviceMap() {
+            if (typeof vis === 'undefined') return;
+            const container = document.getElementById('device-map');
+            if (!container) return;
+            if (deviceNetwork && deviceMapContainer === container) return;
+            if (deviceNetwork) { deviceNetwork.destroy(); deviceNetwork = null; }
+            deviceMapContainer = container;
+            const data = buildVisData();
+            const positioned = data.nodes.filter(n => deviceMapPositions && deviceMapPositions[n.id]).length;
+            if (positioned > data.nodes.length / 2) {
+                for (const n of data.nodes) {
+                    const p = deviceMapPositions[n.id];
+                    if (p) { n.x = p.x; n.y = p.y; }
+                }
+            }
+            const hadLayout = positioned > data.nodes.length / 2;
+            deviceNetwork = new vis.Network(
+                container,
+                { nodes: new vis.DataSet(data.nodes), edges: new vis.DataSet(data.edges) },
+                {
+                    physics: {
+                        stabilization: { enabled: !hadLayout, iterations: 150 },
+                        barnesHut: { gravitationalConstant: -4200, centralGravity: 0.06, springLength: 200, springConstant: 0.04 },
+                    },
+                    interaction: { dragView: true, zoomView: true, tooltipDelay: 250, hover: true },
+                    nodes: { shadow: { enabled: true, color: 'rgba(0,0,0,0.35)', size: 8 } },
+                    manipulation: false,
+                }
+            );
+            deviceNetwork.on('click', onMapClick);
+            deviceNetwork.on('doubleClick', onMapDoubleClick);
+            deviceMapSignature = topoSignature(deviceTopology.value);
+            deviceNetwork.fit({ animation: false });
+            deviceMapPositions = deviceNetwork.getPositions();
+        }
+
+        function onMapClick(params) {
+            if (params.nodes && params.nodes.length) {
+                selectMapNode(params.nodes[0]);
+            } else if (params.edges && params.edges.length) {
+                const edge = deviceNetwork.body.data.edges.get(params.edges[0]);
+                if (edge && edge.from) selectMapNode(edge.from);
+            }
+        }
+        function onMapDoubleClick() { clearMapSelection(); }
+
+        function deviceStatusText(n) { return nodeStatusMeta(n.status)[2]; }
+        function deviceStatusClass(n) {
+            return {
+                online: 'bg-emerald-500/20 text-emerald-300',
+                ping: 'bg-amber-500/20 text-amber-300',
+                down: 'bg-red-500/20 text-red-300',
+                core: 'bg-indigo-500/20 text-indigo-300',
+                external: 'bg-slate-500/20 text-slate-300',
+            }[n.status] || 'bg-surface-700 text-surface-300';
+        }
+
+        function mapNodeMetrics(n) {
+            if (n.type === 'olt') {
+                const m = oltMetrics.value.find(x => x.olt_ip === n.ip);
+                if (!m) return null;
+                return {
+                    'CPU': `${m.cpu ?? '—'}%`,
+                    'RAM': `${m.memory != null ? Math.round(m.memory) : '—'}%`,
+                    'Temp': m.temperature != null ? `${m.temperature.toFixed(0)}°` : '—',
+                    'ONUs': `${m.online_onus ?? '—'} / ${m.total_onus ?? '—'}`,
+                    'RX': formatBps(oltDeviceTraffic(m).rx),
+                    'TX': formatBps(oltDeviceTraffic(m).tx),
+                };
+            }
+            if (n.type === 'mikrotik') {
+                const m = mikrotikMetrics.value.find(x => x.device_ip === n.ip);
+                if (!m || (m.cpu_load == null && m.memory_percent == null && m.total_memory == null)) return null;
+                const tr = deviceTraffic(m);
+                return {
+                    'CPU': `${m.cpu_load ?? '—'}%`,
+                    'RAM': `${m.memory_percent != null ? m.memory_percent.toFixed(0) : '—'}%`,
+                    'RX': formatBps(tr.rx),
+                    'TX': formatBps(tr.tx),
+                    'Mem libre': formatBytes(m.free_memory || 0),
+                };
+            }
+            return null;
+        }
+
+        function buildMapSelection(id) {
+            const top = deviceTopology.value;
+            const n = top.nodesMap[id];
+            if (!n) return;
+            const { path, affected } = computeSelection(id);
+            const byId = top.nodesMap;
+            const oltN = affected.filter(a => a.type === 'olt').length;
+            const mkN = affected.filter(a => a.type === 'mikrotik').length;
+            const total = oltN + mkN;
+            let impactText;
+            if (id === CORE_ID) {
+                impactText = 'El Core es el punto central: si cae, toda la red gestionada queda sin conexión (' + total + ' dispositivos).';
+            } else if (n.type === 'external') {
+                impactText = 'Si este enlace cae, ' + total + (total === 1 ? ' dispositivo queda' : ' dispositivos quedarán') + ' sin conexión.';
+            } else {
+                impactText = 'Si este equipo cae, ' + total + (total === 1 ? ' dispositivo queda' : ' dispositivos quedarán') + ' sin conexión (' + oltN + ' OLTs, ' + mkN + ' MikroTik).';
+            }
+            mapSelection.value = {
+                node: n,
+                path: path.map(x => ({ id: x, label: byId[x].label, type: byId[x].type })),
+                affected,
+                impactText,
+                metrics: mapNodeMetrics(n),
+                showAffected: false,
+            };
+        }
+
+        function selectMapNode(id) {
+            selectedMapNode.value = id;
+            buildMapSelection(id);
+            if (deviceNetwork) {
+                deviceNetwork.selectNodes([id]);
+                deviceNetwork.focus(id, { scale: 1.1, animation: { duration: 350, easingFunction: 'easeInOutCubic' } });
+                refreshMapStyle();
+                applyMapHighlight();
+            }
+        }
+
+        function clearMapSelection() {
+            selectedMapNode.value = null;
+            mapSelection.value = null;
+            if (deviceNetwork) {
+                deviceNetwork.unselectAll();
+                refreshMapStyle();
+                deviceNetwork.fit({ animation: { duration: 400, easingFunction: 'easeInOutCubic' } });
+            }
+        }
+
+        function refreshMapStyle() {
+            if (!deviceNetwork) return;
+            const data = buildVisData();
+            deviceNetwork.body.data.nodes.update(data.nodes);
+            deviceNetwork.body.data.edges.update(data.edges);
+        }
+
+        function applyMapHighlight() {
+            if (!deviceNetwork || !selectedMapNode.value || !mapSelection.value) return;
+            const pathSet = new Set(mapSelection.value.path.map(p => p.id));
+            deviceNetwork.body.data.nodes.update(deviceNetwork.body.data.nodes.get().map(nn => {
+                if (pathSet.has(nn.id)) {
+                    nn.opacity = 1;
+                    if (nn.id === selectedMapNode.value) {
+                        nn.color.border = '#ffffff';
+                        nn.color.highlight = { border: '#ffffff', background: nn.color.background };
+                        nn.borderWidth = (nn.borderWidth || 4) + 2;
+                    } else {
+                        nn.color.highlight = { border: nodeStatusMeta(nn.status)[0], background: nn.color.background };
+                    }
+                    return nn;
+                }
+                nn.opacity = 0.18;
+                return nn;
+            }));
+            deviceNetwork.body.data.edges.update(deviceNetwork.body.data.edges.get().map(ee => {
+                if (pathSet.has(ee.from) && pathSet.has(ee.to)) {
+                    ee.color = { color: '#22c55e', highlight: '#22c55e' };
+                    ee.width = 3;
+                    ee.dashes = false;
+                } else {
+                    ee.color = { color: 'rgba(148,163,184,0.12)', highlight: '#22c55e' };
+                    ee.width = 0.9;
+                }
+                return ee;
+            }));
+        }
+
+        watch(deviceTopology, (top) => {
+            if (!deviceNetwork) return;
+            const sig = topoSignature(top);
+            if (sig !== deviceMapSignature) {
+                deviceMapSignature = sig;
+                const data = buildVisData();
+                deviceNetwork.setData({ nodes: new vis.DataSet(data.nodes), edges: new vis.DataSet(data.edges) });
+                deviceNetwork.fit({ animation: false });
+                deviceMapPositions = deviceNetwork.getPositions();
+            } else {
+                refreshMapStyle();
+            }
+            if (selectedMapNode.value) {
+                buildMapSelection(selectedMapNode.value);
+                applyMapHighlight();
+            }
+        });
+
+        watch(deviceSearch, (q) => {
+            if (deviceView.value !== 'map' || !deviceNetwork) return;
+            const top = deviceTopology.value;
+            const matches = top.nodes.filter(n => matchesSearch(n, q)).map(n => n.id);
+            if (matches.length) {
+                deviceNetwork.selectNodes(matches);
+                deviceNetwork.fit({ nodes: matches, animation: true, maxZoomLevel: 2.2 });
+            } else if (!q) {
+                deviceNetwork.unselectAll();
+                deviceNetwork.fit({ animation: true });
+            }
+        });
+
+        watch(deviceView, async (v) => {
+            localStorage.setItem('device_view', v);
+            if (v === 'map') {
+                await nextTick();
+                initDeviceMap();
+                fetchMikrotikMetrics();
+                document.getElementById('device-map')?.scrollIntoView({ block: 'nearest' });
+                if (deviceNetwork) deviceNetwork.fit({ animation: false });
+            }
+        }, { flush: 'post' });
+
         return {
             // State
             sidebarOpen, activeTab, loading, refreshCountdown, isDark,
@@ -4493,9 +5184,9 @@ createApp({
             openInterfaceTraffic, closeInterfaceTraffic, selectTrafficRange, onuTrafficCtx,
             // Clientes MAC por PON (detalle OLT)
             clientLocations, clientLocationsLoading, fetchClientLocations,
-            macsForOnu, macsForPon,
+            macsForOnu,
             navOpen, toggleNavGroup, isChildActive,
-            healthData, collectorStats, configSummary, configValid, configErrors,
+            healthData, collectorStats, pipelineData, configSummary, configValid, configErrors,
             systemHealth,
             deviceSearch, deviceFilter, anomalyOltFilter, anomalyTypeFilter,
             showNodeModal, showMikrotikModal, showOltModal,
@@ -4510,13 +5201,15 @@ createApp({
             fetchPingConfig, savePingConfig,
             // Computed
             navItems, currentTitle, summaryCards, allOltNames, totalInterfaces, filteredDevices,
+            deviceView, deviceLegend, mapSelection, selectedMapNode,
+            selectMapNode, clearMapSelection, deviceStatusText, deviceStatusClass,
             // Methods
             fetchAll, toggleTheme, openNodeModal, saveNode, deleteNode,
             showApiKeyMenu, getApiKey, changeApiKey, logout,
             openMikrotikModal, saveMikrotik, deleteMikrotik,
             openOltModal, saveOlt, deleteOlt,
             testingDevice, deviceTestResult, testMikrotikConnection, testOltConnection,
-            validateConfig, formatTime, formatUptime, formatBytes, formatClock, showToast,
+            validateConfig, formatTime, formatUptime, formatAgo, formatBytes, formatClock, showToast,
             fetchMikrotikMetrics,
             // Reporte methods
             reporteConfig, reporteStatus,
@@ -4531,7 +5224,7 @@ createApp({
             addMikrotik, removeMikrotik, addMkInterface, removeMkInterface, getDiscoveredMkInterfaces,
             addOlt, removeOlt, addOltGeInterface, removeOltGeInterface, getDiscoveredOltGeInterfaces,
             // Agent methods
-            toggleInstruction, searchClients, openNewInstructionModal, openEditParamsModal, deleteInstruction, isBuiltIn,
+            toggleInstruction, searchClients, clientSearchParams, openClientDetail, closeClientDetail, openNewInstructionModal, openEditParamsModal, deleteInstruction, isBuiltIn,
             // LLM Agent state & methods
             llmConfig, llmConfigDraft, showLLMConfigModal, showLLMEventDetailModal, selectedLLMEvent, eventCopyToast, llmStatus, llmEvents, llmChatQuestion, llmChatHistory, llmChatLoading, llmTesting,
             ollamaModels, openrouterModels,
