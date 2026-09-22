@@ -232,3 +232,134 @@ class ClientSearchService:
 
     def clear_cache(self) -> None:
         self._cache.clear()
+
+    # ------------------------------------------------------------- discover #
+
+    def discover_serials(self, olt_name: Optional[str] = None,
+                         pon_port: Optional[str] = None,
+                         nap: Optional[str] = None) -> List[str]:
+        """Seriales ONU de un grupo: OLT/PON (vivo) o NAP (base enriquecida)."""
+        bucket = self.influx.bucket
+        if olt_name and pon_port:
+            flux = (
+                f'from(bucket: "{bucket}") '
+                f'|> range(start: -48h) '
+                f'|> filter(fn: (r) => r["_measurement"] == "optical_power") '
+                f'|> filter(fn: (r) => r["olt_name"] == "{olt_name}") '
+                f'|> filter(fn: (r) => r["pon_port"] == "{pon_port}") '
+                f'|> group() |> distinct(column: "onu_serial")'
+            )
+            col = "onu_serial"
+        elif nap:
+            flux = (
+                f'from(bucket: "{bucket}") '
+                f'|> range(start: -168h) '
+                f'|> filter(fn: (r) => r["_measurement"] == '
+                f'"clientes_enriquecidos") '
+                f'|> filter(fn: (r) => r["nap"] == "{nap}") '
+                f'|> group() |> distinct(column: "serial_onu")'
+            )
+            col = "serial_onu"
+        else:
+            return []
+
+        serials: List[str] = []
+        seen = set()
+        for r in self._query(flux):
+            v = _norm_serial(r.get(col)) or _norm_serial(r.get("value"))
+            if v and v not in seen:
+                seen.add(v)
+                serials.append(v)
+        return sorted(serials)
+
+    # --------------------------------------------------------- group_analysis #
+
+    def group_analysis(self, serials: Optional[List[str]] = None,
+                       olt_name: Optional[str] = None,
+                       pon_port: Optional[str] = None,
+                       nap: Optional[str] = None) -> Dict[str, Any]:
+        """Análisis agregado de un grupo de clientes afectados.
+
+        - `serials`: lista explícita (seriales y/o nombres/cédulas).
+        - si no, descubre seriales por OLT/PON o NAP.
+        Cada serial se enriquece con find(); los afectados llevan dirección.
+        """
+        scopes: List[str] = []
+        if nap:
+            scopes.append(f"NAP {nap}")
+        if olt_name and pon_port:
+            scopes.append(f"OLT {olt_name} · PON {pon_port}")
+
+        if serials:
+            list_serials: List[str] = []
+            for s in serials:
+                v = _norm_serial(s) if isinstance(s, str) else ""
+                if v:
+                    list_serials.append(v)
+        else:
+            list_serials = self.discover_serials(olt_name=olt_name,
+                                                 pon_port=pon_port, nap=nap)
+            if not scopes and list_serials:
+                scopes.append(f"{len(list_serials)} seriales")
+
+        if not list_serials:
+            return {"scope": " | ".join(scopes) or "sin entradas", "total": 0,
+                    "afectados": [], "offline": 0, "loss": 0,
+                    "low_power": 0, "distribucion_estados": {},
+                    "fichas": [], "truncado": False}
+
+        fichas: List[Dict] = []
+        truncated = False
+        for i, serial in enumerate(list_serials[:_MAX_GROUP]):
+            try:
+                res = self.find(serial=serial)
+            except Exception as e:
+                logger.warning(f"find({serial}) falló: {e}")
+                res = {"found": False}
+            if res.get("found") and res["ficha"]:
+                fichas.append(res["ficha"])
+            if i and i % 3 == 0:
+                time.sleep(0.05)  # espacio entre lookups WISP (best-effort)
+        truncated = len(list_serials) > _MAX_GROUP
+
+        total = len(fichas)
+        est_map: Dict[str, int] = {}
+        offline = 0
+        loss = 0
+        low_power = 0
+        afectados: List[Dict[str, Any]] = []
+        for f in fichas:
+            e = f.get("estado_onu")
+            est_map[f"estado_{e}"] = est_map.get(f"estado_{e}", 0) + 1
+            rx = f.get("rx_power")
+            try:
+                rx_f = float(rx) if rx is not None else None
+            except (TypeError, ValueError):
+                rx_f = None
+            if e not in (None, _ONLINE_VALUE):
+                offline += 1
+                if e in _LOS_DOWN:
+                    loss += 1
+                afectados.append({
+                    "serial_onu": f.get("serial_onu") or "",
+                    "nombre": f.get("nombre") or "—",
+                    "direccion": f.get("direccion") or "",
+                    "telefono": f.get("telefono") or "",
+                    "documento": f.get("documento") or "",
+                    "estado_onu": e,
+                    "rx_power": rx_f,
+                })
+            if rx_f is not None and rx_f < -28.0:
+                low_power += 1
+
+        return {
+            "scope": " | ".join(scopes) or f"{total} seriales",
+            "total": total,
+            "afectados": afectados,
+            "offline": offline,
+            "loss": loss,
+            "low_power": low_power,
+            "distribucion_estados": est_map,
+            "fichas": fichas,
+            "truncado": truncated,
+        }

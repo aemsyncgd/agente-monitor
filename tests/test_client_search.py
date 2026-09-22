@@ -27,7 +27,7 @@ class FakeWisp:
 
 
 class FakeInflux:
-    """Devuelve filas según el measurement filtrado en el flux."""
+    """Devuelve filas según el measurement y filtros de tag en el flux."""
 
     def __init__(self, rows_by_measurement=None):
         self.bucket = "monitoreo"
@@ -38,7 +38,21 @@ class FakeInflux:
         m = _re.search(r'\[\"_measurement\"\] == \"(\w+)\"', flux)
         if not m:
             return []
-        return self.rows.get(m.group(1), [])
+        rows = self.rows.get(m.group(1), [])
+        out = []
+        for r in rows:
+            if self._tag_filter_match(flux, r):
+                out.append(r)
+        return out
+
+    @staticmethod
+    def _tag_filter_match(flux, row):
+        import re as _re
+        for m in _re.finditer(r'\[\"(onu_serial|mac|serial_onu|nen)\"\] == \"([^\"]+)\"', flux):
+            tag, value = m.group(1), m.group(2).lower()
+            if str(row.get(tag, "")).lower() != value and str(row.get("value", "")).lower() != value:
+                return False
+        return True
 
 
 def _opt_row(field, value, **tags):
@@ -46,7 +60,7 @@ def _opt_row(field, value, **tags):
            "time": datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc),
            "olt_name": "OLT-SISAL-2", "olt_ip": "10.0.0.2",
            "pon_port": "GPON0/2", "onu_index": "1/0/1", "onu_model": "HG8245",
-           "nodo": "Nodo Centro"}
+           "nodo": "Nodo Centro", "onu_serial": "GPON00F58B52"}
     row.update(tags)
     return row
 
@@ -183,3 +197,92 @@ def test_cache_expira_y_reconsulta():
     svc._cache.clear()
     svc.find(serial="GPON00F58B52")
     assert len(wisp.calls_serial) == 2
+
+
+# ---------------------------------------------------------------------------
+# discover_serials + group_analysis
+# ---------------------------------------------------------------------------
+
+def test_discover_serials_por_olt_pon_distinct():
+    svc = _mk_service(optical_power=[
+        {"measurement": "optical_power", "field": "onu_serial",
+         "value": "GPON00A1", "olt_name": "OLT-SISAL-2",
+         "pon_port": "GPON0/2", "onu_serial": "GPON00A1"},
+        {"measurement": "optical_power", "field": "onu_serial",
+         "value": "GPON00A2", "olt_name": "OLT-SISAL-2",
+         "pon_port": "GPON0/2", "onu_serial": "GPON00A2"},
+        {"measurement": "optical_power", "field": "onu_serial",
+         "value": "GPON00A1", "olt_name": "OLT-SISAL-2",
+         "pon_port": "GPON0/2", "onu_serial": "GPON00A1"},  # duplicado
+    ])
+    serials = svc.discover_serials(olt_name="OLT-SISAL-2",
+                                   pon_port="GPON0/2")
+    assert serials == ["GPON00A1", "GPON00A2"]
+
+
+def test_discover_serials_por_nap_usa_base_enriquecida():
+    svc = _mk_service(clientes_enriquecidos=[
+        {"measurement": "clientes_enriquecidos", "field": "serial_onu",
+         "value": "GPON00B1", "nap": "I01313", "serial_onu": "GPON00B1"},
+        {"measurement": "clientes_enriquecidos", "field": "serial_onu",
+         "value": "GPON00B2", "nap": "I01313", "serial_onu": "GPON00B2"},
+    ])
+    serials = svc.discover_serials(nap="I01313")
+    assert "GPON00B1" in serials and "GPON00B2" in serials
+
+
+def test_group_analysis_por_serials_agrega_estados():
+    svc = _mk_service(
+        serials={
+            "GPON00A1": {**WISP_SERIAL, "serial_onu": "GPON00A1",
+                         "direccion": "Calle 1", "nombre": "Cliente Uno"},
+            "GPON00A2": {**WISP_SERIAL, "serial_onu": "GPON00A2",
+                         "direccion": "Calle 2", "nombre": "Cliente Dos"},
+        },
+        optical_power=[
+            _opt_row("status", 3, onu_serial="GPON00A1"),
+            _opt_row("rx_power", -18.0, onu_serial="GPON00A1"),
+            _opt_row("status", 1, onu_serial="GPON00A2"),
+            _opt_row("rx_power", -30.0, onu_serial="GPON00A2"),
+        ],
+    )
+    res = svc.group_analysis(serials=["GPON00A1", "GPON00A2"])
+    assert res["total"] == 2
+    assert res["offline"] == 1
+    assert res["loss"] == 1
+    assert res["low_power"] == 1
+    af = res["afectados"][0]
+    assert af["nombre"] == "Cliente Dos"
+    assert af["direccion"] == "Calle 2"
+    assert af["rx_power"] == -30.0
+
+
+def test_group_analysis_descubre_por_olt_pon():
+    svc = _mk_service(
+        serials={"GPON00A1": {**WISP_SERIAL, "serial_onu": "GPON00A1"}},
+        optical_power=[
+            _opt_row("status", 1, onu_serial="GPON00A1"),
+            _opt_row("rx_power", -31.0, onu_serial="GPON00A1"),
+        ],
+    )
+    res = svc.group_analysis(olt_name="OLT-SISAL-2", pon_port="GPON0/2")
+    assert res["total"] == 1
+    assert res["loss"] == 1
+    assert "OLT OLT-SISAL-2 · PON GPON0/2" in res["scope"]
+
+
+def test_group_analysis_sin_entradas():
+    svc = _mk_service()
+    res = svc.group_analysis(serials=[])
+    assert res["total"] == 0
+    assert res["afectados"] == []
+
+
+def test_group_analysis_trunca_a_max_group():
+    serials = {f"GPON00A{i:03d}": {**WISP_SERIAL,
+                                   "serial_onu": f"GPON00A{i:03d}"}
+               for i in range(_MAX_GROUP + 5)}
+    svc = _mk_service(serials=serials)
+    res = svc.group_analysis(serials=list(serials.keys()))
+    assert res["truncado"] is True
+    assert res["total"] == _MAX_GROUP
