@@ -230,3 +230,37 @@ def test_area_alert_escapes_labels(tmp_path):
     text = post.call_args.kwargs["json"]["text"]
     assert "OLT &lt;1&gt;" in text
     assert "NAP &amp; 12" in text
+
+
+def test_area_alert_affected_usa_direccion(tmp_path):
+    notifier = make_notifier(tmp_path)
+    affected = [
+        {"nombre": "Cliente Uno", "direccion": "Calle 1"},
+        {"nombre": "Cliente Dos", "direccion": ""},
+    ]
+    with mock_post() as post:
+        assert notifier.send_area_alert(
+            scope="nap", olt="OLT-1", label="NAP-12",
+            down=2, total=2, kind="down",
+            affected=affected, scope_detail="OLT OLT-1 · PON GPON0/2",
+        ) is True
+    text = post.call_args.kwargs["json"]["text"]
+    assert "<b>Alcance:</b> OLT OLT-1 · PON GPON0/2" in text
+    assert "- Cliente Uno — Calle 1" in text
+    assert "- Cliente Dos" in text
+    assert "- A" not in text
+
+
+def test_area_alert_affected_limita_ocho(tmp_path):
+    notifier = make_notifier(tmp_path)
+    affected = [{"nombre": f"Cliente {i}", "direccion": "Calle"}
+                for i in range(12)]
+    with mock_post() as post:
+        notifier.send_area_alert(
+            scope="nap", olt="OLT-1", label="NAP-B",
+            down=12, total=12, kind="down", affected=affected,
+        )
+    text = post.call_args.kwargs["json"]["text"]
+    assert "- Cliente 7" in text
+    assert "- Cliente 8" not in text
+    assert "4 más" in text

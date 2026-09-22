@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 
 from .alert_state import LastStateStore
@@ -227,13 +227,17 @@ class FaultStats:
 class FaultDetector:
     def __init__(self, influx, notifier, config: FaultDetectionConfig,
                  olt_lookup: Dict[str, tuple] = None,
-                 refresher: Optional[OltStatusRefresher] = None):
-        """olt_lookup: {olt_name: (ip, community)}. El detector es síncrono."""
+                 refresher: Optional[OltStatusRefresher] = None,
+                 group_analyzer: Optional[Callable] = None):
+        """olt_lookup: {olt_name: (ip, community)}. El detector es síncrono.
+        group_analyzer: callable(serials) -> resultado de group_analysis
+        (afectados con dirección) para enriquecer la alerta agregada."""
         self.influx = influx
         self.notifier = notifier
         self.config = config
         self.olt_lookup = olt_lookup or {}
         self.refresher = refresher or OltStatusRefresher(config.refresh_timeout_seconds)
+        self.group_analyzer = group_analyzer
         self._state = LastStateStore(config.state_file)
         self._notify = notifier is not None
 
@@ -287,12 +291,17 @@ class FaultDetector:
             down_keys[f"fault:nap:{g.olt}:{g.label}"] = {
                 "olt": g.olt, "label": g.label, "down": g.down, "total": g.total,
                 "names": g.names(), "scope": "nap",
+                "serials": [c.get("serial_onu") for c in g.clients
+                            if c.get("serial_onu")],
             }
         for olt in broadcast:
             og = olt_groups[olt]
             down_keys[f"fault:olt:{olt}"] = {
                 "olt": olt, "label": olt, "down": og.down, "total": og.total,
                 "names": _olt_names(og, 8), "scope": "olt",
+                "serials": [c.get("serial_onu") for c in og.clients
+                            if c.get("serial_onu")],
+                "clients": og.clients,
             }
 
         stats.alerts_down = self._emit_down(down_keys)
@@ -349,8 +358,17 @@ class FaultDetector:
                 continue
             if not self._notify:
                 continue
+            extra = {}
+            if self.group_analyzer and info.get("serials"):
+                try:
+                    res = self.group_analyzer(list(info["serials"]))
+                    if res:
+                        extra["affected"] = res.get("afectados", [])
+                        extra["scope_detail"] = res.get("scope") or ""
+                except Exception as e:
+                    logger.warning(f"group_analyzer falló: {e}")
             if self.notifier.send_area_alert(
-                **info, kind="down", duration_minutes=0,
+                **info, kind="down", duration_minutes=0, **extra,
             ):
                 self._state.record(key, {"status": "down"},
                                    down_since=time.time())

@@ -297,11 +297,15 @@ class TelegramNotifierAI:
         total: int = 0,
         names: Optional[List[str]] = None,
         duration_minutes: int = 0,
+        affected: Optional[List[dict]] = None,
+        scope_detail: str = "",
     ) -> bool:
         """Alerta agregada por NAP (caja) o por OLT (broadcast), con recuperación.
 
         kind 'down': dispara una sola alerta por grupo (dedup por estado).
         kind 'recovery': reporta la duración total de la caída.
+        affected: lista {nombre, direccion} para detallar afectados.
+        scope_detail: descripción extra del alcance (p.ej. OLT/PON del análisis).
         """
         names = names or []
         key = f"fault:{scope}:{olt}:{label}"
@@ -319,14 +323,26 @@ class TelegramNotifierAI:
             lines = [header, separator]
             if not is_broadcast:
                 lines.append(f"<b>OLT:</b> {self._esc(olt)}")
+            if scope_detail:
+                lines.append(f"<b>Alcance:</b> {self._esc(scope_detail)}")
             lines.append(f"<b>Clientes caídos:</b> {down} / {total}")
-            if names:
+            affected_lines = []
+            if affected:
+                affected_lines = [
+                    f"  - {self._esc(a.get('nombre') or '')}"
+                    f"{' — ' + self._esc(a['direccion']) if a.get('direccion') else ''}"
+                    for a in affected
+                    if a.get("nombre")
+                ]
+            if affected_lines or names:
                 lines.append("")
                 lines.append("Afectados:")
-                for name in names[:8]:
-                    lines.append(f"  - {self._esc(name)}")
-                if len(names) > 8:
-                    lines.append(f"  ... y {len(names) - 8} más")
+                shown = affected_lines if affected_lines else [
+                    f"  - {self._esc(n)}" for n in names]
+                lines.extend(shown[:8])
+                shown_count = len(names) if not affected else len(affected)
+                if shown_count > 8:
+                    lines.append(f"  ... y {shown_count - 8} más")
             lines.append("")
             lines.append("⚠️ <i>Verificar zona/NAP y fibra óptica</i>")
             lines.append(f"⏰ <code>{time.strftime('%H:%M')}</code>")

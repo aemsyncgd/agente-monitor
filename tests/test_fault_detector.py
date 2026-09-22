@@ -1,4 +1,6 @@
 # tests/test_fault_detector.py
+from unittest.mock import MagicMock
+
 from src.fault_detector import (
     analyze_network,
     candidate_groups,
@@ -6,6 +8,7 @@ from src.fault_detector import (
     _norm_state,
     OltStatusRefresher,
     FaultDetectionConfig,
+    FaultDetector,
 )
 
 
@@ -119,3 +122,76 @@ def test_onu_suffix():
     assert OltStatusRefresher.onu_suffix("12_10") == "12.10"
     assert OltStatusRefresher.onu_suffix("3.01") == "3.01"
     assert OltStatusRefresher.onu_suffix("") == ""
+
+
+# --- Alerta híbrida: group_analyzer enriquece send_area_alert ---
+
+def _detector(notifier, group_analyzer=None, state_file="data/fault_state_test.json"):
+    from src.fault_detector import FaultDetector, OltStatusRefresher
+    return FaultDetector(
+        influx=MagicMock(),
+        notifier=notifier,
+        config=_cfg(state_file=state_file),
+        olt_lookup={},
+        refresher=OltStatusRefresher(1),
+        group_analyzer=group_analyzer,
+    )
+
+
+def test_emit_down_enriquece_affected(tmp_path):
+    notifier = MagicMock()
+    notifier.send_area_alert.return_value = True
+    analyzer = MagicMock()
+    analyzer.return_value = {
+        "afectados": [
+            {"nombre": "Cliente Uno", "direccion": "Calle 1"},
+            {"nombre": "Cliente Dos", "direccion": "Calle 2"},
+        ],
+        "scope": "OLT OLT-1 · PON GPON0/2",
+    }
+    detector = _detector(notifier, group_analyzer=analyzer,
+                         state_file=str(tmp_path / "state.json"))
+    info = {
+        "olt": "OLT-1", "label": "NAP-A", "down": 2, "total": 2,
+        "names": ["Cliente Uno", "Cliente Dos"], "scope": "nap",
+        "serials": ["GPON00A1", "GPON00A2"],
+    }
+    detector._emit_down({"fault:nap:OLT-1:NAP-A": info})
+    analyzer.assert_called_once_with(["GPON00A1", "GPON00A2"])
+    _, kwargs = notifier.send_area_alert.call_args
+    assert kwargs["affected"] == [
+        {"nombre": "Cliente Uno", "direccion": "Calle 1"},
+        {"nombre": "Cliente Dos", "direccion": "Calle 2"},
+    ]
+    assert kwargs["scope_detail"] == "OLT OLT-1 · PON GPON0/2"
+
+
+def test_emit_down_sin_analyzer_no_pasa_affected(tmp_path):
+    notifier = MagicMock()
+    notifier.send_area_alert.return_value = True
+    detector = _detector(notifier, state_file=str(tmp_path / "state.json"))
+    info = {
+        "olt": "OLT-1", "label": "NAP-A", "down": 2, "total": 2,
+        "names": ["Cliente Uno"], "scope": "nap",
+        "serials": ["GPON00A1"],
+    }
+    detector._emit_down({"fault:nap:OLT-1:NAP-A": info})
+    _, kwargs = notifier.send_area_alert.call_args
+    assert "affected" not in kwargs
+    assert kwargs["names"] == ["Cliente Uno"]
+
+
+def test_emit_down_analyzer_falla_sin_romper_alerta(tmp_path):
+    notifier = MagicMock()
+    notifier.send_area_alert.return_value = True
+    analyzer = MagicMock(side_effect=RuntimeError("wisp caído"))
+    detector = _detector(notifier, group_analyzer=analyzer,
+                         state_file=str(tmp_path / "state.json"))
+    info = {
+        "olt": "OLT-1", "label": "NAP-A", "down": 1, "total": 2,
+        "names": [], "scope": "nap", "serials": ["GPON00A1"],
+    }
+    detector._emit_down({"fault:nap:OLT-1:NAP-A": info})
+    assert notifier.send_area_alert.called is True
+    _, kwargs = notifier.send_area_alert.call_args
+    assert "affected" not in kwargs

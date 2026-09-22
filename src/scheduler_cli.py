@@ -106,12 +106,17 @@ def _build_analytics(config, influx=None):
                 for node in nodes
                 for olt in node.olts
             }
+            wisp = WispClient(config.wisp)
+            from .client_search import ClientSearchService
+            client_search = ClientSearchService(wisp=wisp, influx=influx)
             fault_detector = FaultDetector(
                 influx=influx,
                 notifier=notifier,
                 config=config.fault_detection,
                 olt_lookup=olt_lookup,
                 refresher=OltStatusRefresher(config.fault_detection.refresh_timeout_seconds),
+                group_analyzer=lambda serials: client_search.group_analysis(
+                    serials=list(serials)),
             )
     except Exception as e:
         logger.warning(f"Analytics unavailable (enricher/fault detector): {e}")
