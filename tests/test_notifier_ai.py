@@ -163,6 +163,72 @@ def test_llm_alert_escapes_and_formats(tmp_path):
     assert "Corte &amp; &lt;falla&gt;" in payload["text"]
 
 
+# === Alertas del agente IA (send_llm_alert + dedup por estado) ===
+
+def test_llm_alert_dedup_state_change(tmp_path):
+    """host_down → repetido → host_up → host_down: solo cambia cuando el
+    estado del equipo cambia (y una nueva caída tras recuperación re-alerta)."""
+    notifier = make_notifier(tmp_path)
+    key = "agent:host:SWITCH-BACKBONE"
+    with mock_post() as post:
+        # caída 1
+        assert notifier.send_llm_alert(
+            title="host_down — SWITCH-BACKBONE", severity="critical",
+            message="detalle", dedup_key=key, state_fingerprint={"status": "down"},
+        ) is True
+        # misma condición (escaneo siguiente / reinicio): NO se re-envía
+        assert notifier.send_llm_alert(
+            title="host_down — SWITCH-BACKBONE", severity="critical",
+            message="detalle", dedup_key=key, state_fingerprint={"status": "down"},
+        ) is False
+        # recuperación
+        assert notifier.send_llm_alert(
+            title="host_up — SWITCH-BACKBONE", severity="info",
+            message="rec", dedup_key=key, state_fingerprint={"status": "up"},
+        ) is True
+        # nueva caída (episodio distinto): vuelve a alertar
+        assert notifier.send_llm_alert(
+            title="host_down — SWITCH-BACKBONE", severity="critical",
+            message="detalle", dedup_key=key, state_fingerprint={"status": "down"},
+        ) is True
+    assert post.call_count == 3
+    texts = [c.kwargs["json"]["text"] for c in post.call_args_list]
+    assert texts[0].startswith("🔴 <b>host_down — SWITCH-BACKBONE</b>")
+    assert texts[1].startswith("ℹ️ <b>host_up — SWITCH-BACKBONE</b>")
+    assert "🤖 Generado por el agente IA" in texts[2]
+
+
+def test_llm_alert_dedup_por_severidad(tmp_path):
+    """Patrones (ej. cascade): dedup por severidad — re-alerta solo si la
+    condición de severidad cambia."""
+    notifier = make_notifier(tmp_path)
+    key = "agent:cascade:SWITCH-BACKBONE"
+    with mock_post() as post:
+        assert notifier.send_llm_alert(
+            title="cascade — SWITCH-BACKBONE", severity="critical",
+            dedup_key=key, state_fingerprint={"severity": "critical"},
+        ) is True
+        assert notifier.send_llm_alert(
+            title="cascade — SWITCH-BACKBONE", severity="critical",
+            dedup_key=key, state_fingerprint={"severity": "critical"},
+        ) is False
+        assert notifier.send_llm_alert(
+            title="cascade — SWITCH-BACKBONE", severity="warning",
+            dedup_key=key, state_fingerprint={"severity": "warning"},
+        ) is True
+    assert post.call_count == 2
+
+
+def test_llm_alert_sin_dedup_usa_cooldown(tmp_path):
+    """Sin dedup_key/state_fingerprint mantiene el cooldown en memoria (compat)."""
+    notifier = make_notifier(tmp_path)
+    with mock_post() as post:
+        assert notifier.send_llm_alert(title="gen", severity="info") is True
+        notifier._last_sent["llm_gen_info"] = time.time()  # envío reciente
+        assert notifier.send_llm_alert(title="gen", severity="info") is False
+    assert post.call_count == 1
+
+
 def test_daily_summary_html(tmp_path):
     notifier = make_notifier(tmp_path)
     with mock_post() as post:

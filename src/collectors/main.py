@@ -8,7 +8,7 @@ import logging.handlers
 import threading
 import concurrent.futures
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
 from ..config_ia import ConfigIA, load_config_ia
 from ..config_manager import get_config_manager, init_config_manager, ConfigManager
@@ -51,6 +51,28 @@ def _publish_collector_event(bus, device_name, device_ip, device_type,
         bus.publish(event)
     except Exception as e:
         logger.debug(f"Event publish failed (non-blocking): {e}")
+
+
+# Estado ping publicado por host (dedup de eventos: solo se publican
+# host_down/host_up cuando el estado CAMBIA, no en cada escaneo).
+_ping_published_status: Dict[str, int] = {}
+
+
+def _ping_state_change(host_name: str, status: int) -> Optional[str]:
+    """Devuelve 'host_down'/'host_up' solo si el estado del host cambió, o None.
+
+    Primera observación: reporta 'host_down' si el host ya está caído (para no
+    perder la alerta inicial), pero NO reporta 'host_up' masivo al arrancar.
+    """
+    prev = _ping_published_status.get(host_name)
+    _ping_published_status[host_name] = status
+    if prev is None:
+        return "host_down" if status == 0 else None
+    if status == 1 and prev == 0:
+        return "host_up"
+    if status == 0 and prev == 1:
+        return "host_down"
+    return None
 
 
 def setup_logging(config):
@@ -215,20 +237,25 @@ def mikrotik_ping_worker(
                     down_count = sum(1 for m in result.metrics if m["fields"]["status"] == 0)
                     logger.info(f"Ping: {up_count} up, {down_count} down, "
                               f"{written} points in {result.duration_seconds:.1f}s")
-                    # Publicar eventos de hosts caídos
+                    # Publicar eventos de hosts SOLO en cambios de estado
+                    # (dedup por transición: evita re-publicar host_down en
+                    # cada escaneo para hosts que siguen caídos).
                     for m in result.metrics:
-                        if m["fields"].get("status") == 0:
+                        name = m["tags"].get("name", "")
+                        status = m["fields"].get("status")
+                        if not name or status is None:
+                            continue
+                        change = _ping_state_change(name, int(status))
+                        if change == "host_down":
                             _publish_collector_event(
-                                event_bus, m["tags"].get("name", ""),
-                                m["tags"].get("ip", ""),
+                                event_bus, name, m["tags"].get("ip", ""),
                                 m["tags"].get("type", "ping_target"),
                                 "host_down", "critical",
                                 {"status": 0, "latency_ms": m["fields"].get("latency_ms_avg", 0)},
                             )
-                        elif m["fields"].get("status") == 1:
+                        elif change == "host_up":
                             _publish_collector_event(
-                                event_bus, m["tags"].get("name", ""),
-                                m["tags"].get("ip", ""),
+                                event_bus, name, m["tags"].get("ip", ""),
                                 m["tags"].get("type", "ping_target"),
                                 "host_up", "info",
                                 {"status": 1, "latency_ms": m["fields"].get("latency_ms_avg", 0)},

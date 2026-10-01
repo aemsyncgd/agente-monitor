@@ -5,6 +5,7 @@ event_bus, policy, correlator, reasoner, audit, enricher, actions.
 """
 import time
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -327,6 +328,70 @@ def test_run_sync_processes_message_directly():
     # Llamada directa sin asyncio: no lanza "a coroutine was expected"
     agent = _make_agent()
     assert agent._process_message({"severity": "info"}) is None
+
+
+# ── Send alert: dedup por estado (host_down/host_up comparten clave) ────────
+
+def _reasoning(sev="critical"):
+    return SimpleNamespace(
+        severidad_recalculada=sev,
+        diagnostico="Evento 'host_down' en X (mikrotik)",
+        causa_raiz_probable="posible caída de enlace",
+        acciones_recomendadas=[{"nombre": "DiagnosticarAction", "nivel": 0},
+                               {"nombre": "EnviarAlertaTelegramAction", "nivel": 1}],
+        model="fallback-rules",
+    )
+
+
+def _evt(etype, device, severity="critical"):
+    return SimpleNamespace(
+        event_type=etype, device_id=device, device_type="mikrotik",
+        severity=severity, context={}, payload={},
+    )
+
+
+def test_send_alert_host_pairing_dedup_keys():
+    """host_down y host_up comparten la clave agent:host:<device> para que una
+    recuperación o una nueva caída re-activen la alerta."""
+    agent = _make_agent()
+    agent.notifier = MagicMock()
+
+    agent._send_alert(_evt("host_down", "NODO-CASTORES"), _reasoning("critical"))
+    agent._send_alert(_evt("host_up", "NODO-CASTORES"), _reasoning("info"))
+    agent._send_alert(_evt("host_down", "NODO-CASTORES"), _reasoning("critical"))
+
+    calls = agent.notifier.send_llm_alert.call_args_list
+    assert len(calls) == 3
+    assert calls[0].kwargs["dedup_key"] == "agent:host:NODO-CASTORES"
+    assert calls[0].kwargs["state_fingerprint"] == {"status": "down"}
+    assert calls[1].kwargs["state_fingerprint"] == {"status": "up"}
+    assert calls[2].kwargs["state_fingerprint"] == {"status": "down"}
+    assert calls[0].kwargs["severity"] == "critical"
+
+
+def test_send_alert_pattern_dedup_por_severidad():
+    """Patrones (cascade/recurrence): clave por evento+device, dedup por severidad."""
+    agent = _make_agent()
+    agent.notifier = MagicMock()
+
+    agent._send_alert(_evt("cascade", "SWITCH-BACKBONE"), _reasoning("critical"))
+    agent._send_alert(_evt("cascade", "SWITCH-BACKBONE"), _reasoning("critical"))
+
+    calls = agent.notifier.send_llm_alert.call_args_list
+    assert len(calls) == 2
+    for call in calls:
+        assert call.kwargs["dedup_key"] == "agent:cascade:SWITCH-BACKBONE"
+        assert call.kwargs["state_fingerprint"] == {"severity": "critical"}
+
+
+def test_send_alert_title_y_fingerprint_incluyen_severidad():
+    agent = _make_agent()
+    agent.notifier = MagicMock()
+
+    agent._send_alert(_evt("low_signal", "ONU-42"), _reasoning("warning"))
+    call = agent.notifier.send_llm_alert.call_args
+    assert call.kwargs["title"] == "low_signal — ONU-42"
+    assert call.kwargs["state_fingerprint"] == {"severity": "warning"}
 
 
 # ── Reasoner: degradación LLM→fallback (no debe quedar vacío) ───────────────

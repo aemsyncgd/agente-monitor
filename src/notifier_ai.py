@@ -423,8 +423,15 @@ class TelegramNotifierAI:
         return self._send_message("\n".join(lines), key="system_status")
 
     def send_llm_alert(self, title: str, severity: str = "warning",
-                       message: str = "") -> bool:
-        """Generic alert produced by the LLM agent."""
+                       message: str = "", dedup_key: Optional[str] = None,
+                       state_fingerprint: Optional[Dict] = None) -> bool:
+        """Generic alert produced by the LLM agent.
+
+        Si se proveen `dedup_key` + `state_fingerprint`, se aplica dedup por
+        estado persistente: la alerta solo se re-envía cuando la condición
+        cambia (sobrevive reinicios). Sin dedup_key cae en cooldown en memoria
+        (comportamiento original).
+        """
         emoji = {
             "critical": "🔴",
             "warning": "🟠",
@@ -437,7 +444,11 @@ class TelegramNotifierAI:
         lines.append(f"\n⏰ <code>{time.strftime('%H:%M')}</code>")
         lines.append("🤖 Generado por el agente IA")
 
-        return self._send_message("\n".join(lines), key=f"llm_{title[:40]}_{severity}")
+        return self._send_message(
+            "\n".join(lines),
+            key=dedup_key or f"llm_{title[:40]}_{severity}",
+            state_fingerprint=state_fingerprint,
+        )
 
     def send_action_approval(self, action_id: str, message: str,
                              timeout_seconds: int = 300) -> Optional[int]:

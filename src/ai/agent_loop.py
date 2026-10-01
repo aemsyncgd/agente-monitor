@@ -264,11 +264,30 @@ class WispAgent:
         if reasoning.model:
             message_parts.append(f"🤖 Modelo: {reasoning.model}")
 
+        severity = reasoning.severidad_recalculada or event.severity or "warning"
+
+        # Dedup por estado persistente: host_down/host_up comparten clave para
+        # que una recuperación re-active una nueva alerta de caída (y una nueva
+        # caída re-active tras una recuperación). Otros eventos dedup por
+        # severidad (solo re-alertan si la condición cambia).
+        event_type = event.event_type or "event"
+        device_id = event.device_id or "unknown"
+        if event_type in ("host_down", "host_up"):
+            dedup_key = f"agent:host:{device_id}"
+            state_fingerprint = {
+                "status": "down" if event_type == "host_down" else "up"
+            }
+        else:
+            dedup_key = f"agent:{event_type}:{device_id}"
+            state_fingerprint = {"severity": severity}
+
         try:
             self.notifier.send_llm_alert(
                 title=title,
-                severity=reasoning.severidad_recalculada,
+                severity=severity,
                 message="\n".join(message_parts),
+                dedup_key=dedup_key,
+                state_fingerprint=state_fingerprint,
             )
             self._alert_count += 1
         except Exception as e:
