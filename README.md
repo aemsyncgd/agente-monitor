@@ -410,6 +410,10 @@ pytest                 # usa pytest.ini (testpaths = tests)
 
 Suite actual: **333 tests** · `pytest` + `pytest-asyncio`. Cubren colectores, detección de anomalías, correlación de fallas, buscador y analizador de clientes, WISP/czwisp, Redis (`ClientStore`), rutas de la API, dashboard TV, alertas y dedup, y el reporte de Telegram.
 
+> `config/instructions.json` mezcla configuración del agente con estado de ejecución
+> (`last_run`, `run_count`): el agente IA lo reescribe en cada ciclo, así que aparecerá
+> modificado en `git status` aunque no lo hayas tocado. Es esperado.
+
 ---
 
 ## 🔒 Seguridad
