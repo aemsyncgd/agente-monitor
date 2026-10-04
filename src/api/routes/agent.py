@@ -15,6 +15,8 @@ from typing import Optional, List, Dict
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
+from ..influx_helper import run_influx
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -86,7 +88,7 @@ async def get_agent_status():
     except Exception:
         pass
 
-    cstats = get_clientes_stats()
+    cstats = await run_influx(get_clientes_stats)
     return {
         "status": "running" if ai_running else "stopped",
         "enabled": config.agent.enabled,
@@ -240,7 +242,7 @@ async def lookup_client(serial: Optional[str] = Query(None), name: Optional[str]
     from ..influx_helper import get_enriched_clients
 
     if serial:
-        rows = get_enriched_clients(search=serial, limit=10)
+        rows = await run_influx(get_enriched_clients, serial, None, None, None, None, 10)
         serial_u = str(serial).strip().upper()
         exact = [c for c in rows
                  if (c.get("serial_onu") or "").upper() == serial_u]
@@ -251,7 +253,7 @@ async def lookup_client(serial: Optional[str] = Query(None), name: Optional[str]
         return {"found": True, "client": _client_brief(exact[0])}
 
     if name:
-        results = get_enriched_clients(search=name, limit=20)
+        results = await run_influx(get_enriched_clients, name, None, None, None, None, 20)
         return {
             "found": len(results) > 0,
             "count": len(results),
@@ -265,14 +267,16 @@ async def lookup_client(serial: Optional[str] = Query(None), name: Optional[str]
 async def client_stats():
     """Get client database statistics (base enriquecida)."""
     from ..influx_helper import get_clientes_stats
-    return get_clientes_stats()
+    return await run_influx(get_clientes_stats)
 
 
 @router.get("/api/agent/clients/pon/{olt_hostname}/{pon_port}")
 async def clients_on_pon(olt_hostname: str, pon_port: str):
     """Get all clients on a specific OLT:PON port (base enriquecida)."""
     from ..influx_helper import get_enriched_clients
-    clients = get_enriched_clients(olt=olt_hostname, pon=pon_port, limit=50)
+    clients = await run_influx(
+        get_enriched_clients, None, olt_hostname, None, None, pon_port, 50
+    )
     return {
         "olt": olt_hostname,
         "pon_port": pon_port,

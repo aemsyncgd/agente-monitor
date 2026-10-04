@@ -32,10 +32,78 @@ class FakeInflux:
     def __init__(self, rows_by_measurement=None):
         self.bucket = "monitoreo"
         self.rows = dict(rows_by_measurement or {})
+        self.queries = []
+
+    @staticmethod
+    def _tag_filter_match(flux, row):
+        import re as _re
+        for m in _re.finditer(r'\[\"(onu_serial|mac|serial_onu|nen)\"\] == \"([^\"]+)\"', flux):
+            tag, value = m.group(1), m.group(2).lower()
+            if str(row.get(tag, "")).lower() != value and str(row.get("value", "")).lower() != value:
+                return False
+        for m in _re.finditer(
+            r'\["(onu_serial|mac|serial_onu|nen)"\] =~ /\(\?i\)\^([\w\-:]+)', flux):
+            tag, value = m.group(1), m.group(2).lower()
+            if str(row.get(tag, "")).lower() != value and str(row.get("value", "")).lower() != value:
+                return False
+        for m in _re.finditer(
+            r'strings\.toLower\(v: r\["(onu_serial|mac|serial_onu|nen)"\]\) '
+            r'== strings\.toLower\(v: "([^"]+)"\)', flux):
+            tag, value = m.group(1), m.group(2).lower()
+            if str(row.get(tag, "")).lower() != value and str(row.get("value", "")).lower() != value:
+                return False
+        return True
+
+    @staticmethod
+    def _field_filter_match(flux, row):
+        import re as _re
+        m = _re.search(r'\["_field"\] == "([^"]+)"', flux)
+        if m:
+            return str(row.get("field", "")) == m.group(1)
+        m = _re.search(r'\["_field"\] =~ /\^\((.*?)\)\$/', flux)
+        if m:
+            campos = {f.strip() for f in m.group(1).split("|")}
+            return str(row.get("field", "")) in campos
+        return True
+
+    @staticmethod
+    def _contains_match(flux, row):
+        import re as _re
+        m = _re.search(r'subv: \"([^\"]+)\"', flux)
+        if not m:
+            return True
+        return m.group(1).lower() in str(row.get("value", "")).lower()
+
+    @classmethod
+    def _apply_collapse(cls, flux, rows):
+        """Modela el colapso real de group(columns:["_field"]) |> last().
+
+        Con un filtro _field previo todas las filas caen en una sola tabla
+        y last() devuelve UNA fila (el bug de _serial_by_nombre).
+        """
+        if (
+            'group(columns: ["_field"])' in flux
+            and "|> last()" in flux
+            and '_field"] ==' in flux
+            and "distinct" not in flux
+        ):
+            return rows[-1:]
+        if (
+            'group(columns: ["serial_onu", "mac", "_field"])' in flux
+            and "|> last()" in flux
+        ):
+            # Una fila por (serial, mac, campo): la última de cada grupo.
+            último = {}
+            for r in rows:
+                clave = (r.get("serial_onu"), r.get("mac"), r.get("field"))
+                último[clave] = r
+            return list(último.values())
+        return rows
 
     def query(self, flux):
         import re as _re
-        m = _re.search(r'\[\"_measurement\"\] == \"(\w+)\"', flux)
+        self.queries.append(flux)
+        m = _re.search(r'\["_measurement"\] == "(\w+)"', flux)
         if not m:
             return []
         rows = self.rows.get(m.group(1), [])
@@ -45,32 +113,7 @@ class FakeInflux:
                 if self._field_filter_match(flux, r):
                     if self._contains_match(flux, r):
                         out.append(r)
-        return out
-
-    @staticmethod
-    def _tag_filter_match(flux, row):
-        import re as _re
-        for m in _re.finditer(r'\[\"(onu_serial|mac|serial_onu|nen)\"\] == \"([^\"]+)\"', flux):
-            tag, value = m.group(1), m.group(2).lower()
-            if str(row.get(tag, "")).lower() != value and str(row.get("value", "")).lower() != value:
-                return False
-        return True
-
-    @staticmethod
-    def _field_filter_match(flux, row):
-        import re as _re
-        m = _re.search(r'\[\"_field\"\] == \"([^\"]+)\"', flux)
-        if not m:
-            return True
-        return str(row.get("field", "")) == m.group(1)
-
-    @staticmethod
-    def _contains_match(flux, row):
-        import re as _re
-        m = _re.search(r'subv: \"([^\"]+)\"', flux)
-        if not m:
-            return True
-        return m.group(1).lower() in str(row.get("value", "")).lower()
+        return self._apply_collapse(flux, out)
 
 
 def _opt_row(field, value, **tags):
@@ -244,20 +287,74 @@ def test_cache_expira_y_reconsulta():
 
 
 # ---------------------------------------------------------------------------
+# _serial_by_nombre: distinct() por serial + ventana corta (sin colapso)
+# ---------------------------------------------------------------------------
+
+def _enr_row(value, serial):
+    return {
+        "measurement": "clientes_enriquecidos", "field": "nombre",
+        "value": value, "serial_onu": serial, "mac": "a1:b2:c3:d4:e5:f6",
+        "time": datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc),
+    }
+
+
+def test_serial_by_nombre_sin_colapso_y_ventana_24h():
+    svc = _mk_service(clientes_enriquecidos=[
+        _enr_row("ANA MARIA PEREZ", "AAA0001"),
+        _enr_row("ANA MARIA GOMEZ LOPEZ", "ZZZ0009"),
+    ])
+    captured = []
+    orig = svc.influx.query
+
+    def spy(flux):
+        captured.append(flux)
+        return orig(flux)
+
+    svc.influx.query = spy
+    serial = svc._serial_by_nombre("ana maria")
+    assert serial == "AAA0001"
+    assert captured, "debería consultar Influx"
+    assert any("range(start: -24h)" in f for f in captured)
+    assert all('group(columns: ["_field"])' not in f for f in captured)
+    assert all("distinct" in f for f in captured)
+
+
+def test_find_por_nombre_elige_serial_estable():
+    svc = _mk_service(
+        serials={
+            "AAA0001": {**WISP_SERIAL, "serial_onu": "AAA0001"},
+            "ZZZ0009": {**WISP_SERIAL, "serial_onu": "ZZZ0009"},
+        },
+        clientes_enriquecidos=[
+            _enr_row("ANA MARIA PEREZ", "AAA0001"),
+            _enr_row("ANA MARIA GOMEZ LOPEZ", "ZZZ0009"),
+        ],
+        optical_power=[
+            _opt_row("status", 3, onu_serial="AAA0001"),
+            _opt_row("status", 3, onu_serial="ZZZ0009"),
+        ],
+    )
+    res = svc.find(nombre="ana maria")
+    assert res["found"] is True
+    assert res["ficha"]["serial_onu"] == "AAA0001"
+    assert svc.wisp.calls_serial == ["AAA0001"]
+
+
+# ---------------------------------------------------------------------------
 # discover_serials + group_analysis
 # ---------------------------------------------------------------------------
 
 def test_discover_serials_por_olt_pon_distinct():
     svc = _mk_service(optical_power=[
-        {"measurement": "optical_power", "field": "onu_serial",
-         "value": "GPON00A1", "olt_name": "OLT-SISAL-2",
-         "pon_port": "GPON0/2", "onu_serial": "GPON00A1"},
-        {"measurement": "optical_power", "field": "onu_serial",
-         "value": "GPON00A2", "olt_name": "OLT-SISAL-2",
-         "pon_port": "GPON0/2", "onu_serial": "GPON00A2"},
-        {"measurement": "optical_power", "field": "onu_serial",
-         "value": "GPON00A1", "olt_name": "OLT-SISAL-2",
-         "pon_port": "GPON0/2", "onu_serial": "GPON00A1"},  # duplicado
+        {"measurement": "optical_power", "field": "status", "value": 3,
+         "olt_name": "OLT-SISAL-2", "pon_port": "GPON0/2",
+         "onu_serial": "GPON00A1"},
+        {"measurement": "optical_power", "field": "status", "value": 3,
+         "olt_name": "OLT-SISAL-2", "pon_port": "GPON0/2",
+         "onu_serial": "GPON00A2"},
+        {"measurement": "optical_power", "field": "status", "value": 3,
+         "olt_name": "OLT-SISAL-2", "pon_port": "GPON0/2",
+         "onu_serial": "GPON00A1"},  # duplicado
     ])
     serials = svc.discover_serials(olt_name="OLT-SISAL-2",
                                    pon_port="GPON0/2")
@@ -275,14 +372,50 @@ def test_discover_serials_por_nap_usa_base_enriquecida():
     assert "GPON00B1" in serials and "GPON00B2" in serials
 
 
+def test_discover_por_nap_devuelve_seriales_legibles():
+    """`group()` antes de `distinct` deja la consulta vacía.
+
+    Influx se queda sólo con la clave de grupo, sin columnas de datos, y el
+    cliente no recibe ningún registro. La forma que sí funciona es
+    `keep`+`distinct` sin `group()` previo.
+    """
+    svc = _mk_service()
+    svc.discover_serials(nap="I01313")
+    flux = [q for q in svc.influx.queries if "I01313" in q][0]
+    assert 'keep(columns: ["serial_onu"])' in flux
+    assert 'distinct(column: "serial_onu")' in flux
+    assert "|> group()" not in flux
+
+
+def test_busqueda_por_nombre_evita_group_antes_de_distinct():
+    svc = _mk_service()
+    svc.find_many(["ANA MARIA PEREZ"])
+    flux = [q for q in svc.influx.queries if "strings" in q][0]
+    assert 'keep(columns: ["serial_onu"])' in flux
+    assert "|> group()" not in flux
+
+
+def _enq_row(serial, field, value, **tags):
+    """Fila de `clientes_enriquecidos` (tags compartidos + un campo)."""
+    row = {"measurement": "clientes_enriquecidos", "field": field,
+           "value": value, "serial_onu": serial,
+           "time": datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)}
+    row.update(tags)
+    return row
+
+
 def test_group_analysis_por_serials_agrega_estados():
+    # El análisis de grupo se apoya en la base enriquecida: `find()` por
+    # cliente significaba una llamada WISP por cada uno del grupo.
     svc = _mk_service(
-        serials={
-            "GPON00A1": {**WISP_SERIAL, "serial_onu": "GPON00A1",
-                         "direccion": "Calle 1", "nombre": "Cliente Uno"},
-            "GPON00A2": {**WISP_SERIAL, "serial_onu": "GPON00A2",
-                         "direccion": "Calle 2", "nombre": "Cliente Dos"},
-        },
+        clientes_enriquecidos=[
+            _enq_row("GPON00A1", "nombre", "Cliente Uno",
+                     direccion="Calle 1", nap="I01313"),
+            _enq_row("GPON00A1", "direccion", "Calle 1", nap="I01313"),
+            _enq_row("GPON00A2", "nombre", "Cliente Dos",
+                     direccion="Calle 2", nap="I01313"),
+            _enq_row("GPON00A2", "direccion", "Calle 2", nap="I01313"),
+        ],
         optical_power=[
             _opt_row("status", 3, onu_serial="GPON00A1"),
             _opt_row("rx_power", -18.0, onu_serial="GPON00A1"),
@@ -299,6 +432,20 @@ def test_group_analysis_por_serials_agrega_estados():
     assert af["nombre"] == "Cliente Dos"
     assert af["direccion"] == "Calle 2"
     assert af["rx_power"] == -30.0
+
+
+def test_group_analysis_no_llama_a_wisp_por_cliente():
+    """El coste del grupo no debe crecer con el número de clientes."""
+    enriched = []
+    optical = []
+    for i in range(5):
+        sn = f"GPON00C{i}"
+        enriched.append(_enq_row(sn, "nombre", f"Cliente {i}", nap="I01313"))
+        optical.append(_opt_row("status", 3, onu_serial=sn))
+    svc = _mk_service(clientes_enriquecidos=enriched, optical_power=optical)
+    res = svc.group_analysis(serials=[f"GPON00C{i}" for i in range(5)])
+    assert res["total"] == 5
+    assert svc.wisp.calls_serial == []
 
 
 def test_group_analysis_descubre_por_olt_pon():
@@ -323,10 +470,11 @@ def test_group_analysis_sin_entradas():
 
 
 def test_group_analysis_trunca_a_max_group():
-    serials = {f"GPON00A{i:03d}": {**WISP_SERIAL,
-                                   "serial_onu": f"GPON00A{i:03d}"}
-               for i in range(_MAX_GROUP + 5)}
-    svc = _mk_service(serials=serials)
-    res = svc.group_analysis(serials=list(serials.keys()))
+    enriched = [_enq_row(f"GPON00A{i:03d}", "nombre", f"Cliente {i}",
+                         nap="I01313")
+                for i in range(_MAX_GROUP + 5)]
+    svc = _mk_service(clientes_enriquecidos=enriched)
+    res = svc.group_analysis(serials=[f"GPON00A{i:03d}"
+                                      for i in range(_MAX_GROUP + 5)])
     assert res["truncado"] is True
     assert res["total"] == _MAX_GROUP

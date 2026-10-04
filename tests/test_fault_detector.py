@@ -138,6 +138,64 @@ def _detector(notifier, group_analyzer=None, state_file="data/fault_state_test.j
     )
 
 
+# --- _load_clients: last() por campo (evita 1 campo aleatorio por cliente) ---
+
+class _RecordingFluxInflux:
+    def __init__(self, rows=None):
+        self.bucket = "monitoreo"
+        self._query_api = True
+        self.fluxes = []
+        self.rows = rows or []
+
+    def query(self, flux):
+        self.fluxes.append(flux)
+        return self.rows
+
+
+def _flux_detector(rows=None):
+    influx = _RecordingFluxInflux(rows)
+    det = FaultDetector(
+        influx=influx,
+        notifier=None,
+        config=_cfg(onu_lookback_minutes=60, state_file="data/fault_state_test.json"),
+        olt_lookup={},
+        refresher=OltStatusRefresher(1),
+    )
+    return det, influx
+
+
+def test_load_clients_consulta_un_last_por_campo():
+    det, influx = _flux_detector()
+    clients = det._load_clients()
+    assert clients == []
+    assert len(influx.fluxes) == 3
+    for field, flux in zip(("estado_onu", "nombre", "onu_index"),
+                           influx.fluxes):
+        assert f'_field"] == "{field}"' in flux
+        assert "|> last()" in flux
+        assert "range(start: -60m)" in flux
+    assert all('_field"] ==' in f for f in influx.fluxes)
+
+
+def test_load_clients_fusiona_campos_por_tags():
+    from datetime import datetime, timezone
+    t = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
+    det, influx = _flux_detector(rows=[
+        {"field": "estado_onu", "value": 1, "mac": "aa:bb:cc:dd:ee:01",
+         "olt": "OLT-1", "time": t},
+        {"field": "nombre", "value": "Juan Perez", "mac": "aa:bb:cc:dd:ee:01",
+         "olt": "OLT-1", "time": t},
+        {"field": "onu_index", "value": "2_01", "mac": "aa:bb:cc:dd:ee:01",
+         "olt": "OLT-1", "time": t},
+    ])
+    clients = det._load_clients()
+    assert len(clients) == 1
+    assert clients[0]["estado_onu"] == 1
+    assert clients[0]["nombre"] == "Juan Perez"
+    assert clients[0]["onu_index"] == "2_01"
+    assert clients[0]["olt"] == "OLT-1"
+
+
 def test_emit_down_enriquece_affected(tmp_path):
     notifier = MagicMock()
     notifier.send_area_alert.return_value = True

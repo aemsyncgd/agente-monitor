@@ -32,6 +32,12 @@ logger = logging.getLogger(__name__)
 # OID estado ONU (3 = Online) - igual que OltCollector
 OID_ONU_STATUS = "1.3.6.1.4.1.37950.1.1.6.1.1.1.1.5"
 
+# Campos de clientes_enriquecidos que consume el detector. Un `last()` plano
+# devuelve UNA fila (1 campo aleatorio) por serie porque los campos son
+# registros separados en Flux; se consulta `last()` por campo y las filas se
+# fusionan por tags en _clients_from_rows.
+_CLIENT_FIELDS = ("estado_onu", "nombre", "onu_index")
+
 
 def _norm_state(estado) -> Optional[int]:
     """Normaliza un estado a int, o None si es desconocido (-1 / vacío)."""
@@ -243,14 +249,17 @@ class FaultDetector:
 
     # ----- lectura de clientes enriquecidos -----
     def _load_clients(self) -> List[dict]:
-        flux = (
-            f'from(bucket: "{self.influx.bucket}")\n'
-            f'  |> range(start: -{self.config.onu_lookback_minutes}m)\n'
-            f'  |> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos")\n'
-            f'  |> last()\n'
-            f'  |> yield(name: "fault")'
-        )
-        results = self.influx.query(flux)
+        results = []
+        for field in _CLIENT_FIELDS:
+            flux = (
+                f'from(bucket: "{self.influx.bucket}")\n'
+                f'  |> range(start: -{self.config.onu_lookback_minutes}m)\n'
+                f'  |> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos")\n'
+                f'  |> filter(fn: (r) => r["_field"] == "{field}")\n'
+                f'  |> last()\n'
+                f'  |> yield(name: "fault")'
+            )
+            results.extend(self.influx.query(flux) or [])
         return _clients_from_rows(results)
 
     # ----- ejecución -----

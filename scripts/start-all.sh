@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="/home/server/agente-monitor"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 VENV_PYTHON="${PROJECT_DIR}/venv/bin/python3"
 
 cd "${PROJECT_DIR}"
@@ -14,8 +14,8 @@ log "=== Iniciando Agente Monitor (servicio unificado) ==="
 
 export CONFIG_PATH=config/config_ia.yaml
 export NODES_PATH=config/nodes.yaml
-export INSTRUCTIONS_PATH=/home/server/agente-monitor/config/instructions.json
-export MODEL_PATH=/home/server/agente-monitor/models/optical_autoencoder.pt
+export INSTRUCTIONS_PATH="${PROJECT_DIR}/config/instructions.json"
+export MODEL_PATH="${PROJECT_DIR}/models/optical_autoencoder.pt"
 
 # Load secrets from .env.ia (NEVER hardcode tokens, passwords, or keys here)
 if [ -f "${PROJECT_DIR}/.env.ia" ]; then

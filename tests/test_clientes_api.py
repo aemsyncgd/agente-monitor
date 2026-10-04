@@ -266,6 +266,94 @@ def test_vital_no_encontrado(monkeypatch):
         assert resp.status_code == 404
 
 
+# === Búsqueda multi-cliente (find_many) ===
+
+_BATCH_RES = {
+    "results": [
+        {"query": "GPON00F58B52", "found": True,
+         "ficha": dict(_FICHA_VITAL),
+         "historico_30d": {"dias_ventana": 30, "muestras_offline": 2,
+                           "dias_offline": 1, "ultimo_down": "2026-09-22T18:00"},
+         "infraestructura": [{"name": "OLT-SISAL-2", "ip": "10.0.0.2",
+                               "type": "olt", "estado_ping": "up",
+                               "ultima_medicion": "2026-09-22T12:00"}]},
+        {"query": "NOEXISTE1", "found": False, "ficha": None,
+         "historico_30d": {}, "infraestructura": []},
+    ],
+    "total": 2, "found": 1, "truncated": False,
+}
+
+
+class _FakeBatchSearch(_FakeClientSearch):
+    def find_many(self, queries, include_history=True, include_infra=True):
+        res = {k: (list(v) if isinstance(v, list) else v)
+               for k, v in _BATCH_RES.items()}
+        res["results"] = [dict(r) for r in _BATCH_RES["results"]]
+        return res
+
+
+def _app_con_batch(monkeypatch):
+    monkeypatch.setattr(clientes_route, "_get_client_search",
+                        lambda: _FakeBatchSearch())
+    app = FastAPI()
+    app.include_router(router)
+    return app
+
+
+def test_vital_batch_devuelve_multiples(monkeypatch):
+    app = _app_con_batch(monkeypatch)
+    with TestClient(app) as c:
+        resp = c.post("/api/clientes/vital/batch",
+                      json={"queries": ["GPON00F58B52", "NOEXISTE1"]})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 2
+        assert data["found"] == 1
+        assert data["results"][0]["ficha"]["serial_onu"] == "GPON00F58B52"
+        assert data["results"][0]["historico_30d"]["muestras_offline"] == 2
+        assert data["results"][0]["infraestructura"][0]["name"] == "OLT-SISAL-2"
+        assert data["results"][1]["found"] is False
+
+
+def test_vital_batch_acepta_lista_plana(monkeypatch):
+    app = _app_con_batch(monkeypatch)
+    with TestClient(app) as c:
+        resp = c.post("/api/clientes/vital/batch",
+                      json=["GPON00F58B52", "NOEXISTE1"])
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 2
+
+
+def test_vital_batch_requiere_queries(monkeypatch):
+    app = _app_con_batch(monkeypatch)
+    with TestClient(app) as c:
+        assert c.post("/api/clientes/vital/batch", json={}).status_code == 400
+        assert c.post("/api/clientes/vital/batch",
+                      json={"queries": []}).status_code == 400
+        assert c.post("/api/clientes/vital/batch",
+                      json={"queries": ["  "]}).status_code == 400
+
+
+def test_vital_batch_enmascara_viewer(monkeypatch):
+    import src.api.auth as auth_mod
+    from src.api.auth import AuthMiddleware
+    monkeypatch.setattr(clientes_route, "_get_client_search",
+                        lambda: _FakeBatchSearch())
+    monkeypatch.setattr(auth_mod, "API_KEY_VIEWER", "key-viewer")
+    monkeypatch.setattr(auth_mod, "API_KEY_OPERATOR", "")
+    monkeypatch.setattr(auth_mod, "API_KEY_ADMIN", "")
+    app = FastAPI()
+    app.include_router(router)
+    app.add_middleware(AuthMiddleware)
+    with TestClient(app) as c:
+        resp = c.post("/api/clientes/vital/batch",
+                      json={"queries": ["GPON00F58B52", "NOEXISTE1"]},
+                      headers={"X-API-Key": "key-viewer"})
+        assert resp.status_code == 200
+        ficha = resp.json()["results"][0]["ficha"]
+        assert ficha["usuario_pppoe"] == "MA***GG"
+
+
 def test_vital_requiere_parametro(monkeypatch):
     app = _app_con_vital(monkeypatch)
     with TestClient(app) as c:

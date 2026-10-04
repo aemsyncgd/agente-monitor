@@ -763,7 +763,7 @@ class MikroTikCollector(BaseCollector):
 
             proc = await asyncio.create_subprocess_exec(
                 "snmpbulkwalk", "-v2c", "-c", self.config.community,
-                "-Cr50", "-t", "30", "-r", "0",
+                "-Cr25", "-t", "30", "-r", "0",
                 "-On",
                 self.config.ip, base_oid,
                 stdout=open(tmp.name, 'w'),

@@ -151,6 +151,58 @@ def analyzed_iface_names(entries: List[Dict]) -> List[str]:
     return [e["name"] for e in entries if e.get("analyze")]
 
 
+_IFACE_SEP_CHARS = "-_. /"
+
+
+def _iface_name_matches(configured: str, actual: str) -> bool:
+    """True si una interfaz configurada corresponde a una interfaz real.
+
+    Tolera renombres de alias en el mismo puerto, p.ej.
+    ``1sfp-sfpplus1-WAN_1-UPSTREAM`` vs ``1sfp-sfpplus1-WAN_1-TECNOVEN``:
+    si el prefijo común es largo y termina en un separador, se considera la
+    misma interfaz con el alias cambiado.
+    """
+    configured = configured or ""
+    actual = actual or ""
+    norm_c = re.sub(r"[^a-z0-9]", "", configured.lower())
+    norm_a = re.sub(r"[^a-z0-9]", "", actual.lower())
+    if not norm_c or not norm_a:
+        return False
+    if norm_c == norm_a:
+        return True
+
+    cp = 0
+    for a, b in zip(configured, actual):
+        if a.lower() != b.lower():
+            break
+        cp += 1
+    prefix = configured[:cp]
+    min_len = min(len(configured), len(actual))
+    if cp >= 10 and cp >= min_len * 0.5 and prefix and prefix[-1] in _IFACE_SEP_CHARS:
+        return True
+    return False
+
+
+def filter_configured_ifaces(ifaces: List[Dict], cfg_ifaces: List[str]) -> List[Dict]:
+    """Filtra las interfaces reales a las configuradas (con tolerancia a alias)."""
+    if not cfg_ifaces:
+        return ifaces
+    return [
+        i for i in ifaces
+        if any(_iface_name_matches(c, i.get("iface_name", "")) for c in cfg_ifaces)
+    ]
+
+
+def resolve_iface_name(configured: str, live_names: List[str]) -> Optional[str]:
+    """Devuelve el nombre real de la interfaz que corresponde a una configurada."""
+    if configured in live_names:
+        return configured
+    for actual in live_names:
+        if _iface_name_matches(configured, actual):
+            return actual
+    return None
+
+
 class FormatLoader:
     DEFAULTS = {
         "branding": {
@@ -232,7 +284,7 @@ class FormatLoader:
                 "<b>{chart_icon} {host_name} - {iface_name}</b>\n"
                 "\U0001f319 <b>Nocturno (00:00-06:00):</b> {night_avg} avg | {night_max} pico\n"
                 "\u2600\ufe0f <b>Diurno (06:00-23:59):</b> {day_avg} avg | {day_max} pico\n"
-                "\U0001f4ca <b>Total 24h:</b> {total_avg} avg | {total_max} max | {total_min} min\n"
+                "\U0001f4ca <b>Total {window_label}:</b> {total_avg} avg | {total_max} max | {total_min} min\n"
                 "{analysis_text}"
             ),
             "olt_separator": "",
@@ -357,6 +409,12 @@ class FormatLoader:
 
 
 class DailyReporter:
+    # Ventana de análisis por período del scheduler. El reporte diario (24h) es
+    # el comportamiento por defecto y no cambia; semanal/mensual solo amplían
+    # el rango consultado y la etiqueta visible.
+    PERIOD_HOURS = {"daily": 24, "weekly": 168, "monthly": 720}
+    PERIOD_LABELS = {"daily": "24h", "weekly": "7d", "monthly": "30d"}
+
     def __init__(
         self,
         influx: InfluxClient,
@@ -371,6 +429,32 @@ class DailyReporter:
         self.format_path = format_path or str(FORMAT_PATH)
         self.config_path = config_path or str(REPORTE_CONFIG_PATH)
         self.timeout = 30
+        self.period = "daily"
+        self.window_hours = self.PERIOD_HOURS["daily"]
+        self.window_label = self.PERIOD_LABELS["daily"]
+
+    def _set_period(self, period: str) -> None:
+        period = (period or "daily").strip().lower()
+        if period not in self.PERIOD_HOURS:
+            logger.warning(f"Período desconocido '{period}', se usa 'daily'")
+            period = "daily"
+        self.period = period
+        self.window_hours = self.PERIOD_HOURS[period]
+        self.window_label = self.PERIOD_LABELS[period]
+
+    def _range_start(self) -> str:
+        """Fragmento Flux `range(start: -Xh)` según el período activo."""
+        return f"range(start: -{self.window_hours}h)"
+
+    @staticmethod
+    def _labelize(template: str, window_label: str) -> str:
+        """Sustituye {window_label} en templates antiguos que no lo declaren.
+
+        `FormatLoader.render` devuelve el template crudo ante un KeyError, así que
+        un conf sin el placeholder se vería literal en Telegram; por eso el
+        reemplazo es textual y tolerante.
+        """
+        return template.replace("{window_label}", window_label)
 
     def _load_report_config(self) -> Dict:
         path = Path(self.config_path)
@@ -453,7 +537,7 @@ class DailyReporter:
     def _get_olt_names(self) -> List[str]:
         results = self._query(f'''
             from(bucket: "{self.influx.bucket}")
-                |> range(start: -24h)
+                |> {self._range_start()}
                 |> filter(fn: (r) => r["_measurement"] == "olt_system")
                 |> last()
         ''')
@@ -614,7 +698,7 @@ class DailyReporter:
     def _get_mikrotik_names(self) -> List[str]:
         results = self._query(f'''
             from(bucket: "{self.influx.bucket}")
-                |> range(start: -24h)
+                |> {self._range_start()}
                 |> filter(fn: (r) => r["_measurement"] == "mikrotik_system")
                 |> last()
         ''')
@@ -808,7 +892,7 @@ class DailyReporter:
     def _get_recent_incidents(self) -> List[Dict]:
         results = self._query(f'''
             from(bucket: "{self.influx.bucket}")
-                |> range(start: -24h)
+                |> {self._range_start()}
                 |> filter(fn: (r) => r["_measurement"] == "optical_power")
                 |> filter(fn: (r) => r["_field"] == "status")
                 |> filter(fn: (r) => r["_value"] != 3)
@@ -1185,8 +1269,10 @@ class DailyReporter:
                 sections_text["alerts"] = txt.strip()
 
             elif section == "incidents" and incidents:
-                header = fmt.get("templates", "incident_section_header",
-                    "{section_alerts} <b>Incidencias 24h (LOS / DyingGap)</b>  —  ult. {count}")
+                header = self._labelize(
+                    fmt.get("templates", "incident_section_header",
+                        "{section_alerts} <b>Incidencias {window_label} (LOS / DyingGap)</b>  —  ult. {count}"),
+                    self.window_label)
                 txt = fmt.render(header,
                     section_alerts=fmt.emoji("section_alerts"),
                     count=len(incidents)) + "\n"
@@ -1208,7 +1294,7 @@ class DailyReporter:
                 for stats in chart_stats:
                     if not stats:
                         continue
-                    txt += fmt.render(fmt.tmpl("chart_stats"),
+                    txt += fmt.render(self._labelize(fmt.tmpl("chart_stats"), self.window_label),
                         chart_icon=fmt.emoji("chart_icon"),
                         host_name=stats.get("host_name", "?"),
                         iface_name=stats.get("iface_name", "?"),
@@ -1307,11 +1393,16 @@ class DailyReporter:
     # Main entry point
     # ------------------------------------------------------------------
 
-    def run(self) -> bool:
-        logger.info("=== Iniciando reporte diario ===")
+    def run(self, period: str = "daily") -> bool:
+        self._set_period(period)
+        logger.info(
+            f"=== Iniciando reporte {self.period} (ventana {self.window_label}) ==="
+            if self.period != "daily"
+            else "=== Iniciando reporte diario ==="
+        )
         fmt = FormatLoader(self.format_path)
         stale_threshold = fmt.stale_threshold()
-        hours = fmt.chart_hours()
+        hours = fmt.chart_hours() if self.period == "daily" else self.window_hours
 
         configured_mikrotiks = self._get_configured_mikrotiks()
         configured_olts = self._get_configured_olts()
@@ -1357,6 +1448,7 @@ class DailyReporter:
         logger.info(f"MikroTiks encontrados: {mk_names}")
 
         mk_data = []
+        mk_live_ifaces: Dict[str, List[str]] = {}
         for name in mk_names:
             cfg_ifaces = self._mikrotik_interfaces_for(name)
             sys_data = self._get_mikrotik_system(name)
@@ -1365,9 +1457,28 @@ class DailyReporter:
                 if cfg_ifaces is None:
                     continue
                 sys_data = {"tags": {"device_name": name}, "fields": {}}
-            ifaces = self._get_mikrotik_interfaces(name, allowed=set(cfg_ifaces) if cfg_ifaces else None)
+            all_ifaces = self._get_mikrotik_interfaces(
+                name, allowed=set(cfg_ifaces) if cfg_ifaces else None
+            )
             if cfg_ifaces is not None and len(cfg_ifaces) > 0:
-                ifaces = [i for i in ifaces if i["iface_name"] in cfg_ifaces]
+                # Sólo las interfaces configuradas en el dashboard (tolerando
+                # renombres de alias). Si ninguna coincide, se mantiene la
+                # lista completa para no ocultar un host con datos.
+                matched = filter_configured_ifaces(all_ifaces, cfg_ifaces)
+                if matched:
+                    ifaces = matched
+                elif all_ifaces:
+                    logger.warning(
+                        f"  {name}: ninguna interfaz configurada coincide con "
+                        f"datos SNMP ({cfg_ifaces}); mostrando {len(all_ifaces)} "
+                        f"interfaces disponibles"
+                    )
+                    ifaces = all_ifaces
+                else:
+                    ifaces = []
+            else:
+                ifaces = all_ifaces
+            mk_live_ifaces[name] = [i["iface_name"] for i in ifaces]
             any_fresh = any(i.get("is_fresh", False) for i in ifaces)
             mk_data.append({
                 "tags": sys_data["tags"],
@@ -1396,8 +1507,12 @@ class DailyReporter:
             if has_host_config:
                 for h_cfg in configured_mikrotiks:
                     hname = h_cfg["name"]
+                    live = mk_live_ifaces.get(hname, [])
                     for iface in self._mikrotik_analyze_interfaces_for(hname) or []:
-                        chart_targets.append((hname, iface, "mikrotik_interface"))
+                        actual = iface
+                        if live:
+                            actual = resolve_iface_name(iface, live) or iface
+                        chart_targets.append((hname, actual, "mikrotik_interface"))
                 for h_cfg in configured_olts:
                     hname = h_cfg["name"]
                     for iface in self._olt_ge_analyze_interfaces_for(hname) or []:
@@ -1465,7 +1580,7 @@ class DailyReporter:
             time.sleep(3.0)
             for i, (path, stats) in enumerate(zip(chart_paths, chart_stats)):
                 time.sleep(2.0)
-                caption = fmt.render(fmt.tmpl("chart_stats"),
+                caption = fmt.render(self._labelize(fmt.tmpl("chart_stats"), self.window_label),
                     chart_icon=fmt.emoji("chart_icon"),
                     host_name=stats.get("host_name", "?"),
                     iface_name=stats.get("iface_name", "?"),
@@ -1496,10 +1611,10 @@ class DailyReporter:
 
         return all_ok
 
-    def run_standalone(self) -> int:
+    def run_standalone(self, period: str = "daily") -> int:
         try:
-            success = self.run()
+            success = self.run(period=period)
             return 0 if success else 1
         except Exception as e:
-            logger.error(f"Error en reporte diario: {e}", exc_info=True)
+            logger.error(f"Error en reporte {period}: {e}", exc_info=True)
             return 1

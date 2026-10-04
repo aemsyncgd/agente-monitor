@@ -11,7 +11,7 @@ from datetime import datetime
 
 from ...config_manager import get_config_manager
 from ...config_ia import Node, MikroTikDevice, OLTDevice, InterfaceInfo
-from ..influx_helper import get_active_device_ips
+from ..influx_helper import get_active_device_ips, run_influx
 
 
 router = APIRouter(prefix="/api/nodes", tags=["nodes"])
@@ -148,7 +148,7 @@ async def list_nodes():
     """Lista todos los nodos con sus dispositivos."""
     manager = get_config_manager()
     nodes = manager.get_nodes()
-    active_ips = get_active_device_ips()
+    active_ips = await run_influx(get_active_device_ips)
     
     result = []
     for node in nodes:
@@ -213,7 +213,7 @@ async def get_node(node_name: str):
     if not node:
         raise HTTPException(status_code=404, detail=f"Nodo {node_name} no encontrado")
     
-    active_ips = get_active_device_ips()
+    active_ips = await run_influx(get_active_device_ips)
     
     mikrotiks = [
         MikroTikResponse(

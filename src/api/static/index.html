@@ -1310,43 +1310,53 @@
                     <!-- Client Search -->
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
                         <h3 class="text-sm font-semibold text-surface-300 mb-4">Buscar Cliente</h3>
-                        <div class="flex gap-3 mb-4">
-                            <input v-model="clientSearch" @keyup.enter="searchClients" type="text" placeholder="Serial ONU, nombre, documento, NAP..."
-                                class="flex-1 bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 placeholder-surface-500 focus:outline-none focus:border-brand-500 transition-colors">
-                            <button @click="searchClients" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Buscar</button>
+                        <textarea v-model="clientSearch" @keyup.enter.exact.prevent="searchClients" rows="3"
+                            placeholder="Un cliente por línea (serial ONU, nombre, documento, MAC o NAP). Máximo 20."
+                            class="w-full bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 placeholder-surface-500 focus:outline-none focus:border-brand-500 transition-colors font-mono"></textarea>
+                        <div class="flex gap-3 mt-3">
+                            <button @click="searchClients" :disabled="clientSearchLoading"
+                                :class="clientSearchLoading ? 'bg-surface-700 text-surface-500 cursor-not-allowed' : 'bg-brand-600 hover:bg-brand-700 text-white'"
+                                class="px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                                {{ clientSearchLoading ? 'Buscando...' : 'Buscar' }}
+                            </button>
+                            <span v-if="clientSearchSummary.total" class="self-center text-xs text-surface-500">
+                                {{ clientSearchSummary.found }} de {{ clientSearchSummary.total }} encontrados
+                            </span>
                         </div>
-                        <div v-if="clientResults.length > 0" class="space-y-2">
-                            <div v-for="c in clientResults" :key="`${c.documento}-${c.serial_onu}-${c.mac}`" class="bg-surface-800 rounded-lg p-3 border border-surface-700/50">
-                                <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="font-medium text-surface-200 text-sm">{{ c.nombre }}</span>
-                                    <span class="text-xs text-surface-500 font-mono">{{ c.serial_onu }}</span>
-                                    <span v-if="c.mac" title="MAC aprendida en el puerto de la ONU" class="text-xs text-amber-400/90 font-mono">{{ c.mac }}</span>
-                                    <span :class="onuChipClass(c.estado_onu)" class="text-xs px-1.5 py-0.5 rounded-full">{{ onuChipLabel(c.estado_onu) }}</span>
-                                    <span v-if="c.pendiente" title="Cliente sin certificar en la OLT (pendiente)" class="text-xs px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">Sin cruce ONU</span>
-                                    <span v-if="c.ubicacion_descuadrada" class="text-xs px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400">Descuadrado</span>
-                                </div>
-                                <div class="text-xs text-surface-500 mt-1">
-                                    <span v-if="c.direccion">{{ c.direccion }}</span>
-                                    <span v-if="c.nodo" class="ml-2">| {{ c.nodo }}</span>
-                                    <span v-if="c.nap" class="ml-2">| NAP: {{ c.nap }}</span>
-                                    <span v-if="c.puerto_pon" class="ml-2">| PON: {{ c.puerto_pon }}</span>
-                                </div>
-                                <div v-if="c.estado_servicio || c.pppoe_status || c.olt" class="text-xs text-surface-500 mt-1">
-                                    <span v-if="c.estado_servicio">Servicio: {{ c.estado_servicio }}</span>
-                                    <span v-if="c.pppoe_status" class="ml-2">PPPoE: {{ c.pppoe_status }}</span>
-                                    <span v-if="c.olt" class="ml-2">| {{ c.olt }}</span>
-                                </div>
-                                <div class="mt-2 flex gap-2">
-                                    <button @click="openClientDetail(c)" class="px-3 py-1.5 bg-surface-700 hover:bg-surface-600 rounded-lg text-xs text-surface-300">Ver detalle</button>
+                        <div v-if="clientSearchTruncated" class="mt-2 text-xs text-amber-400">Solo se procesaron los primeros 20 términos.</div>
+                        <div v-if="clientSearchError" class="mt-2 text-xs text-red-400">{{ clientSearchError }}</div>
+                        <div v-if="clientResults.length > 0" class="space-y-2 mt-4">
+                            <div v-for="c in clientResults" :key="c.query" class="bg-surface-800 rounded-lg p-3 border border-surface-700/50">
+                                <template v-if="c.found">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="font-medium text-surface-200 text-sm">{{ c.ficha.nombre || 'Sin nombre' }}</span>
+                                        <span class="text-xs text-surface-500 font-mono">{{ c.ficha.serial_onu }}</span>
+                                        <span :class="onuChipClass(c.ficha.estado_onu)" class="text-xs px-1.5 py-0.5 rounded-full">{{ onuChipLabel(c.ficha.estado_onu) }}</span>
+                                        <span v-if="c.ficha.ubicacion_descuadrada" class="text-xs px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400">Descuadrado</span>
+                                    </div>
+                                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs text-surface-500 mt-2">
+                                        <div><span class="text-surface-600">OLT</span> <span class="text-surface-400 font-mono">{{ c.ficha.olt || '—' }}</span></div>
+                                        <div><span class="text-surface-600">PON</span> <span class="text-surface-400 font-mono">{{ c.ficha.pon_port || '—' }}</span></div>
+                                        <div><span class="text-surface-600">NAP</span> <span class="text-surface-400 font-mono">{{ c.ficha.nap || '—' }}</span></div>
+                                        <div><span class="text-surface-600">Rx</span> <span class="font-mono" :class="c.ficha.rx_power != null && Number(c.ficha.rx_power) < -28 ? 'text-red-400' : 'text-surface-400'">{{ c.ficha.rx_power != null ? c.ficha.rx_power + ' dBm' : '—' }}</span></div>
+                                        <div><span class="text-surface-600">Tx</span> <span class="text-surface-400 font-mono">{{ c.ficha.tx_power != null ? c.ficha.tx_power + ' dBm' : '—' }}</span></div>
+                                        <div v-if="c.ficha.mac"><span class="text-surface-600">MAC</span> <span class="text-amber-400/90 font-mono">{{ c.ficha.mac }}</span></div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <button @click="openClientDetail(c.ficha)" class="px-3 py-1.5 bg-surface-700 hover:bg-surface-600 rounded-lg text-xs text-surface-300">Ver detalle</button>
+                                    </div>
+                                </template>
+                                <div v-else class="flex items-center justify-between gap-2">
+                                    <span class="text-sm text-surface-400">Sin resultados para <span class="font-mono text-surface-300">{{ c.query }}</span></span>
                                 </div>
                             </div>
                         </div>
-                        <div v-else-if="clientSearch && clientResults.length === 0" class="text-center py-4 text-surface-500 text-sm">No se encontraron clientes</div>
+                        <div v-else-if="!clientSearchLoading && !clientSearchError && clientSearch" class="text-center py-4 text-surface-500 text-sm">No se encontraron clientes</div>
                     </div>
 
                     <!-- Client Detail Modal -->
-                    <div v-if="showClientDetailModal && clientDetail" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.7);">
-                        <div class="bg-surface-900 rounded-xl border border-surface-700 p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                    <div v-if="showClientDetailModal && clientDetail" @click.self="closeClientDetail" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.7);">
+                        <div class="bg-surface-900 rounded-xl border border-surface-700 p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                             <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-lg font-bold text-surface-200">Detalle del Cliente</h3>
                                 <button @click="closeClientDetail" class="p-1 rounded hover:bg-surface-800 text-surface-400">
@@ -1419,6 +1429,67 @@
 
                                 <div v-if="clientDetail.ultima_medicion" class="text-[10px] text-surface-500">
                                     Última medición: {{ formatTime(clientDetail.ultima_medicion) }}
+                                </div>
+
+                                <!-- Histórico 30d -->
+                                <div class="border-t border-surface-700 pt-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <h4 class="text-xs font-semibold text-surface-400">Histórico 30 días</h4>
+                                        <span v-if="clientDetailLoading" class="text-[10px] text-surface-500">Cargando...</span>
+                                    </div>
+                                    <template v-if="clientDetail.historico_30d && clientDetail.historico_30d.muestras_total">
+                                        <div class="grid grid-cols-4 gap-2 text-center">
+                                            <div class="bg-surface-800 rounded-lg p-2">
+                                                <div class="text-lg font-bold text-surface-200">{{ clientDetail.historico_30d.muestras_offline }}</div>
+                                                <div class="text-[10px] text-surface-500">Muestras caídas</div>
+                                            </div>
+                                            <div class="bg-surface-800 rounded-lg p-2">
+                                                <div class="text-lg font-bold text-surface-200">{{ clientDetail.historico_30d.dias_offline }}</div>
+                                                <div class="text-[10px] text-surface-500">Días con caída</div>
+                                            </div>
+                                            <div class="bg-surface-800 rounded-lg p-2">
+                                                <div class="text-lg font-bold" :class="clientDetail.historico_30d.porcentaje_offline > 5 ? 'text-red-400' : 'text-surface-200'">{{ clientDetail.historico_30d.porcentaje_offline }}%</div>
+                                                <div class="text-[10px] text-surface-500">% Fuera de línea</div>
+                                            </div>
+                                            <div class="bg-surface-800 rounded-lg p-2">
+                                                <div class="text-lg font-bold text-surface-200">{{ clientDetail.historico_30d.muestras_total }}</div>
+                                                <div class="text-[10px] text-surface-500">Muestras totales</div>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-end gap-[2px] h-10 mt-3" :title="`${clientDetail.historico_30d.muestras_total} muestras horarias`">
+                                            <span v-for="(b, i) in clientHistoryBars(clientDetail.historico_30d)" :key="i"
+                                                :class="b.down ? 'bg-red-500/80' : 'bg-emerald-500/40'"
+                                                class="flex-1 rounded-sm" :style="{ height: b.height }"></span>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-2 mt-3 text-xs text-surface-500">
+                                            <div v-if="clientDetail.historico_30d.primera_caida">Primera caída: {{ formatTime(clientDetail.historico_30d.primera_caida) }}</div>
+                                            <div v-if="clientDetail.historico_30d.ultimo_down" class="text-right">Última caída: {{ formatTime(clientDetail.historico_30d.ultimo_down) }}</div>
+                                            <div v-if="!clientDetail.historico_30d.muestras_offline" class="col-span-2 text-emerald-400">Sin caídas registradas en la ventana.</div>
+                                        </div>
+                                    </template>
+                                    <div v-else-if="!clientDetailLoading" class="text-xs text-surface-500">Sin datos de histórico para este cliente.</div>
+                                </div>
+
+                                <!-- Infraestructura -->
+                                <div class="border-t border-surface-700 pt-4">
+                                    <h4 class="text-xs font-semibold text-surface-400 mb-2">Infraestructura</h4>
+                                    <div v-if="clientDetail.infraestructura && clientDetail.infraestructura.length" class="space-y-2">
+                                        <div v-for="d in clientDetail.infraestructura" :key="d.name" class="bg-surface-800 rounded-lg p-2">
+                                            <div class="flex items-center justify-between">
+                                                <div>
+                                                    <div class="text-sm text-surface-200">{{ d.name }}</div>
+                                                    <div class="text-[10px] text-surface-500 font-mono">{{ d.ip }}<span v-if="d.type"> · {{ d.type }}</span></div>
+                                                </div>
+                                                <span :class="infraStatusClass(d.estado_ping)" class="text-xs px-1.5 py-0.5 rounded-full">{{ d.estado_ping === 'up' ? 'Alcanzable' : d.estado_ping === 'down' ? 'Sin respuesta' : 'N/D' }}</span>
+                                            </div>
+                                            <div v-if="d.latencia_ms != null || d.perdida_pct != null || d.downtime_s != null" class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 pt-1.5 border-t border-surface-700 text-[10px] text-surface-400 font-mono">
+                                                <span v-if="d.latencia_ms != null">lat {{ fmtNum(d.latencia_ms, 1) }} ms<span v-if="d.latencia_max_ms != null"> (max {{ fmtNum(d.latencia_max_ms, 1) }})</span></span>
+                                                <span v-if="d.perdida_pct != null" :class="d.perdida_pct > 0 ? 'text-amber-400' : ''">loss {{ fmtNum(d.perdida_pct, 1) }}%</span>
+                                                <span v-if="d.downtime_s != null" :class="d.downtime_s > 0 ? 'text-red-400' : ''">down {{ fmtNum(d.downtime_s, 0) }}s</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-else-if="!clientDetailLoading" class="text-xs text-surface-500">Sin entidades de infraestructura asociadas.</div>
                                 </div>
                             </div>
                         </div>
@@ -1852,7 +1923,7 @@
 
                         <!-- Discover button -->
                         <div class="flex gap-2 mb-4">
-                            <button @click="fetchReporteDiscover" class="text-xs bg-surface-800 hover:bg-surface-700 text-brand-400 px-3 py-1.5 rounded-lg transition-colors">
+                            <button @click="fetchReporteDiscover(false)" class="text-xs bg-surface-800 hover:bg-surface-700 text-brand-400 px-3 py-1.5 rounded-lg transition-colors">
                                 Sincronizar hosts
                             </button>
                             <button @click="generateReportNow" :disabled="reporteGenerating"
@@ -1863,6 +1934,15 @@
                                 </svg>
                                 <span v-if="reporteGenerating">Generando reporte...</span>
                                 <span v-else>Generar reporte ahora</span>
+                            </button>
+                            <button @click="triggerAlertsNow" :disabled="alertsTriggering"
+                                class="inline-flex items-center gap-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-surface-600 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors">
+                                <svg v-if="alertsTriggering" class="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span v-if="alertsTriggering">Ejecutando...</span>
+                                <span v-else>Trigger Alerts</span>
                             </button>
                         </div>
                         <div v-if="reporteGenerateMessage" :class="reporteGenerateError ? 'text-red-400' : 'text-emerald-400'" class="text-xs mb-4">
@@ -2804,6 +2884,7 @@ createApp({
         const newOltName = ref('');
         const newOltFromDiscover = ref('');
         const reporteGenerating = ref(false);
+        const alertsTriggering = ref(false);
         const reporteGenerateMessage = ref('');
         const reporteGenerateError = ref(false);
         const configValid = ref(true);
@@ -2829,6 +2910,11 @@ createApp({
         const clientResults = ref([]);
         const clientDetail = ref(null);
         const showClientDetailModal = ref(false);
+        const clientSearchLoading = ref(false);
+        const clientSearchError = ref('');
+        const clientSearchTruncated = ref(false);
+        const clientSearchSummary = ref({ total: 0, found: 0 });
+        const clientDetailLoading = ref(false);
         const clientStats = ref({});
 
         // Anomaly filters
@@ -3724,15 +3810,17 @@ createApp({
             }
         }
 
-        async function fetchReporteDiscover() {
+        async function fetchReporteDiscover(silent = false) {
             try {
                 const res = await apiFetch('/api/reporte/discover');
                 reporteDiscoveredMikrotiks.value = res.mikrotiks || [];
                 reporteDiscoveredOlts.value = res.olts || [];
-                const total = (res.mikrotiks?.length || 0) + (res.olts?.length || 0);
-                showToast(`Descubiertos ${total} hosts (${res.mikrotiks?.length || 0} MikroTik, ${res.olts?.length || 0} OLTs)`);
+                if (silent !== true) {
+                    const total = (res.mikrotiks?.length || 0) + (res.olts?.length || 0);
+                    showToast(`Descubiertos ${total} hosts (${res.mikrotiks?.length || 0} MikroTik, ${res.olts?.length || 0} OLTs)`);
+                }
             } catch (e) {
-                showToast('Error descubriendo hosts: ' + e.message, 'error');
+                if (silent !== true) showToast('Error descubriendo hosts: ' + e.message, 'error');
             }
         }
 
@@ -3882,6 +3970,22 @@ createApp({
             }
         }
 
+        async function triggerAlertsNow() {
+            alertsTriggering.value = true;
+            try {
+                const res = await apiFetch('/api/reporte/trigger-alerts', { method: 'POST' });
+                reporteGenerateMessage.value = res.message || 'Revisión de alertas ejecutada';
+                reporteGenerateError.value = false;
+                showToast('Revisión de alertas ejecutada');
+            } catch (e) {
+                reporteGenerateMessage.value = 'Error: ' + e.message;
+                reporteGenerateError.value = true;
+                showToast('Error ejecutando revisión de alertas: ' + e.message, 'error');
+            } finally {
+                alertsTriggering.value = false;
+            }
+        }
+
         // ==================== LLM AGENT METHODS ====================
         async function fetchLLMConfig() {
             try {
@@ -3976,38 +4080,94 @@ createApp({
         }
 
         async function searchClients() {
-            if (!clientSearch.value) return;
+            const queries = clientSearchQueries();
+            if (!queries.length) return;
+            clientSearchLoading.value = true;
+            clientSearchError.value = '';
             try {
-                const q = clientSearch.value.trim();
-                const params = clientSearchParams(q);
-                const res = await apiFetch('/api/clientes/vital', {
+                // Búsqueda ligera: sin histórico ni infraestructura. Ambas
+                // cosas se piden bajo demanda al abrir "Ver detalle", de modo
+                // que listar 20 clientes no paga datos que nadie está viendo.
+                const res = await apiFetch('/api/clientes/vital/batch', {
                     method: 'POST',
-                    body: JSON.stringify(params),
+                    body: JSON.stringify({ queries: queries, include_history: false, include_infra: false }),
                 });
-                if (res && res.found) {
-                    clientResults.value = [res.ficha];
-                } else {
-                    clientResults.value = [];
-                }
+                clientResults.value = (res && res.results) || [];
+                clientSearchTruncated.value = !!(res && res.truncated);
+                clientSearchSummary.value = {
+                    total: (res && res.total) || clientResults.value.length,
+                    found: (res && res.found) || 0,
+                };
             } catch(e) {
                 clientResults.value = [];
+                clientSearchSummary.value = { total: 0, found: 0 };
+                clientSearchError.value = (e && e.message) ? e.message : 'Error al buscar clientes';
+            } finally {
+                clientSearchLoading.value = false;
             }
         }
 
-        function clientSearchParams(q) {
-            if (/^[0-9]+$/.test(q)) return { documento: q };
-            if (/^[vjegVJEG]-?[0-9]+$/.test(q)) return { documento: q };
-            if (/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(q)) return { mac: q.toLowerCase() };
-            return { serial: q.toUpperCase() };
+        function clientSearchQueries() {
+            // Un cliente por línea; también se admiten comas y punto y coma.
+            return String(clientSearch.value || '')
+                .split(/[\n,;]+/)
+                .map(s => s.trim())
+                .filter(Boolean)
+                .slice(0, 20);
         }
 
-        function openClientDetail(c) {
-            clientDetail.value = c || null;
+        async function openClientDetail(c) {
+            if (!c) return;
             showClientDetailModal.value = true;
+            clientDetailLoading.value = true;
+            // Se pinta al instante lo que ya trajo la búsqueda y se enriquece
+            // en segundo plano: la ficha no parpadea mientras llega el detalle.
+            clientDetail.value = Object.assign({}, c, {
+                historico_30d: {},
+                infraestructura: [],
+            });
+            try {
+                const res = await apiFetch('/api/clientes/vital/batch', {
+                    method: 'POST',
+                    body: JSON.stringify({ queries: [c.serial_onu], include_history: true, include_infra: true }),
+                });
+                const hit = res && res.results && res.results[0];
+                if (hit && hit.found) {
+                    clientDetail.value = hit.ficha;
+                    clientDetail.value.historico_30d = hit.historico_30d || {};
+                    clientDetail.value.infraestructura = hit.infraestructura || [];
+                }
+            } catch(e) {
+                clientSearchError.value = (e && e.message) ? e.message : 'Error al cargar el detalle';
+            } finally {
+                clientDetailLoading.value = false;
+            }
         }
 
         function closeClientDetail() {
             showClientDetailModal.value = false;
+        }
+
+        function clientHistoryBars(h) {
+            // Últimas muestras como barra compacta de disponibilidad: el
+            // backend ya agrega a 1h, así que 48 muestras son las últimas 48h.
+            if (!h || !Array.isArray(h.muestras) || !h.muestras.length) return [];
+            return h.muestras.map(s => ({
+                down: [1, 4, 6].includes(Number(s.status)),
+                height: [1, 4, 6].includes(Number(s.status)) ? 'h-full' : 'h-2',
+            }));
+        }
+
+        function infraStatusClass(estado) {
+            if (estado === 'up') return 'bg-emerald-500/20 text-emerald-400';
+            if (estado === 'down') return 'bg-red-500/20 text-red-400';
+            return 'bg-surface-700/50 text-surface-400';
+        }
+
+        function fmtNum(v, dec) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return '—';
+            return dec ? n.toFixed(dec) : String(Math.round(n));
         }
 
         function onuChipLabel(estadoOnu) {
@@ -4519,6 +4679,7 @@ createApp({
             fetchPingConfig();
             fetchReporteConfig();
             fetchReporteStatus();
+            fetchReporteDiscover(true);
             document.addEventListener('click', closeApiKeyMenu);
             refreshTimer = setInterval(fetchAll, 30000);
             countdownTimer = setInterval(() => {
@@ -4564,6 +4725,7 @@ createApp({
                 await Promise.allSettled([
                     fetchReporteConfig(),
                     fetchReporteStatus(),
+                    fetchReporteDiscover(true),
                 ]);
                 fetchPingConfig();
                 fetchLLMConfig();
@@ -5194,6 +5356,8 @@ createApp({
             nodeForm, mikrotikForm, oltForm, toast,
             // Agent state
             agentStatus, agentInstructions, clientSearch, clientResults, clientStats, instructionsExpanded,
+            clientDetail, showClientDetailModal, clientSearchLoading, clientSearchError,
+            clientSearchTruncated, clientSearchSummary, clientDetailLoading,
                         onuChipLabel, onuChipClass,
             llmConfigSectionExpanded, instructionsSectionExpanded,
             // Network (ping)
@@ -5218,13 +5382,13 @@ createApp({
             newOltName, newOltFromDiscover,
             fetchReporteConfig, fetchReporteStatus, fetchReporteDiscover,
             toggleReporteEnabled, saveReporteConfig,
-            reporteGenerating, reporteGenerateMessage, reporteGenerateError,
-            generateReportNow,
+            reporteGenerating, alertsTriggering, reporteGenerateMessage, reporteGenerateError,
+            generateReportNow, triggerAlertsNow,
             addSchedule, removeSchedule,
             addMikrotik, removeMikrotik, addMkInterface, removeMkInterface, getDiscoveredMkInterfaces,
             addOlt, removeOlt, addOltGeInterface, removeOltGeInterface, getDiscoveredOltGeInterfaces,
             // Agent methods
-            toggleInstruction, searchClients, clientSearchParams, openClientDetail, closeClientDetail, openNewInstructionModal, openEditParamsModal, deleteInstruction, isBuiltIn,
+            toggleInstruction, searchClients, clientSearchQueries, openClientDetail, closeClientDetail, clientHistoryBars, infraStatusClass, fmtNum, openNewInstructionModal, openEditParamsModal, deleteInstruction, isBuiltIn,
             // LLM Agent state & methods
             llmConfig, llmConfigDraft, showLLMConfigModal, showLLMEventDetailModal, selectedLLMEvent, eventCopyToast, llmStatus, llmEvents, llmChatQuestion, llmChatHistory, llmChatLoading, llmTesting,
             ollamaModels, openrouterModels,

@@ -1,5 +1,4 @@
 # src/api/routes/anomalies.py
-import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -10,6 +9,8 @@ from ..influx_helper import (
     get_anomaly_series,
     get_onu_optical_history,
     predict_failures,
+    _dash_cache,
+    run_influx,
 )
 
 router = APIRouter()
@@ -33,7 +34,10 @@ async def get_anomalies(
     limit: int = Query(100, description="Max results"),
 ):
     """Get detected anomalies (low optical power, offline ONUs)."""
-    rows = get_anomalies_from_influx(olt_name=olt_name, hours=hours, limit=limit)
+    rows = await run_influx(
+        _dash_cache, f"anomalies_{olt_name}_{hours}_{limit}",
+        get_anomalies_from_influx, olt_name, hours, limit
+    )
     anomalies = []
     for r in rows:
         a = {
@@ -63,7 +67,9 @@ async def get_predictions(
     hours: int = Query(24, description="Hours of history"),
 ):
     """Predicciones por tendencia (rx en caida) ordenadas por inminencia."""
-    preds = predict_failures(hours=hours, max_results=50)
+    preds = await run_influx(
+        _dash_cache, f"predictions_{hours}", predict_failures, hours, 50
+    )
     if olt_name:
         preds = [p for p in preds if p.get("olt_name") == olt_name]
     return {
@@ -81,7 +87,7 @@ async def get_history(
 ):
     """Serie 24h de rx/tx de una ONU para los historicos de cada card."""
     try:
-        return await asyncio.to_thread(
+        return await run_influx(
             get_onu_optical_history, olt_name, onu_serial, hours
         )
     except Exception:
@@ -91,7 +97,9 @@ async def get_history(
 @router.get("/recent")
 async def get_recent_anomalies(limit: int = Query(20, description="Max results")):
     """Get recent anomalies for dashboard."""
-    rows = get_anomalies_from_influx(limit=limit)
+    rows = await run_influx(
+        _dash_cache, f"anomalies_recent_{limit}", get_anomalies_from_influx, None, 24, limit
+    )
     return [
         {
             "olt_name": r.get("olt_name"),
@@ -110,7 +118,12 @@ async def get_recent_anomalies(limit: int = Query(20, description="Max results")
 @router.get("/summary")
 async def get_anomaly_summary():
     """Resumen: totales 24h + ventana previa (%), series horarias y conteo de
-    predicciones. Campos extra son aditivos (compatibles con el front actual)."""
+    predicciones. Campos extra son aditivos (compatibles con el front actual).
+    Resultado cacheado 45s (mismo TTL que el resto del dashboard)."""
+    return await run_influx(_dash_cache, "anomaly_summary", _load_anomaly_summary)
+
+
+def _load_anomaly_summary():
     rows = get_anomalies_from_influx(hours=24, limit=1000)
 
     by_olt = {}

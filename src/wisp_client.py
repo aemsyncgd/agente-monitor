@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 def _norm(value) -> str:
     if value is None:
         return ""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_norm(v) for v in value if _norm(v))
     return str(value).strip()
 
 
@@ -37,25 +39,49 @@ def _pick(raw: dict, *names) -> str:
     return ""
 
 
+def _num(raw: dict, *names, default: float = 0.0) -> str:
+    """Extrae un numérico de la fila (o sub-dict) como string limpio."""
+    for n in names:
+        v = raw.get(n)
+        if v in (None, ""):
+            continue
+        try:
+            f = float(v)
+            if f.is_integer():
+                return str(int(f))
+            return f"{f:.2f}"
+        except (ValueError, TypeError):
+            return _pick(raw, n)
+    return str(default)
+
+
 _SERIAL_KEYS = ("serial_onu", "serial", "serial_ont", "onu_serial",
                 "Serial Onu", "serial_onu ")
 _PPPOE_KEYS = ("usuario_pppoe", "usuario", "username", "login", "cuenta",
                "pppoe_user", "Usuario PPPoE")
-_NAME_KEYS = ("nombre", "nombre_cliente", "name", "Nombre Cliente")
+_NAME_KEYS = ("nombre_cliente", "name", "nombre", "Nombre Cliente")
 _ADDR_KEYS = ("direccion", "address", "direccion_servicio",
               "Direccion Servicio")
-_PHONE_KEYS = ("telefono", "phone", "celular", "contacto")
-_PLAN_KEYS = ("plan", "producto", "velocidad", "service")
-_STATE_KEYS = ("estado", "estado_cliente", "status", "state", "Estado")
+_PHONE_KEYS = ("telefono", "phone", "celular", "contacto", "telefonos")
+_EMAIL_KEYS = ("email", "correo", "mail", "emails")
+_PLAN_KEYS = ("plan", "producto", "velocidad", "service", "plan_nombre",
+              "servicio_nombre")
+_TECH_KEYS = ("tecnologia", "technology", "tecnología")
+_STATE_KEYS = ("estado", "estado_cliente", "status", "state", "Estado",
+               "estado_servicio")
 _IP_KEYS = ("ip_servicio", "ip", "Ip Servicio")
 _NAP_KEYS = ("nap", "nap_nombre", "caja", "nodo_nap", "nombre_nap")
 _PORT_KEYS = ("puerto", "puerto_servicio", "puerto_nap", "caja_puerto")
-_ZONE_KEYS = ("zona", "nodo", "router", "sector", "Router", "comuna")
-_MAC_KEYS = ("mac", "mac_address", "mac_onu", "onu_mac")
+_PPORT_KEYS = ("puerto_pon", "pon_port", "puerto_puerto")
+_ZONE_KEYS = ("zona", "nodo_nombre", "router", "nodo", "sector", "Router",
+              "comuna", "sucursal_nombre")
+_MAC_KEYS = ("mac", "mac_address", "mac_onu", "onu_mac", "mac_router")
+_COORD_KEYS = ("coordenadas", "lat_lng", "latitud", "location", "geolocation")
 
 
 def normalize_client(raw: dict) -> dict:
     """Normaliza un dict de cliente (respuesta HTTP o fila CSV) a esquema común."""
+    raw = dict(raw or {})
     doc = _pick(raw, "documento", "Documento", "documento_identidad",
                 "cedula", "nit", "doc")
     serial = _pick(raw, *_SERIAL_KEYS)
@@ -69,14 +95,77 @@ def normalize_client(raw: dict) -> dict:
         "nombre": _pick(raw, *_NAME_KEYS),
         "direccion": _pick(raw, *_ADDR_KEYS),
         "telefono": _pick(raw, *_PHONE_KEYS),
+        "email": _pick(raw, *_EMAIL_KEYS),
         "plan": _pick(raw, *_PLAN_KEYS),
+        "tecnologia": _pick(raw, *_TECH_KEYS),
+        "velocidad_down_mbps": _num(raw, "velocidad_down_mbps",
+                                    "vel_down_mbps", "velocidad_d"),
+        "velocidad_up_mbps": _num(raw, "velocidad_up_mbps",
+                                  "vel_up_mbps", "velocidad_u"),
+        "precio_usd": _num(raw, "precio_usd", "precio", "price_usd"),
         "estado": _pick(raw, *_STATE_KEYS).lower(),
         "ip_servicio": _pick(raw, *_IP_KEYS),
         "nap_nombre": _pick(raw, *_NAP_KEYS),
         "puerto": _pick(raw, *_PORT_KEYS),
+        "puerto_pon": _pick(raw, *_PPORT_KEYS),
         "zona": _pick(raw, *_ZONE_KEYS),
-        "raw": raw if isinstance(raw, dict) else None,
+        "coordenadas": _pick(raw, *_COORD_KEYS),
+        "tipo_documento": _pick(raw, "tipo_documento", "doc_type"),
+        "codigo_cliente": _pick(raw, "codigo_cliente", "client_code"),
+        "raw": raw,
     }
+
+
+def _flatten_czwisp_service(entry: dict) -> dict:
+    """Aplana una entrada de `servicios[]` de czwisp a claves planas.
+
+    czwisp devuelve por servicio: {cliente:{...}, servicio:{...},
+    plan:{...}, red:{...}, facturacion:{...}}. Se fusionan en un solo
+    dict plano para que `normalize_client` los lea.
+    """
+    cliente = entry.get("cliente") or {}
+    servicio = entry.get("servicio") or {}
+    plan = entry.get("plan") or {}
+    red = entry.get("red") or {}
+    fact = entry.get("facturacion") or {}
+    if cliente or servicio or plan or red or fact:
+        # Forma anidada: {cliente:{...}, servicio:{...}, plan:{...}, ...}
+        flat = {}
+        for chunk in (cliente, servicio, red, fact):
+            for k, v in chunk.items():
+                if v in (None, ""):
+                    continue
+                if isinstance(v, dict):
+                    # Sub-objetos tipo {nombre, activo} (ej. red.router): usar .nombre.
+                    flat.setdefault(k, _pick(v, "nombre", "name"))
+                else:
+                    flat.setdefault(k, v)
+        # `plan.nombre` colisionaría con `cliente.nombre_cliente`: se mapea a plan_nombre.
+        for k, v in plan.items():
+            if v in (None, ""):
+                continue
+            key = "plan_nombre" if k == "nombre" else k
+            flat.setdefault(key, v)
+        return flat
+    # Forma plana: {id, estado, plan_nombre, usuario_pppoe, serial_onu, ...}
+    return {k: v for k, v in entry.items() if v not in (None, "")}
+
+
+def extract_czwisp_servicios(payload) -> List[dict]:
+    """Extrae la lista de servicios de una respuesta czwisp.
+
+    Formato: {encontrado, total, servicios:[{cliente, servicio, plan, red,
+    facturacion}]}. Devuelve dicts planos ya fusionados. Si `encontrado` es
+    false o no hay servicios, devuelve [].
+    """
+    if not isinstance(payload, dict):
+        return []
+    if payload.get("encontrado") is False:
+        return []
+    raw_list = payload.get("servicios")
+    if not isinstance(raw_list, list):
+        return []
+    return [_flatten_czwisp_service(e) for e in raw_list if isinstance(e, dict)]
 
 
 def _extract_rows(payload) -> List[dict]:
@@ -142,16 +231,28 @@ class WispClient:
         })
         self.cache_path = cache_path
         self._last_doc_lookup: Dict[str, float] = {}
+        self._last_request_ts: float = 0.0
+        self._serial_cache: Dict[str, tuple] = {}  # serial -> (ts, cliente|None)
 
     # --- helpers de URL / headers ---
     def _base_headers(self) -> dict:
         return {"x-api-key": self.api_key}
 
     def _resolve(self, endpoint: str) -> str:
-        return endpoint.format(slug=self.config.isp_slug)
+        # Reemplazo puntual de {slug} (evita .format() @@ con {documento} en el path)
+        return endpoint.replace("{slug}", self.config.isp_slug)
+
+    def _pace(self) -> None:
+        """Espacia las consultas HTTP según min_interval_ms (rate limit)."""
+        interval = getattr(self.config, "min_interval_ms", 250) / 1000.0
+        elapsed = time.time() - self._last_request_ts
+        if self._last_request_ts and elapsed < interval:
+            time.sleep(interval - elapsed)
+        self._last_request_ts = time.time()
 
     def _get(self, url: str) -> Optional[requests.Response]:
         try:
+            self._pace()
             resp = self.session.get(url, timeout=self.config.timeout_seconds)
             resp.raise_for_status()
             return resp
@@ -235,6 +336,17 @@ class WispClient:
             payload = resp.json()
         except Exception:
             return None
+        # Respuesta czwisp anidada: {encontrado, total, servicios:[...]}
+        services = extract_czwisp_servicios(payload)
+        if services:
+            first = dict(services[0])
+            # Los datos personales (nombre, documento, teléfonos) viven en
+            # el bloque `cliente` del payload, no en cada servicio plano.
+            cliente = payload.get("cliente") or {}
+            for k, v in cliente.items():
+                if v not in (None, "") and not first.get(k):
+                    first[k] = v
+            return normalize_client(first)
         # Devolver embedido o el objeto mismo
         inner = payload
         if isinstance(inner, dict):
@@ -248,6 +360,50 @@ class WispClient:
             if known.intersection(inner.keys()):
                 return normalize_client(inner)
         return None
+
+    # --- lookup por serial ONU (servicio) ---
+    def fetch_by_serial(self, serial: str, force: bool = False) -> Optional[dict]:
+        """Lookup individual por serial ONU vía `serial_endpoint`.
+
+        Usa caché en memoria por serial con TTL = cache_hours; un serial que
+        WISP no conoce también se guarda (None) para no re-consultarlo en el
+        mismo ciclo. El pacing (`min_interval_ms`) se aplica en `_get`.
+        """
+        if not serial:
+            return None
+        serial = _norm(serial).upper()
+        endpoint = self.config.serial_endpoint.strip()
+        if not endpoint:
+            logger.info("WISP serial_endpoint no configurado; se omite lookup por serial")
+            return None
+
+        ttl = self.config.cache_hours * 3600
+        cached = self._serial_cache.get(serial)
+        if not force and cached and time.time() - cached[0] < ttl:
+            return cached[1]
+
+        url = self._get_url(endpoint).replace("{serial}", serial)
+        resp = self._get(url)
+        if resp is None:
+            return None
+        try:
+            payload = resp.json()
+        except Exception:
+            return None
+
+        services = extract_czwisp_servicios(payload)
+        result: Optional[dict] = None
+        if services:
+            matched = next((s for s in services
+                            if str(s.get("serial_onu", "")).upper() == serial), None)
+            result = normalize_client(matched or services[0])
+            if result.get("serial_onu") != serial:
+                result["serial_onu"] = serial
+        self._serial_cache[serial] = (time.time(), result)
+        return result
+
+    def clear_serial_cache(self) -> None:
+        self._serial_cache.clear()
 
     # --- caché local (listado) ---
     def list_clients(self, force: bool = False) -> List[dict]:

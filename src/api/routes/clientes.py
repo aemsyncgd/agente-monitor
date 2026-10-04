@@ -11,8 +11,8 @@ Enmascarado por rol:
 """
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field
+from typing import List, Optional, Union
 
 from ..auth import Role
 
@@ -199,6 +199,12 @@ class VitalRequest(BaseModel):
     nombre: Optional[str] = None
 
 
+class VitalBatchRequest(BaseModel):
+    queries: List[str] = Field(default_factory=list)
+    include_history: bool = True
+    include_infra: bool = True
+
+
 class GrupoAnalizarRequest(BaseModel):
     serials: Optional[List[str]] = None
     olt_name: Optional[str] = None
@@ -302,6 +308,37 @@ def _try_store(fn):
         return fn(_get_store())
     except Exception:
         return []
+
+
+@router.post("/vital/batch", response_model=dict)
+async def cliente_vital_batch(
+    body: Union[VitalBatchRequest, List[str]],
+    request: Request,
+):
+    """Fichas vitales de varios clientes en un solo request.
+
+    Acepta `{"queries": [...], "include_history": bool, "include_infra": bool}`
+    o directamente una lista de cadenas. El numero de consultas a Influx es
+    constante respecto al numero de clientes. Respuesta enmascarada por rol.
+    """
+    if isinstance(body, list):
+        queries, include_history, include_infra = body, True, True
+    else:
+        queries = list(body.queries or [])
+        include_history = bool(body.include_history)
+        include_infra = bool(body.include_infra)
+    queries = [str(q).strip() for q in queries if str(q or "").strip()]
+    if not queries:
+        raise HTTPException(status_code=400,
+                            detail="Debe indicar al menos una consulta")
+    role = _role_from_request(request)
+    res = _get_client_search().find_many(
+        queries, include_history=include_history, include_infra=include_infra,
+    )
+    for r in res.get("results", []):
+        if r.get("ficha"):
+            r["ficha"] = _apply_masking(r["ficha"], role)
+    return res
 
 
 @router.post("/vital", response_model=dict)

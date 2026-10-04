@@ -61,8 +61,8 @@ async def traffic_history(
         raise HTTPException(status_code=404, detail="dispositivo_no_encontrado")
     try:
         points, daily = await asyncio.gather(
-            asyncio.to_thread(ih.get_traffic_history, device_type, device_name, interface_name, range_key),
-            asyncio.to_thread(ih.get_daily_consumption, device_type, device_name, interface_name, DAILY_HOURS),
+            ih.run_influx(ih.get_traffic_history, device_type, device_name, interface_name, range_key),
+            ih.run_influx(ih.get_daily_consumption, device_type, device_name, interface_name, DAILY_HOURS),
         )
     except Exception:
         raise HTTPException(status_code=500, detail="error_influx")

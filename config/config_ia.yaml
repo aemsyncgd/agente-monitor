@@ -143,21 +143,27 @@ wisp:
   enabled: true
   base_url: https://czwisp.com
   api_key_env: WISP_API_KEY
-  isp_slug: ''
   list_endpoint: ''
-  document_endpoint: /api/webhooks/cliente/{slug}/cliente
+  document_endpoint: /api/webhooks/cliente/{slug}/cliente?documento={documento}
+  serial_endpoint: /api/webhooks/cliente/{slug}/servicio?onu={serial}
   page_size: 100
   timeout_seconds: 30
   documents_csv: data/wisp_documentos.csv
   cache_hours: 24
+  min_interval_ms: 250
+  max_lookups_per_run: 400
+  unknown_retry_hours: 168
 enrichment:
   enabled: true
   interval_minutes: 15
-  lookback_hours: 168
+  # 168h materializa ~10.7M filas de onu_location en Python cada ciclo
+  # (pico 7GB -> OOM-kill del scheduler). Con 6h se cubre el ultimo estado
+  # (ciclo OLT ~469s) y el respaldo óptico sigue tapando huecos.
+  lookback_hours: 6
   state_file: data/enrichment_state.json
 fault_detection:
   enabled: true
-  interval_minutes: 5
+  interval_minutes: 10
   threshold_clients_los: 3
   broadcast_down_ratio: 0.6
   onu_lookback_minutes: 360

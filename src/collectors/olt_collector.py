@@ -16,8 +16,14 @@ logger = logging.getLogger(__name__)
 _RATE_CACHE: Dict[Tuple[str, str], Tuple[float, int, int]] = {}
 _RATE_MAX_DELTA = 3600.0
 
-MAC_IFACE_RE = re.compile(r"^GPON(\d+)ONU(\d+)(?:\.\d+)?$", re.IGNORECASE)
+# ifName de ONU en la OLT (con o sin descripcion): 'GPON05ONU13',
+# 'GPON05ONU13 MARIA_PILAR_ARIAS' o subinterfaz 'GPON05ONU13.1'.
+MAC_IFACE_RE = re.compile(r"^GPON0*(\d+)ONU0*(\d+)(?:[.\s].*)?$", re.IGNORECASE)
 GE_IFACE_RE = re.compile(r"^GE\d+/\d+$", re.IGNORECASE)
+# Puerto de la tabla FDB privada VSOL: 'PON5:ONU16' (tambien 'GE3', 'CPU').
+VSOL_PORT_RE = re.compile(r"^PON(\d+):ONU(\d+)$", re.IGNORECASE)
+# Puerto GE tal como lo reporta VSOL: 'GE3' (dot1d usa 'GE0/3').
+VSOL_GE_RE = re.compile(r"^GE\d+(?:/\d+)?$", re.IGNORECASE)
 
 
 def normalize_mac(raw: str) -> Optional[str]:
@@ -55,6 +61,14 @@ def classify_interface_name(name: str) -> Optional[str]:
 def parse_onu_iface(name: str) -> Optional[Tuple[int, int]]:
     """'GPON05ONU17' -> (5, 17); soporta sufijo '.N' de subinterfaz."""
     m = MAC_IFACE_RE.match(name)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None
+
+
+def parse_vsol_port(port: str) -> Optional[Tuple[int, int]]:
+    """'PON5:ONU16' -> (5, 16). Devuelve None para 'GE3', 'CPU', etc."""
+    m = VSOL_PORT_RE.match(str(port).strip().strip('"'))
     if m:
         return int(m.group(1)), int(m.group(2))
     return None
@@ -142,6 +156,100 @@ def build_mac_metrics(
     return metrics
 
 
+def build_vsol_mac_metrics(
+    macs: Dict[str, str],
+    ports: Dict[str, str],
+    olt_name: str,
+    olt_ip: str,
+    nodo: str,
+    vlans: Optional[Dict[str, str]] = None,
+    onu_status: Optional[Dict[str, str]] = None,
+    onu_serial: Optional[Dict[str, str]] = None,
+    onu_model: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    """Construye puntos onu_mac (log) y onu_location desde la FDB privada VSOL.
+
+    macs/ports/vlans vienen de _subprocess_bulkwalk sobre OID_VSOL_MAC,
+    OID_VSOL_PORT y OID_VSOL_VLAN: {suffix: value}. A diferencia de dot1d
+    (que colapsa toda MAC al uplink GE), la columna de puerto ya trae la
+    atribucion por ONU ('PON5:ONU16'), por lo que la MAC del CPE/router se
+    asocia al puerto donde esta instalado el cliente.
+    """
+    vlans = vlans or {}
+    onu_status = onu_status or {}
+    onu_serial = onu_serial or {}
+    onu_model = onu_model or {}
+    metrics: List[Dict[str, Any]] = []
+
+    for suffix, mac_raw in macs.items():
+        mac = normalize_mac(mac_raw)
+        if not mac:
+            continue
+        port = ports.get(suffix)
+        if port is None:
+            continue
+        port_name = str(port).strip().strip('"')
+
+        parsed = parse_vsol_port(port_name)
+        if parsed:
+            interface_type = "onu"
+        elif VSOL_GE_RE.match(port_name):
+            interface_type = "ge"
+        else:
+            interface_type = "otro"
+
+        tags = {
+            "olt_name": olt_name,
+            "olt_ip": olt_ip,
+            "nodo": nodo,
+            "mac": mac,
+            "interface_name": port_name if port_name else "desconocido",
+            "interface_type": interface_type,
+        }
+        fields: Dict[str, Any] = {"learned": 1}
+
+        vlan_raw = vlans.get(suffix)
+        if vlan_raw is not None:
+            try:
+                fields["vlan"] = int(str(vlan_raw).strip().strip('"'))
+            except (ValueError, TypeError):
+                pass
+
+        if interface_type == "onu" and parsed:
+            pon, onu = parsed
+            idx_dot = f"{pon}.{onu}"
+            tags["location"] = f"GPON{pon:02d}_{onu}"
+            fields.update({
+                "pon_port": f"GPON0/{pon}",
+                "onu_index": f"{pon}_{onu}",
+            })
+            serial = onu_serial.get(idx_dot)
+            modelo = onu_model.get(idx_dot)
+            estado = onu_status.get(idx_dot)
+            if serial:
+                fields["onu_serial"] = str(serial).strip('"')
+            if modelo:
+                fields["onu_model"] = str(modelo).strip('"')
+            if estado is not None:
+                try:
+                    fields["estado_onu"] = int(estado)
+                except (ValueError, TypeError):
+                    pass
+
+        metrics.append({"measurement": "onu_mac", "tags": dict(tags), "fields": dict(fields)})
+
+        if interface_type == "onu":
+            loc_fields = {k: v for k, v in fields.items() if k != "learned"}
+            metrics.append({
+                "measurement": "onu_location",
+                "tags": {k: tags[k] for k in
+                         ("olt_name", "olt_ip", "nodo", "mac", "location")},
+                "fields": loc_fields,
+            })
+
+    return metrics
+
+
 @dataclass
 class OltConfig:
     ip: str
@@ -205,6 +313,14 @@ class OltCollector(BaseCollector):
 
     OID_FDB_MAC = "1.3.6.1.2.1.17.4.3.1.1"   # dot1qTpFdbTable.1 = MAC (col1)
     OID_FDB_PORT = "1.3.6.1.2.1.17.4.3.1.2"  # dot1qTpFdbTable.2 = puerto (col2)
+
+    # FDB privada VSOL: atribuye la MAC del CPE/router al puerto PON:ONU donde
+    # esta instalado el cliente (dot1d solo ve el uplink GE). Ver
+    # docs/olt_mac_snmp.md. Columnas: .2 VLAN, .3 MAC, .4 tipo, .5 puerto.
+    OID_VSOL_MAC_TABLE = "1.3.6.1.4.1.37950.1.1.5.10.3.2.1"
+    OID_VSOL_VLAN = "1.3.6.1.4.1.37950.1.1.5.10.3.2.1.2"
+    OID_VSOL_MAC = "1.3.6.1.4.1.37950.1.1.5.10.3.2.1.3"
+    OID_VSOL_PORT = "1.3.6.1.4.1.37950.1.1.5.10.3.2.1.5"
     
     def __init__(self, config: OltConfig, timeout: int = 60):
         super().__init__(f"olt-{config.hostname}")
@@ -214,6 +330,11 @@ class OltCollector(BaseCollector):
         self._g2b_mode = False
         self._g2b_rxtx_offset = 0
         self.mac_walk_delay = 3  # segundos entre walks de FDB (no saturar OLT)
+        # Dedupe de onu_mac/onu_location: estas mediciones describen el estado
+        # FDB (learned=1) que el dashboard solo consulta con last() por MAC.
+        # Reescribir toda la FDB en cada ciclo (~8 min) creaba ~14k pts/ciclo
+        # y saturaba InfluxDB; solo se emiten series cuyo estado cambio.
+        self._mac_seen: Dict[str, str] = {}
     
     def collect(self) -> CollectorResult:
         start = time.time()
@@ -871,6 +992,116 @@ class OltCollector(BaseCollector):
         
         return onus
 
+    async def _ensure_onu_meta(
+        self,
+        onu_status: Optional[Dict[str, str]],
+        onu_serial: Optional[Dict[str, str]],
+        onu_model: Optional[Dict[str, str]],
+    ) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
+        """Completa los diccionarios de metadata ONU (status/serial/modelo)."""
+        if onu_status is None or not onu_status:
+            onu_status = await self._subprocess_bulkwalk(self.OID_ONU_STATUS)
+            await asyncio.sleep(self.mac_walk_delay)
+        if onu_serial is None or not onu_serial:
+            onu_serial = await self._subprocess_bulkwalk(f"{self.OID_ONU_IDENT}.5")
+            await asyncio.sleep(self.mac_walk_delay)
+        if onu_model is None or not onu_model:
+            onu_model = await self._subprocess_bulkwalk(f"{self.OID_ONU_IDENT}.6")
+        return onu_status, onu_serial, onu_model
+
+    async def _capture_vsol_macs_async(
+        self,
+        onu_status: Optional[Dict[str, str]],
+        onu_serial: Optional[Dict[str, str]],
+        onu_model: Optional[Dict[str, str]],
+    ) -> List[Dict[str, Any]]:
+        """FDB privada VSOL (MAC -> PON:ONU). Devuelve [] si no esta soportada."""
+        macs = await self._subprocess_bulkwalk(self.OID_VSOL_MAC, timeout=90)
+        if not macs:
+            return []
+        await asyncio.sleep(self.mac_walk_delay)
+        ports = await self._subprocess_bulkwalk(self.OID_VSOL_PORT, timeout=90)
+        if not ports:
+            return []
+        await asyncio.sleep(self.mac_walk_delay)
+        vlans = await self._subprocess_bulkwalk(self.OID_VSOL_VLAN, timeout=90)
+        return build_vsol_mac_metrics(
+            macs, ports,
+            olt_name=self.config.hostname,
+            olt_ip=self.config.ip,
+            nodo=self.config.nodo,
+            vlans=vlans,
+            onu_status=onu_status,
+            onu_serial=onu_serial,
+            onu_model=onu_model,
+        )
+
+    async def _capture_web_macs_async(
+        self,
+        onu_status: Optional[Dict[str, str]],
+        onu_serial: Optional[Dict[str, str]],
+        onu_model: Optional[Dict[str, str]],
+    ) -> List[Dict[str, Any]]:
+        """Respaldo: tabla MAC del panel web VSOL cuando SNMP no la expone."""
+        try:
+            from .olt_web_mac import fetch_web_macs, web_mac_enabled
+        except Exception as e:
+            logger.debug(f"{self.config.hostname}: web MAC fallback no disponible: {e}")
+            return []
+        if not web_mac_enabled():
+            return []
+        try:
+            rows = await asyncio.to_thread(fetch_web_macs, self.config.ip)
+        except Exception as e:
+            logger.warning(f"{self.config.hostname}: web MAC fallback fallo: {e}")
+            return []
+        if not rows:
+            return []
+        macs = {str(i): r.get("mac") for i, r in enumerate(rows)}
+        ports = {str(i): r.get("port") for i, r in enumerate(rows)}
+        vlans = {
+            str(i): r.get("vlan")
+            for i, r in enumerate(rows) if r.get("vlan") is not None
+        }
+        return build_vsol_mac_metrics(
+            macs, ports,
+            olt_name=self.config.hostname,
+            olt_ip=self.config.ip,
+            nodo=self.config.nodo,
+            vlans=vlans,
+            onu_status=onu_status,
+            onu_serial=onu_serial,
+            onu_model=onu_model,
+        )
+
+    def _dedupe_mac_metrics(self, metrics: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Filtra onu_mac cuyo estado no cambio desde el ultimo ciclo (misma
+        serie = tags + campos). El primer ciclo siempre emite.
+
+        IMPORTANTE: se excluye onu_location de este filtro: el enricher barre
+        esa medicion en una ventana corta (lookback_hours) con last(); si una
+        serie estable deja de reescribirse sale de la ventana y la MAC se
+        pierde del dashboard y de la ficha del cliente. onu_mac en cambio solo
+        se consulta con last() por MAC en -168h, asi que el dedupe es seguro.
+        """
+        out = []
+        for m in metrics:
+            if m.get("measurement") != "onu_mac":
+                out.append(m)
+                continue
+            tags = m.get("tags", {})
+            fields = m.get("fields", {})
+            key = "|".join(
+                f"{k}={v}" for k, v in sorted(tags.items())
+            ) + "||" + "|".join(
+                f"{k}={v}" for k, v in sorted(fields.items())
+            )
+            if self._mac_seen.get(key) == m.get("measurement"):
+                continue  # sin cambios: no saturar InfluxDB
+            self._mac_seen[key] = m.get("measurement")
+            out.append(m)
+        return out
+
     async def _capture_macs_async(
         self,
         if_desc: Optional[Dict[str, str]] = None,
@@ -878,9 +1109,32 @@ class OltCollector(BaseCollector):
         onu_serial: Optional[Dict[str, str]] = None,
         onu_model: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """Reune FDB + ifName + datos ONU y emite onu_mac/onu_location."""
+        """Reune FDB + metadata ONU y emite onu_mac/onu_location.
+
+        Orden de fuentes: (1) FDB privada VSOL (atribuye MAC por ONU),
+        (2) respaldo web del panel VSOL, (3) respaldo dot1d/dot1q (sin
+        atribucion por ONU, colapsa todo al uplink).
+        """
         errors: List[str] = []
         try:
+            onu_status, onu_serial, onu_model = await self._ensure_onu_meta(
+                onu_status, onu_serial, onu_model
+            )
+
+            def _deduped(m):
+                return self._dedupe_mac_metrics(m)
+
+            # 1) FDB privada VSOL: MAC -> 'PON5:ONU16'
+            vsol = await self._capture_vsol_macs_async(onu_status, onu_serial, onu_model)
+            if vsol:
+                return {"metrics": _deduped(vsol), "errors": errors}
+
+            # 2) Respaldo web (login al panel VSOL)
+            web = await self._capture_web_macs_async(onu_status, onu_serial, onu_model)
+            if web:
+                return {"metrics": _deduped(web), "errors": errors}
+
+            # 3) Respaldo dot1d/dot1q (dot1dTpFdbTable): sin atribucion por ONU
             if if_desc is None or not if_desc:
                 if_desc = await self._subprocess_bulkwalk(self.OID_IF_DESC, timeout=30)
                 await asyncio.sleep(self.mac_walk_delay)
@@ -894,17 +1148,6 @@ class OltCollector(BaseCollector):
             if not fdb_ports:
                 return {"metrics": [], "errors": [f"FDB port sin datos en {self.config.hostname}"]}
 
-            if onu_status is None or onu_serial is None or onu_model is None:
-                await asyncio.sleep(self.mac_walk_delay)
-            if onu_status is None or not onu_status:
-                onu_status = await self._subprocess_bulkwalk(self.OID_ONU_STATUS)
-                await asyncio.sleep(self.mac_walk_delay)
-            if onu_serial is None or not onu_serial:
-                onu_serial = await self._subprocess_bulkwalk(f"{self.OID_ONU_IDENT}.5")
-                await asyncio.sleep(self.mac_walk_delay)
-            if onu_model is None or not onu_model:
-                onu_model = await self._subprocess_bulkwalk(f"{self.OID_ONU_IDENT}.6")
-
             metrics = build_mac_metrics(
                 fdb_macs, fdb_ports, if_desc,
                 olt_name=self.config.hostname,
@@ -916,7 +1159,7 @@ class OltCollector(BaseCollector):
             )
             if not metrics:
                 errors.append(f"Sin MACs procesables en FDB de {self.config.hostname}")
-            return {"metrics": metrics, "errors": errors}
+            return {"metrics": self._dedupe_mac_metrics(metrics), "errors": errors}
         except Exception as e:
             logger.error(f"{self.config.hostname} MAC capture failed: {e}")
             return {"metrics": [], "errors": [f"MAC capture failed: {e}"]}

@@ -2,8 +2,10 @@
 import csv
 import json
 import os
+import time
 
-from src.wisp_client import normalize_client, load_from_csv, WispClient
+from src.wisp_client import (normalize_client, load_from_csv, WispClient,
+                             extract_czwisp_servicios)
 from src.config_ia import WISPConfig, load_config_ia
 
 
@@ -149,3 +151,232 @@ def test_onu_suffix():
     assert OltStatusRefresher.onu_suffix("3_01") == "3.01"
     assert OltStatusRefresher.onu_suffix("7_10") == "7.10"
     assert OltStatusRefresher.onu_suffix("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Respuesta anidada czwisp: {encontrado, total, servicios:[{cliente, servicio,
+# plan, red, facturacion}]}
+# ---------------------------------------------------------------------------
+
+def _czwisp_payload(serial="CMDCB00A3095", documento="12345678",
+                    usuario="V12345678", encontrado=True):
+    return {
+        "encontrado": encontrado,
+        "total": 1 if encontrado else 0,
+        "servicios": [{
+            "cliente": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "nombre_cliente": "Juan Perez Rodriguez",
+                "tipo_documento": "V",
+                "documento": documento,
+                "codigo_cliente": "C-1001",
+                "telefonos": ["0412-5550001", "0414-0000002"],
+                "emails": ["juan@example.com", "ventas@example.com"],
+            },
+            "servicio": {
+                "estado": "ACTIVO",
+                "direccion_servicio": "Av. Principal, Casa 5, Sector Centro",
+                "coordenadas": "10.4806,-66.9036",
+                "sucursal_nombre": "NARANJILLOS",
+                "fecha_instalacion": "2024-03-15",
+                "instalador": "Carlos T",
+            },
+            "plan": {
+                "nombre": "Plan Fibra 200M",
+                "tecnologia": "PON",
+                "precio_usd": 25.50,
+                "velocidad_down_mbps": 200,
+                "velocidad_up_mbps": 100,
+            },
+            "red": {
+                "modo": "pppoe",
+                "ip_servicio": "10.20.30.40",
+                "usuario_pppoe": usuario,
+                "mac_router": None,
+                "serial_onu": serial,
+                "nodo_nombre": "NODO-NARANJILLOS",
+                "nap_nombre": "NAP-15",
+                "puerto": "15",
+                "puerto_pon": "GPON0/3",
+            },
+            "facturacion": {
+                "dia_facturacion": 5,
+                "fecha_corte": "2026-09-25",
+                "saldo_usd": 0.0,
+                "saldo_ves": 0.0,
+            },
+        }],
+    }
+
+
+def test_extract_czwisp_servicios_flattens():
+    services = extract_czwisp_servicios(_czwisp_payload())
+    assert len(services) == 1
+    s = services[0]
+    assert s["nombre_cliente"] == "Juan Perez Rodriguez"
+    assert s["serial_onu"] == "CMDCB00A3095"
+    assert s["usuario_pppoe"] == "V12345678"
+    assert s["direccion_servicio"] == "Av. Principal, Casa 5, Sector Centro"
+    assert s["velocidad_down_mbps"] == 200
+    assert s["precio_usd"] == 25.50
+    assert s["telefonos"] == ["0412-5550001", "0414-0000002"]
+
+
+def test_extract_czwisp_servicios_no_encontrado():
+    assert extract_czwisp_servicios(_czwisp_payload(encontrado=False)) == []
+    assert extract_czwisp_servicios({"error": "x"}) == []
+
+
+def test_normalize_client_czwisp_extended():
+    services = extract_czwisp_servicios(_czwisp_payload())
+    c = normalize_client(services[0])
+    assert c["documento"] == "12345678"
+    assert c["serial_onu"] == "CMDCB00A3095"
+    assert c["usuario_pppoe"] == "v12345678"
+    assert c["nombre"] == "Juan Perez Rodriguez"
+    assert c["direccion"] == "Av. Principal, Casa 5, Sector Centro"
+    assert c["telefono"] == "0412-5550001, 0414-0000002"
+    assert c["email"] == "juan@example.com, ventas@example.com"
+    assert c["plan"] == "Plan Fibra 200M"
+    assert c["tecnologia"] == "PON"
+    assert c["velocidad_down_mbps"] == "200"
+    assert c["velocidad_up_mbps"] == "100"
+    assert c["precio_usd"] == "25.50"
+    assert c["estado"] == "activo"
+    assert c["ip_servicio"] == "10.20.30.40"
+    assert c["nap_nombre"] == "NAP-15"
+    assert c["puerto"] == "15"
+    assert c["puerto_pon"] == "GPON0/3"
+    assert c["zona"] == "NODO-NARANJILLOS"
+    assert c["coordenadas"] == "10.4806,-66.9036"
+    assert c["tipo_documento"] == "V"
+    assert c["codigo_cliente"] == "C-1001"
+
+
+def test_flatten_muestra_nombre_de_subobjeto():
+    payload = {
+        "encontrado": True,
+        "total": 1,
+        "servicios": [{
+            "cliente": {"nombre_cliente": "X", "documento": "1"},
+            "servicio": {"estado": "activo"},
+            "plan": {"nombre": "P"},
+            "red": {"usuario_pppoe": "u1", "serial_onu": "S1",
+                    "router": {"nombre": "ROUTER-SISAL", "activo": True},
+                    "nodo_nombre": ""},
+            "facturacion": {},
+        }],
+    }
+    services = extract_czwisp_servicios(payload)
+    c = normalize_client(services[0])
+    # router dict -> se extrae .nombre y se usa como zona (no hay nodo_nombre).
+    assert c["zona"] == "ROUTER-SISAL"
+
+
+def test_fetch_by_serial_parses_czwisp():
+    class FakeSession:
+        def __init__(self):
+            self.headers = {}
+            self.calls = 0
+
+        def get(self, url, timeout=None):
+            self.calls += 1
+            serial = url.split("onu=")[1]
+            return FakeResp(_czwisp_payload(serial=serial))
+
+    class FakeResp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    cfg = _default_cfg(
+        isp_slug="vidanet",
+        serial_endpoint="/api/webhooks/cliente/{slug}/servicio?onu={serial}",
+        cache_hours=1,
+        min_interval_ms=0,
+    )
+    sess = FakeSession()
+    w = WispClient(cfg, api_key="k", session=sess)
+    c = w.fetch_by_serial("CMDCB00A3095")
+    assert c is not None
+    assert c["serial_onu"] == "CMDCB00A3095"
+    assert c["documento"] == "12345678"
+    assert c["nombre"] == "Juan Perez Rodriguez"
+    assert c["zona"] == "NODO-NARANJILLOS"  # nodo_nombre > sucursal_nombre
+    assert sess.calls == 1
+    # Caché en memoria: segunda llamada no recalcula HTTP.
+    c2 = w.fetch_by_serial("CMDCB00A3095")
+    assert c2 is not None and sess.calls == 1
+
+
+def test_fetch_by_serial_unknown_cached():
+    class FakeSession:
+        def __init__(self):
+            self.headers = {}
+            self.calls = 0
+
+        def get(self, url, timeout=None):
+            self.calls += 1
+            return FakeResp({"encontrado": False, "total": 0, "servicios": []})
+
+    class FakeResp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    cfg = _default_cfg(
+        isp_slug="vidanet",
+        serial_endpoint="/api/webhooks/cliente/{slug}/servicio?onu={serial}",
+        cache_hours=1,
+        min_interval_ms=0,
+    )
+    sess = FakeSession()
+    w = WispClient(cfg, api_key="k", session=sess)
+    assert w.fetch_by_serial("VSOL000000000") is None
+    assert sess.calls == 1
+    # Desconocido también queda en caché (negativo).
+    assert w.fetch_by_serial("VSOL000000000") is None
+    assert sess.calls == 1
+
+
+def test_serial_endpoint_slug_replaced():
+    cfg = _default_cfg(
+        isp_slug="vidanet",
+        serial_endpoint="/api/webhooks/cliente/{slug}/servicio?onu={serial}",
+        cache_hours=1,
+        min_interval_ms=0,
+    )
+    seen = {}
+
+    class FakeSession:
+        def __init__(self):
+            self.headers = {}
+
+        def get(self, url, timeout=None):
+            seen["url"] = url
+            return FakeResp({"encontrado": False, "total": 0, "servicios": []})
+
+    class FakeResp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    w = WispClient(cfg, api_key="k", session=FakeSession())
+    w.fetch_by_serial("VSOL009F2188")
+    assert seen["url"] == ("https://czwisp.com"
+                           "/api/webhooks/cliente/vidanet/servicio?onu=VSOL009F2188")

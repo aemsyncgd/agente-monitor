@@ -1,0 +1,24 @@
+[Unit]
+Description=Agente Monitor - Motor IA (autoencoder, anomalias, predicciones)
+Documentation=file://@PROJECT_DIR@/README_AGENT.md
+After=influxdb-ia.service
+Wants=influxdb-ia.service
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_DIR@
+Environment=CONFIG_PATH=config/config_ia.yaml
+Environment=NODES_PATH=config/nodes.yaml
+EnvironmentFile=@PROJECT_DIR@/.env.ia
+ExecStart=@PROJECT_DIR@/venv/bin/python3 -m src.ai.main
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Logs
+StandardOutput=append:@PROJECT_DIR@/logs/ai-agent.log
+StandardError=append:@PROJECT_DIR@/logs/ai-agent-error.log
+
+[Install]
+WantedBy=default.target

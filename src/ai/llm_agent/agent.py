@@ -232,6 +232,9 @@ class LLMAgent:
     def chat(self, question: str, history: Optional[List[Dict]] = None) -> Dict:
         """On-demand analysis/answer for the dashboard (any mode)."""
         config = self.config_store.effective()
+        if not config.enabled:
+            logger.info("LLM agent disabled, refusing on-demand chat")
+            return {"ok": False, "error": "El agente LLM está desactivado"}
         tools, dispatch = self.current_tools(config)
 
         messages: List[Dict] = [

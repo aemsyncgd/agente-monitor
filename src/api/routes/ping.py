@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from typing import List, Dict, Any
 
-from ..influx_helper import _query
+from ..influx_helper import _query, run_influx
 
 router = APIRouter(prefix="/api/ping", tags=["ping"])
 
@@ -82,7 +82,7 @@ async def get_ping_status():
             |> filter(fn: (r) => r["_measurement"] == "ping_check")
             |> last()
         '''
-        results = _query(flux)
+        results = await run_influx(_query, flux)
 
         for point in results:
             name = point.get("name", "")

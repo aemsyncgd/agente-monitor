@@ -4,7 +4,7 @@
 # Usado por la API del dashboard para iniciar/detener/reiniciar/estado.
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-/home/server/agente-monitor}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 VENV_PYTHON="${VENV_PYTHON:-${PROJECT_DIR}/venv/bin/python3}"
 SYSTEMD_PREFIX="agente-monitor-"
 
@@ -14,7 +14,7 @@ Uso: manage-services.sh <comando> [servicio|all]
 
 Comandos:
   install <servicio|all>  Instalar unit systemd de usuario (~/.config/systemd/user)
-  start   <servicio>   Iniciar un servicio (collector, api, ai-agent, llm-agent, wisp-agent, scheduler, bot, redis)
+  start   <servicio>   Iniciar un servicio (collector, api, ai-agent, llm-agent, wisp-agent, scheduler, bot)
   stop    <servicio>   Detener un servicio
   restart <servicio>   Reiniciar un servicio
   status  [servicio]   Estado de servicios (por defecto: todos)
@@ -23,7 +23,8 @@ Comandos:
 
 Servicios: collector, api, ai-agent, llm-agent, wisp-agent, scheduler, bot
 
-Nota: los contenedores (InfluxDB, Redis) corren con Podman, NO Docker.
+Nota: InfluxDB y Redis NO son servicios de este script; corren como
+contenedores Podman definidos en compose.yml (`podman compose up -d`).
 EOF
 }
 
@@ -206,6 +207,12 @@ install_units() {
     local user_units="${HOME}/.config/systemd/user"
     mkdir -p "${user_units}"
 
+    # Directorios de runtime: los units escriben logs con `append:` (systemd no
+    # crea el directorio padre) y la app escribe estado/RAG/modelos.
+    mkdir -p "${PROJECT_DIR}/logs" "${PROJECT_DIR}/data" "${PROJECT_DIR}/models" \
+             "${PROJECT_DIR}/influxdb/data" "${PROJECT_DIR}/influxdb/config" \
+             "${PROJECT_DIR}/redis/data"
+
     install_one() {
         local name="$1"
         local unit="${SYSTEMD_PREFIX}${name}.service"
@@ -213,8 +220,9 @@ install_units() {
             echo "ERROR: no existe ${src_dir}/${unit}" >&2
             return 1
         fi
-        cp "${src_dir}/${unit}" "${user_units}/${unit}"
-        echo "OK: ${unit} instalado en ${user_units}/"
+        # Los units del repo usan @PROJECT_DIR@ para no atarlos a una ruta concreta.
+        sed "s|@PROJECT_DIR@|${PROJECT_DIR}|g" "${src_dir}/${unit}" > "${user_units}/${unit}"
+        echo "OK: ${unit} instalado en ${user_units}/ (project: ${PROJECT_DIR})"
     }
 
     if [ -n "${service}" ] && [ "${service}" != "all" ]; then
@@ -227,6 +235,16 @@ install_units() {
         install_one wisp-agent || true
         install_one scheduler || true
         install_one bot || true
+    fi
+
+    # La unidad unificada (collector+api+ai+llm) no está en la lista anterior:
+    # instalarla siempre que exista evita el forget silencioso tras un clone.
+    if [ -f "${src_dir}/${SYSTEMD_PREFIX}.service" ] || [ -f "${src_dir}/agente-monitor.service" ]; then
+        if [ -z "${service}" ] || [ "${service}" = "all" ] || [ "${service}" = "unified" ]; then
+            sed "s|@PROJECT_DIR@|${PROJECT_DIR}|g" \
+                "${src_dir}/agente-monitor.service" > "${user_units}/agente-monitor.service" \
+                && echo "OK: agente-monitor.service instalado (unidad unificada)"
+        fi
     fi
 
     systemctl --user daemon-reload

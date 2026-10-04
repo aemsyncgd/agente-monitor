@@ -193,8 +193,9 @@ def test_llm_alert_dedup_state_change(tmp_path):
         ) is True
     assert post.call_count == 3
     texts = [c.kwargs["json"]["text"] for c in post.call_args_list]
-    assert texts[0].startswith("🔴 <b>host_down — SWITCH-BACKBONE</b>")
-    assert texts[1].startswith("ℹ️ <b>host_up — SWITCH-BACKBONE</b>")
+    assert texts[0].startswith("🔴 <b>HOST CAÍDO</b>")
+    assert texts[1].startswith("🟢 <b>HOST RECUPERADO</b>")
+    assert texts[2].startswith("🔴 <b>HOST CAÍDO</b>")
     assert "🤖 Generado por el agente IA" in texts[2]
 
 

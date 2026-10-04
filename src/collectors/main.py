@@ -147,6 +147,8 @@ def create_collectors_from_config(
                 hostname=mt.hostname,
                 modelo=mt.modelo,
                 username=mt.username,
+                password=mt.password,
+                api_port=mt.api_port,
                 use_api=mt.use_api,
                 nodo=node.name
             )

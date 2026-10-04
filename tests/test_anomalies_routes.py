@@ -27,7 +27,7 @@ def client(monkeypatch):
                                        "warning": 1, "risk": 2}])
     monkeypatch.setattr(
         anom_route, "predict_failures",
-        lambda **kw: [{
+        lambda *a, **kw: [{
             "olt_name": "OLT-1", "pon_port": "GPON0/1", "onu_index": "1_1",
             "onu_serial": "SERIAL-A", "current_power": -29.0,
             "trend_db_per_hour": -1.0, "hours_to_failure": 1.0,

@@ -236,13 +236,19 @@ class InfluxReader:
         return rows[0] if rows else None
 
     def predict_failures(self, hours: int = 24, max_results: int = 20) -> List[Dict]:
-        """Trend-based failure prediction per ONU (same logic as deterministic agent)."""
+        """Trend-based failure prediction per ONU (same logic as deterministic agent).
+
+        Solo se usa la tendencia de las últimas 24 muestras, así que el rango se
+        acota a 6h con media cada 15m (igual que la API): evita materializar
+        24h x 5m (~216k filas / 40MB) por llamada, que saturaba InfluxDB.
+        """
         bucket = self.influx.bucket
+        _WINDOW = 15  # minutos por muestra
         rows = self._query(f'''
-        from(bucket: "{bucket}") |> range(start: -{hours}h)
+        from(bucket: "{bucket}") |> range(start: -6h)
             |> filter(fn: (r) => r["_measurement"] == "optical_power")
             |> filter(fn: (r) => r["_field"] == "rx_power")
-            |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)''')
+            |> aggregateWindow(every: {_WINDOW}m, fn: mean, createEmpty: false)''')
 
         onu_data: Dict[Tuple, List] = {}
         for r in rows:
@@ -263,7 +269,7 @@ class InfluxReader:
                 continue
             recent_avg = sum(recent) / len(recent)
             older_avg = sum(older) / len(older)
-            hours_data = len(recent) * 5 / 60
+            hours_data = len(recent) * _WINDOW / 60
             if hours_data <= 0:
                 continue
             trend = (recent_avg - older_avg) / hours_data

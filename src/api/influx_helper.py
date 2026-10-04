@@ -1,4 +1,6 @@
 # src/api/influx_helper.py
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import os
 import logging
 import threading
@@ -20,6 +22,31 @@ INFLUX_BUCKET = os.environ.get("INFLUXDB_BUCKET", "monitoreo")
 _DASH_TTL = 45.0
 _DASH_CACHE: Dict[str, Any] = {}
 _DASH_LOCK = threading.Lock()
+# Single-flight por clave: cuando varias keys expiran a la vez y el front pide
+# las ~7 rutas pesadas en paralelo, solo una query por clave corre contra
+# InfluxDB y el resto espera el resultado, en vez de saturar el motor con
+# queries simultáneas (causa de los "context canceled" en el log de influxd).
+_DASH_INFLIGHT: Dict[str, threading.Event] = {}
+
+# Executor dedicado para queries síncronas de InfluxDB. Influx puede quedar muy
+# lento (chunked reads de decenas de segundos); aislarlo del pool por defecto
+# evita que esas lecturas saturen el executor compartido y cuelguen a los demás
+# to_thread (SNMP, etc.) o al propio event loop via cola del pool.
+_INFLUX_EXECUTOR = ThreadPoolExecutor(
+    max_workers=8, thread_name_prefix="influx"
+)
+_INFLUX_TIMEOUT = 20.0
+
+
+async def run_influx(func, *args, _timeout: float = _INFLUX_TIMEOUT):
+    """Ejecuta una función síncrona de InfluxDB en su executor dedicado con
+    cota dura: si Influx tarda más que `_timeout`, el request devuelve a tiempo
+    (el hilo queda huérfano hasta que Influx libere la lectura, autolimitado por
+    el `timeout` del cliente)."""
+    loop = asyncio.get_running_loop()
+    return await asyncio.wait_for(
+        loop.run_in_executor(_INFLUX_EXECUTOR, func, *args), timeout=_timeout
+    )
 
 
 def _dash_cache(key: str, loader, *args):
@@ -28,14 +55,40 @@ def _dash_cache(key: str, loader, *args):
         hit = _DASH_CACHE.get(key)
         if hit is not None and now - hit[0] < _DASH_TTL:
             return hit[1]
-    data = loader(*args)
+        # re-chequeo: otro hilo pudo completar mientras esperabamos el lock
+        hit = _DASH_CACHE.get(key)
+        if hit is not None and now - hit[0] < _DASH_TTL:
+            return hit[1]
+        event = _DASH_INFLIGHT.get(key)
+        if event is None:
+            event = threading.Event()
+            _DASH_INFLIGHT[key] = event
+            is_leader = True
+        else:
+            is_leader = False
+
+    if is_leader:
+        try:
+            data = loader(*args)
+            with _DASH_LOCK:
+                _DASH_CACHE[key] = (time.monotonic(), data)
+                expired = [k for k, v in _DASH_CACHE.items()
+                           if time.monotonic() - v[0] >= _DASH_TTL]
+                for k in expired:
+                    _DASH_CACHE.pop(k, None)
+            return data
+        finally:
+            event.set()
+            with _DASH_LOCK:
+                _DASH_INFLIGHT.pop(key, None)
+
+    # seguidor: espera a que el lider publique el resultado (o falle)
+    event.wait(timeout=_INFLUX_TIMEOUT + 5)
     with _DASH_LOCK:
-        _DASH_CACHE[key] = (time.monotonic(), data)
-        if len(_DASH_CACHE) > 16:
-            expired = [k for k, v in _DASH_CACHE.items() if now - v[0] >= _DASH_TTL]
-            for k in expired:
-                _DASH_CACHE.pop(k, None)
-    return data
+        hit = _DASH_CACHE.get(key)
+        if hit is not None and time.monotonic() - hit[0] < _DASH_TTL:
+            return hit[1]
+    raise RuntimeError(f"cache load failed/stale for {key}")
 
 _client: Optional[InfluxDBClient] = None
 _query_api = None
@@ -53,7 +106,11 @@ def get_status_window() -> int:
 def _get_query_api():
     global _client, _query_api
     if _query_api is None:
-        _client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
+        # timeout: limite de ms para conectar/leer de InfluxDB. Una respuesta
+        # chunked que se corta no debe cuelgar el hilo por tiempo indefinido.
+        _client = InfluxDBClient(
+            url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG, timeout=30000
+        )
         _query_api = _client.query_api()
     return _query_api
 
@@ -118,21 +175,82 @@ def resolve_interface_index(device_name: str, interface_name: str) -> Optional[s
     return None
 
 
+_HEALTH_CHECK_TTL = 10.0
+_health_check_cache = {"t": 0.0, "ok": True}
+
+
 def _check_connection() -> bool:
+    """Ping real a InfluxDB, cacheado ~10s para que el polling de /health (~30s)
+    no dispare una query contra InfluxDB en cada request."""
+    now = time.monotonic()
+    with _DASH_LOCK:
+        if now - _health_check_cache["t"] < _HEALTH_CHECK_TTL:
+            return _health_check_cache["ok"]
+    ok = False
     try:
         api = _get_query_api()
-        api.query(f'from(bucket: "{INFLUX_BUCKET}") |> range(start: -1m) |> limit(n: 1)', org=INFLUX_ORG)
-        return True
+        api.query(
+            f'from(bucket: "{INFLUX_BUCKET}") |> range(start: -1m) |> limit(n: 1)',
+            org=INFLUX_ORG,
+        )
+        ok = True
     except Exception:
-        return False
+        ok = False
+    with _DASH_LOCK:
+        _health_check_cache["t"] = time.monotonic()
+        _health_check_cache["ok"] = ok
+    return ok
+
+
+_OLT_COMPLETENESS_FIELDS = (
+    "cpu", "memory", "temperature", "uptime", "online_onus", "total_onus",
+    "sys_name", "sys_desc",
+)
+
+
+def _row_completeness(row: Dict[str, Any]) -> int:
+    """Cuantos campos utiles trae la fila (para elegir la serie mas completa)."""
+    score = 0
+    for k in _OLT_COMPLETENESS_FIELDS:
+        v = row.get(k)
+        if v is not None and v != "" and v != "None":
+            score += 1
+    return score
+
+
+def _collapse_olt_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Una sola fila por OLT.
+
+    InfluxDB puede tener varias series para una misma OLT en `olt_system`
+    (ej. una serie legada de un collector anterior con esquema distinto:
+    sin cpu/memoria/temperatura). `last()` agrupa por serie, asi que la
+    consulta devuelve una fila por serie -> la OLT aparece duplicada en el
+    dashboard (una tarjeta con datos y otra con ceros). Aqui se colapsa
+    quedandose con la fila mas completa y, en empate, la mas reciente.
+    """
+    best: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        name = r.get("olt_name")
+        if not name:
+            continue
+        key = str(name)
+        prev = best.get(key)
+        cur_score = _row_completeness(r)
+        prev_score = _row_completeness(prev) if prev is not None else -1
+        if prev is None or cur_score > prev_score:
+            best[key] = r
+        elif cur_score == prev_score and (r.get("time") or "") > (prev.get("time") or ""):
+            best[key] = r
+    return list(best.values())
 
 
 def get_olt_summary() -> List[Dict[str, Any]]:
     """Get latest OLT system stats (one point per OLT).
     Usa una ventana amplia (-30d) para encontrar la ultima medicion de cada OLT
     y filtra unicamente los hostnames que actualmente existen en config/nodes.yaml.
+    Colapsa series duplicadas (una fila por OLT).
     """
-    return _dash_cache("olt_summary", _load_olt_summary)
+    return _collapse_olt_rows(_dash_cache("olt_summary", _load_olt_summary))
 
 
 def _load_olt_summary() -> List[Dict[str, Any]]:
@@ -163,6 +281,10 @@ def get_interfaces(
 
     `minutes` controla la ventana de busqueda; las OLTs escriben cada ~15-20 min,
     por lo que se usa una ventana de 25 min para capturar siempre la ultima tasa.
+
+    Solo se traen los campos `rx_bps`/`tx_bps` (los unicos que consumen los
+    dashboards): reduce el volumen del pivot y evita el timeout en la consulta
+    "todas las OLTs" bajo carga de InfluxDB.
     """
     device_filter = ""
     if device_name:
@@ -173,6 +295,7 @@ from(bucket: "{INFLUX_BUCKET}")
     |> range(start: -{minutes}m)
     |> filter(fn: (r) => r["_measurement"] == "interface_traffic")
     {device_filter}
+    |> filter(fn: (r) => r["_field"] == "rx_bps" or r["_field"] == "tx_bps")
     |> last()
     |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
     |> yield(name: "interface_traffic")
@@ -231,14 +354,31 @@ def get_optical_power(
     nodo: Optional[str] = None,
     online_only: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Get latest ONU optical power data."""
+    """Get latest ONU optical power data.
+
+    El caso "todas las OLTs" (dashboard Resumen: Estado de ONUs y Distribucion de
+    Potencia Optica) es una query pesada sobre todos los nodos: se cachea igual
+    que get_olt_power para no repetirla en cada refresco del front.
+    """
+    if olt_name is None and nodo is None and not online_only:
+        return _dash_cache(
+            "optical_power", _query_optical_power, None, None, False
+        )
+    return _query_optical_power(olt_name, nodo, online_only)
+
+
+def _query_optical_power(
+    olt_name: Optional[str],
+    nodo: Optional[str],
+    online_only: bool,
+) -> List[Dict[str, Any]]:
     filters = ""
     if olt_name:
         filters += f'|> filter(fn: (r) => r["olt_name"] == "{olt_name}")'
     if nodo:
         filters += f'|> filter(fn: (r) => r["nodo"] == "{nodo}")'
     if online_only:
-        filters += '|> filter(fn: (r) => r["status"] == "Online")'
+        filters += '|> filter(fn: (r) => r["status"] == 3)'
 
     flux = f'''
 from(bucket: "{INFLUX_BUCKET}")
@@ -354,8 +494,9 @@ def get_enriched_clients(
     limit: int = 500,
     hours: int = 168,
 ) -> List[Dict[str, Any]]:
-    """Clientes enriquecidos (clientes_enriquecidos), ultima fila por MAC.
+    """Clientes enriquecidos (clientes_enriquecidos), ultima fila por cliente.
 
+    Agrupacion por mac+serial_onu para no colapsar filas OLT-only (sin mac).
     `search` se aplica en Python (case-insensitive) para evitar inyeccion Flux;
     `olt`/`nap`/`zona` se aplican en el query (tags); `pon` se filtra en Python
     sobre el field `pon_port` (post-pivot).
@@ -373,7 +514,7 @@ from(bucket: "{INFLUX_BUCKET}")
     |> range(start: -{hours}h)
     |> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos")
     {filters}
-    |> group(columns: ["mac"], mode: "by")
+    |> group(columns: ["mac", "serial_onu"], mode: "by")
     |> last()
     |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
     |> sort(columns: ["olt", "nap"])
@@ -533,6 +674,130 @@ from(bucket: "{INFLUX_BUCKET}")
     }
 
 
+PIPELINE_MEASUREMENTS = (
+    ("clientes_enriquecidos", "Enriquecimiento clientes", 30, "estado_onu"),
+    ("clientes_pendientes", "Clientes pendientes", 30, "nombre"),
+    ("optical_power", "Potencia óptica (OLT)", 30, "rx_power"),
+    ("onu_mac", "MAC ONU (OLT)", 30, "learned"),
+    ("onu_location", "Ubicación PON (OLT)", 60, "serial_onu"),
+    ("routeros_pppoe", "Sesiones PPPoE (RouterOS)", 60, "user"),
+    ("routeros_dhcp", "Leases DHCP (RouterOS)", 60, "address"),
+    ("wisp_clients", "Clientes WISP", 60, "doc"),
+)
+
+
+def get_pipeline_status(hours: int = 24, lookback_hours: int = 168) -> Dict[str, Any]:
+    """Regresa la frescura de escritura por medicion clave del pipeline (T0.2).
+
+    Para cada medicion reporta la fecha de la ultima escritura (`last_write`),
+    cuantos puntos se escribieron en las ultimas `hours` horas (`count_24h`) y
+    si esta `stale` (sin escritura reciente segun el umbral de cada fuente).
+    NO marca nada como falla grave: expone el hecho para que el dashboard lo
+    muestre tal cual (p. ej. routeros_pppoe quedara 'sin datos' mientras no se
+    configuren credenciales).
+    """
+    def _last_write(measurement: str, field: str) -> Optional[str]:
+        # Filtra a UN campo representativo: del mismo tipo en toda la medicion,
+        # asi `group() |> max()` no tropieza con "schema collision".
+        rows = _query(f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{lookback_hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "{measurement}")
+    |> filter(fn: (r) => r["_field"] == "{field}")
+    |> last()
+    |> group()
+    |> max(column: "_time")
+''')
+        for r in rows:
+            t = r.get("time")
+            if t:
+                return t
+        return None
+
+    def _count_24h(measurement: str, field: str) -> int:
+        rows = _query(f'''
+from(bucket: "{INFLUX_BUCKET}")
+    |> range(start: -{hours}h)
+    |> filter(fn: (r) => r["_measurement"] == "{measurement}")
+    |> filter(fn: (r) => r["_field"] == "{field}")
+    |> count()
+''')
+        total = 0
+        for r in rows:
+            try:
+                total += int(r["value"])
+            except (KeyError, TypeError, ValueError):
+                continue
+        return total
+
+    def _loader() -> Dict[str, Any]:
+        res = []
+        try:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+        except Exception:
+            now = None
+        for measurement, label, fresh_min, rep_field in PIPELINE_MEASUREMENTS:
+            last_write = _last_write(measurement, rep_field)
+            count = _count_24h(measurement, rep_field)
+            stale = False
+            hours_ago = None
+            if last_write and now is not None:
+                try:
+                    dt = datetime.fromisoformat(last_write)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    hours_ago = max(0.0, (now - dt).total_seconds() / 3600.0)
+                    stale = (now - dt).total_seconds() > fresh_min * 60
+                except Exception:
+                    stale = False
+            res.append({
+                "measurement": measurement,
+                "label": label,
+                "last_write": last_write,
+                "count_24h": count,
+                "fresh_after_minutes": fresh_min,
+                "hours_ago": round(hours_ago, 2) if hours_ago is not None else None,
+                "stale": stale,
+            })
+
+        # Medición sintetica: cache Redis de fichas (Fase 2). Sin Redis -> "sin datos".
+        try:
+            from ..redis_store import get_client_store
+            meta = get_client_store().meta()
+            built = meta.get("built_at")
+            fresh_min = 30
+            stale = False
+            hours_ago = None
+            if built and now is not None:
+                try:
+                    built_dt = datetime.fromisoformat(str(built).replace("Z", "+00:00"))
+                    if built_dt.tzinfo is None:
+                        built_dt = built_dt.replace(tzinfo=timezone.utc)
+                    hours_ago = max(0.0, (now - built_dt).total_seconds() / 3600.0)
+                    stale = (now - built_dt).total_seconds() > fresh_min * 60
+                except Exception:
+                    stale = False
+            res.append({
+                "measurement": "redis_cache",
+                "label": "Cache Redis (fichas)",
+                "last_write": built,
+                "count_24h": meta.get("count", 0),
+                "fresh_after_minutes": fresh_min,
+                "hours_ago": round(hours_ago, 2) if hours_ago is not None else None,
+                "stale": stale,
+            })
+        except Exception:
+            pass
+
+        return {
+            "as_of": now.isoformat() if now else None,
+            "measurements": res,
+        }
+
+    return _dash_cache("pipeline_status", _loader)
+
+
 def get_recent_metrics(measurement: str, limit: int = 100, minutes: int = 60) -> List[Dict[str, Any]]:
     """Get the latest data point per device (or device+interface) from a measurement.
 
@@ -563,8 +828,12 @@ def get_client_locations(
 ) -> List[Dict[str, Any]]:
     """Ultima ubicacion PON por MAC de cliente (medicion onu_location).
 
-    Agrupa por el tag `mac` antes de `last()` para devolver una sola fila por
-    cliente incluso si una reinstalacion creo una serie nueva (location es tag).
+    Agrupa por el tag `mac` + `_field` antes de `last()` para devolver la ultima
+    fila por campo incluso si una reinstalacion creo una serie nueva (location es
+    tag), y pivota conservando los tags en el rowKey. Nota: la medicion mezcla
+    campos int (vlan, estado_onu) y string (onu_serial, ...), por lo que el pivot
+    debe hacerse con las series ya separadas por `_field`; agrupar solo por `mac`
+    provoca "schema collision: cannot group integer and string types together".
     El filtro `search` se aplica en Python (case-insensitive) para evitar
     inyeccion Flux; `olt_name` se aplica en el query.
     """
@@ -577,9 +846,9 @@ from(bucket: "{INFLUX_BUCKET}")
     |> range(start: -{hours}h)
     |> filter(fn: (r) => r["_measurement"] == "onu_location")
     {olt_filter}
-    |> group(columns: ["mac"], mode: "by")
+    |> group(columns: ["mac", "_field"], mode: "by")
     |> last()
-    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> pivot(rowKey: ["mac", "location", "olt_name", "nodo", "olt_ip"], columnKey: ["_field"], valueColumn: "_value")
     |> sort(columns: ["olt_name", "location"])
     |> yield(name: "onu_location")
 '''
@@ -596,8 +865,14 @@ from(bucket: "{INFLUX_BUCKET}")
 
 
 def get_active_device_ips(minutes: int = None) -> dict:
+    """IPs con actividad reciente en InfluxDB (4 mediciones). Query pesada que
+    el dashboard pide cada ~30s (devices/all, /nodes): se cachea por ventana."""
     if minutes is None:
         minutes = get_status_window()
+    return _dash_cache(f"active_ips_{minutes}", _query_active_device_ips, minutes)
+
+
+def _query_active_device_ips(minutes: int) -> dict:
     """Check which device IPs have recent online activity in InfluxDB within `minutes` lookback.
     Returns dict: {ip: True} for devices active in the last `minutes` minutes.
     Checks:
@@ -928,13 +1203,20 @@ from(bucket: "{INFLUX_BUCKET}")
 
 def predict_failures(hours: int = 24, max_results: int = 20) -> List[Dict[str, Any]]:
     """Prediccion de fallo por tendencia por ONU (misma logica del agente:
-    `InfluxReader.predict_failures`). Solo ONUs en caida con riesgo < 48h."""
+    `InfluxReader.predict_failures`). Solo ONUs en caida con riesgo < 48h.
+
+    La tendencia solo usa las ultimas 24 muestras (12 recientes vs 12
+    previas), por lo que el rango se acota a 6h con media cada 15m: evita
+    materializar 24h x 5m (~216k filas / 41MB por poll) que saturaban
+    InfluxDB sin aportar a la prediccion.
+    """
+    _WINDOW = 15  # minutos por muestra
     rows = _query(f'''
 from(bucket: "{INFLUX_BUCKET}")
-    |> range(start: -{hours}h)
+    |> range(start: -6h)
     |> filter(fn: (r) => r["_measurement"] == "optical_power")
     |> filter(fn: (r) => r["_field"] == "rx_power")
-    |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)''')
+    |> aggregateWindow(every: {_WINDOW}m, fn: mean, createEmpty: false)''')
 
     onu_data: Dict[tuple, List[float]] = {}
     for r in rows:
@@ -956,7 +1238,7 @@ from(bucket: "{INFLUX_BUCKET}")
             continue
         recent_avg = sum(recent) / len(recent)
         older_avg = sum(older) / len(older)
-        hours_data = len(recent) * 5 / 60
+        hours_data = len(recent) * _WINDOW / 60
         if hours_data <= 0:
             continue
         trend = (recent_avg - older_avg) / hours_data

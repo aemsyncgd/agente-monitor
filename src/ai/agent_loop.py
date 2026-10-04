@@ -255,12 +255,7 @@ class WispAgent:
             message_parts.append(f"🔍 {reasoning.diagnostico}")
         if reasoning.causa_raiz_probable:
             message_parts.append(f"🧠 Causa probable: {reasoning.causa_raiz_probable}")
-        if reasoning.acciones_recomendadas:
-            actions_str = "; ".join(
-                f"{a.get('nombre','')} ({a.get('nivel',0)})"
-                for a in reasoning.acciones_recomendadas[:3]
-            )
-            message_parts.append(f"⚙️ Acciones: {actions_str}")
+        # Acciones: omitidas según solicitud (no incluir en formato unificado)
         if reasoning.model:
             message_parts.append(f"🤖 Modelo: {reasoning.model}")
 

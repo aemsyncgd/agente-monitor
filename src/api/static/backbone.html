@@ -12,570 +12,541 @@
                 extend: {
                     colors: {
                         surface: {
-                            950: '#090d16',
-                            900: '#0f172a',
-                            800: '#1e293b',
-                            700: '#334155',
-                            600: '#475569',
-                            400: '#94a3b8',
-                            200: '#e2e8f0',
+                            950: '#090d16', 900: '#0f172a', 800: '#1e293b',
+                            700: '#334155', 600: '#475569', 400: '#94a3b8', 200: '#e2e8f0'
                         },
-                        brand: {
-                            500: '#06b6d4',
-                            400: '#22d3ee',
-                            300: '#67e8f9',
-                        }
+                        brand: { 500: '#06b6d4', 400: '#22d3ee', 300: '#67e8f9' }
                     }
                 }
             }
         }
     </script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
         [v-cloak] { display: none; }
-        body { font-family: system-ui, -apple-system, sans-serif; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: #090d16; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
     </style>
 </head>
-<body class="bg-surface-950 text-surface-200 h-full overflow-x-hidden selection:bg-brand-500 selection:text-white">
-    <div id="app" v-cloak class="h-screen flex flex-col p-2 md:p-3 space-y-3 overflow-hidden">
+<body>
+    <div id="app" v-cloak>
 
-        <!-- TV Header -->
-        <header class="bg-surface-900/90 rounded-2xl border border-surface-700/60 p-4 px-6 flex flex-wrap items-center justify-between shadow-2xl backdrop-blur-md">
-            <div class="flex items-center gap-4">
-                <div class="p-3 bg-brand-500/20 border border-brand-500/30 rounded-xl text-brand-400">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        <div class="w-screen h-screen overflow-hidden bg-surface-950 flex items-center justify-center">
+            <div class="stage relative shrink-0" style="width:1920px;height:1080px;transform-origin:center center" :style="stageStyle()">
+
+            <!-- HEADER -->
+            <header class="absolute top-[14px] left-[14px] right-[14px] h-[70px] bg-surface-900/90 rounded-2xl border border-surface-700/60 px-6 flex items-center justify-between shadow-2xl">
+                <div class="flex items-center gap-4">
+                    <div class="p-2.5 bg-brand-500/20 border border-brand-500/30 rounded-xl text-brand-400">
+                        <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-black text-white tracking-wide uppercase flex items-center gap-3">
+                            VIDANET <span class="text-brand-400">BACKBONE</span> MONITOR
+                        </h1>
+                        <p class="text-xs text-surface-400 font-medium">Cabeceras & Enlaces WAN del Core</p>
+                    </div>
                 </div>
-                <div>
-                    <h1 class="text-2xl md:text-3xl font-black text-white tracking-wide uppercase flex items-center gap-3">
-                        VIDANET <span class="text-brand-400">BACKBONE</span> MONITOR
-                    </h1>
-                    <p class="text-xs md:text-sm text-surface-400 font-medium">Monitoreo de Router Principal & Proveedores WAN</p>
+                <div class="flex items-center gap-6">
+                    <div class="flex items-center gap-3 bg-surface-950/80 px-4 py-2 rounded-xl border border-surface-800">
+                        <div class="text-center pr-3 border-r border-surface-800">
+                            <div class="text-xs font-semibold text-surface-400 uppercase">Cabeceras OK</div>
+                            <div class="text-xl font-black font-mono text-emerald-400">{{ pingOk }} / {{ pingTotal }}</div>
+                        </div>
+                        <div class="text-center pl-1">
+                            <div class="text-xs font-semibold text-surface-400 uppercase">Enlaces WAN</div>
+                            <div class="text-xl font-black font-mono text-brand-400">{{ wanUp }} / {{ wanTotal }}</div>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xl font-black font-mono text-white leading-tight">{{ currentTime }}</div>
+                        <div class="text-xs text-surface-400 uppercase font-semibold tracking-wider">{{ currentDate }}</div>
+                    </div>
+                    <div class="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-full text-emerald-400 text-xs font-bold uppercase tracking-wider animate-pulse">
+                        <span class="w-2.5 h-2.5 bg-emerald-400 rounded-full"></span>
+                        <span>EN VIVO (15s)</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- BODY -->
+            <div class="absolute left-[14px] right-[14px] top-[92px] bottom-[14px] rounded-2xl border border-surface-800/60 overflow-hidden bg-surface-950/40">
+                <!-- SVG edges en coordenadas del body (1892 x 974) -->
+                <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1892 974" preserveAspectRatio="none">
+                    <g>
+                        <path d="M 960 188 L 960 198" class="edge-eco" fill="none" stroke-width="3"/>
+                        <path d="M 960 446 L 960 486" class="edge-eco" fill="none" stroke-width="3" v-if="cabeceras.length > 0"/>
+                        <g v-for="e in edges" :key="e.id">
+                            <path :d="e.path" fill="none" stroke-width="3" opacity="0.92"
+                                  :class="e.status === 'down' ? 'edge-down' : 'edge-eco'"/>
+                            <circle :cx="e.cx" :cy="e.cy" r="5" fill="#030712" stroke-width="3" stroke="#34d399"
+                                    v-if="e.status !== 'down'"/>
+                            <circle :cx="e.cx" :cy="e.cy" r="5" fill="#030712" stroke-width="3" stroke="#f87171" v-else/>
+                        </g>
+                    </g>
+                    <style>
+                        .edge-eco { stroke: #34d399; }
+                        .edge-down { stroke: #f87171; }
+                    </style>
+                </svg>
+
+                <!-- INTERNET -->
+                <div class="absolute w-[240px] bg-surface-900/95 rounded-xl border border-brand-500/30 shadow-xl p-3 text-center flex flex-col justify-center" :style="{ left: '840px', top: '104px', height: '84px' }">
+                    <div class="text-[11px] font-black uppercase tracking-widest text-brand-400">Internet</div>
+                    <div class="text-[14px] font-bold text-white mt-0.5">{{ dnsOk }} / {{ dnsTotal }} DNS OK</div>
+                    <div class="text-[11px] font-mono text-surface-200">{{ dnsStats }}</div>
+                    <div class="text-[9px] text-surface-500 mt-0.5">Salida WAN1 TECNOVEN y WAN3 BESSER</div>
+                </div>
+
+                <!-- CORE -->
+                <div class="absolute rounded-xl border shadow-xl bg-surface-900/95 cursor-pointer" :class="core.pingUp ? 'border-brand-500/40' : 'border-red-500/50'"
+                     :style="{ left: '540px', top: '198px', width: '840px', height: '248px' }"
+                     @click="openOverlay(core.name)">
+                    <div class="flex items-start justify-between h-full px-5 py-4 gap-4">
+                        <div class="min-w-0 flex flex-col justify-center" :style="{width:'460px'}">
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] px-2 py-0.5 rounded bg-brand-500/20 text-brand-300 border border-brand-500/30 font-black uppercase tracking-wider">Core</span>
+                                <span class="font-black text-white font-mono text-lg truncate">{{ core.name }}</span>
+                                <span :class="corePingClass" class="w-2.5 h-2.5 rounded-full border inline-block shrink-0"></span>
+                            </div>
+                            <div class="text-[11px] font-mono text-surface-400 mt-0.5">{{ core.model }} · {{ core.ip }}</div>
+
+                            <div class="grid grid-cols-3 gap-x-4 gap-y-2.5 mt-4">
+                                <div>
+                                    <div class="flex justify-between text-[10px] text-surface-400"><span>CPU</span><span class="font-bold font-mono" :class="pctClass(core.cpu, 80, 50)">{{ fmt(core.cpu) }}</span></div>
+                                    <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(core.cpu, 80, 50)" :style="{width: bar(core.cpu)}"></div></div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[10px] text-surface-400"><span>RAM</span><span class="font-bold font-mono" :class="pctClass(core.mem, 90, 75)">{{ fmt(core.mem) }}</span></div>
+                                    <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(core.mem, 90, 75)" :style="{width: bar(core.mem)}"></div></div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[10px] text-surface-400"><span>Temp</span><span class="font-bold font-mono" :class="tempClass(core.temp)">{{ fmtTemp(core.temp) }}</span></div>
+                                    <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(core.temp, 60, 45)" :style="{width: bar(core.temp)}"></div></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] text-surface-400">Uptime</div>
+                                    <div class="font-mono text-[14px] font-bold text-white">{{ core.uptime }}</div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] text-surface-400">Drops</div>
+                                    <div class="font-mono text-[14px] font-bold" :class="coreDropsClass">{{ fmtNumber(core.drops) }} <span class="text-[10px] text-surface-500">{{ core.dropsIface }}</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] text-surface-400">RX / TX (SFP)</div>
+                                    <div class="font-mono text-[14px] font-bold text-cyan-400">▼ {{ fmtBps(core.sfpRx) }} <span class="text-fuchsia-400">▲ {{ fmtBps(core.sfpTx) }}</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid gap-1.5 flex-1" :style="{width:'340px'}">
+                            <div v-for="sfp in core.sfps" :key="sfp.name"
+                                 class="bg-surface-950/80 rounded-lg border px-2.5 py-1 flex items-center justify-between gap-2"
+                                 :class="sfp.role.includes('BESSER') ? 'border-cyan-500/40' : sfp.role.includes('TECNOVEN') ? 'border-fuchsia-500/40' : 'border-surface-700'">
+                                <div class="min-w-0">
+                                    <div class="text-[10px] font-mono font-bold truncate" :class="sfp.role.includes('BESSER') ? 'text-cyan-300' : sfp.role.includes('TECNOVEN') ? 'text-fuchsia-300' : 'text-surface-200'">{{ sfp.short }}</div>
+                                    <div class="text-[9px] text-surface-500 font-mono uppercase">{{ sfp.role }}</div>
+                                </div>
+                                <div class="text-right shrink-0">
+                                    <div class="text-[11px] font-mono font-bold" :class="sfp.op === 1 ? 'text-emerald-400' : 'text-red-400'">{{ sfp.op === 1 ? 'UP' : 'DOWN' }}</div>
+                                    <div class="text-[10px] font-mono text-cyan-400">▼ {{ fmtBps(sfp.rx) }}</div>
+                                    <div class="text-[10px] font-mono text-fuchsia-400">▲ {{ fmtBps(sfp.tx) }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CABECERAS -->
+                <div v-for="(h, i) in cabeceras" :key="h.name"
+                     class="absolute rounded-xl border shadow-xl bg-surface-900/95 cursor-pointer transition-colors overflow-hidden flex flex-col"
+                     :class="h.pingUp ? 'border-surface-700/60 hover:border-brand-500/50' : 'border-red-500/50 hover:border-red-400/60'"
+                     :style="{ left: cabLeft(i) + 'px', top: '486px', width: '260px', height: '460px' }"
+                     @click="openOverlay(h.name)">
+                    <div class="px-3 py-2 border-b border-surface-800/80 flex items-center justify-between gap-2">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1.5">
+                                <span :class="h.pingUp ? 'bg-emerald-400' : 'bg-red-400'" class="w-2 h-2 rounded-full border inline-block shrink-0"></span>
+                                <span class="font-black text-white font-mono text-[13px] truncate">{{ h.name }}</span>
+                            </div>
+                            <div class="text-[10px] font-mono text-surface-500 truncate">{{ h.model }} · {{ h.ip }}</div>
+                        </div>
+                        <div class="text-[10px] font-mono text-surface-400 whitespace-nowrap text-right">
+                            <div :class="h.pingUp ? 'text-emerald-400' : 'text-red-400'">{{ h.pingUp ? (h.loss ? 'pérd. ' + h.loss + '%' : 'OK') : 'DOWN' }}</div>
+                            <div v-if="h.pingUp && h.latency" class="text-surface-500">{{ h.latency }}ms</div>
+                        </div>
+                    </div>
+
+                    <div class="px-3 py-2 flex flex-col gap-2 flex-1">
+                        <div class="grid grid-cols-3 gap-2">
+                            <div>
+                                <div class="flex justify-between text-[10px] text-surface-400"><span>CPU</span><span class="font-bold font-mono" :class="pctClass(h.cpu, 80, 50)">{{ fmt(h.cpu) }}</span></div>
+                                <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(h.cpu, 80, 50)" :style="{width: bar(h.cpu)}"></div></div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[10px] text-surface-400"><span>RAM</span><span class="font-bold font-mono" :class="pctClass(h.mem, 90, 75)">{{ fmt(h.mem) }}</span></div>
+                                <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(h.mem, 90, 75)" :style="{width: bar(h.mem)}"></div></div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[10px] text-surface-400"><span>Temp</span><span class="font-bold font-mono" :class="tempClass(h.temp)">{{ fmtTemp(h.temp) }}</span></div>
+                                <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(h.temp, 60, 45)" :style="{width: bar(h.temp)}"></div></div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-x-2 gap-y-1 text-center">
+                            <div class="bg-surface-950/70 rounded-md py-1 border border-surface-800/60">
+                                <div class="text-[10px] text-surface-400">Uptime</div>
+                                <div class="font-mono text-[11px] font-bold text-white">{{ h.uptime }}</div>
+                            </div>
+                            <div class="bg-surface-950/70 rounded-md py-1 border border-surface-800/60">
+                                <div class="text-[10px] text-surface-400">PPPoE</div>
+                                <div class="font-mono text-[11px] font-bold text-surface-200">{{ h.pppoe || '--' }}</div>
+                            </div>
+                            <div class="bg-surface-950/70 rounded-md py-1 border border-surface-800/60">
+                                <div class="text-[10px] text-surface-400">Drops</div>
+                                <div class="font-mono text-[11px] font-bold" :class="h.drops > 0 ? 'text-amber-400' : 'text-surface-200'">{{ fmtNumber(h.drops) }}</div>
+                            </div>
+                        </div>
+
+                        <div class="flex-1 flex items-center justify-between bg-surface-950/60 rounded-md px-2.5 py-1.5 border border-surface-800/60" :title="h.dropsIface">
+                            <span class="text-[10px] text-surface-500 font-mono">TRAFICO</span>
+                            <span class="text-right">
+                                <span class="font-mono text-[12px] font-bold text-cyan-400 block">▼ {{ fmtBps(h.rx) }}</span>
+                                <span class="font-mono text-[12px] font-bold text-fuchsia-400 block mt-0.5">▲ {{ fmtBps(h.tx) }}</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- OVERLAY INTERFACES -->
+                <div v-if="overlay" class="absolute inset-0 z-40 bg-black/80 flex items-center justify-center p-8" @click.self="overlay = null">
+                    <div class="bg-surface-900 rounded-2xl border border-surface-700/70 shadow-2xl w-[1240px] max-h-full flex flex-col">
+                        <div class="flex items-center justify-between px-5 py-3 border-b border-surface-700/60">
+                            <div>
+                                <h2 class="text-xl font-black text-white font-mono">{{ overlay }}</h2>
+                                <div class="text-xs text-surface-400">Interfaces · {{ overlayModel }}</div>
+                            </div>
+                            <button @click="overlay = null" class="px-3 py-1.5 rounded-lg bg-surface-800 text-surface-200 border border-surface-700 hover:bg-surface-700 text-sm font-bold">CERRAR ✕</button>
+                        </div>
+                        <div class="overflow-auto p-4">
+                            <table class="w-full text-left text-xs border-collapse">
+                                <thead class="sticky top-0 bg-surface-900">
+                                    <tr class="border-b border-surface-700/60 text-surface-400 font-semibold uppercase text-[10px] tracking-wider">
+                                        <th class="py-2 px-2">Interfaz</th><th class="py-2 px-2">Estado</th>
+                                        <th class="py-2 px-2 text-right">RX</th><th class="py-2 px-2 text-right">TX</th>
+                                        <th class="py-2 px-2 text-right">Discards</th><th class="py-2 px-2 text-right">Errores</th>
+                                        <th class="py-2 px-2 text-right">Velocidad</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-surface-800/60">
+                                    <tr v-for="i in overlayIfaces" :key="i.interface_name">
+                                        <td class="py-1.5 px-2 font-mono font-bold text-surface-100 whitespace-nowrap">{{ i.interface_name }}</td>
+                                        <td class="py-1.5 px-2">
+                                            <span :class="i.ifOperStatus === 1 ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-red-500/20 text-red-400 border-red-500/40'" class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase border">{{ i.ifOperStatus === 1 ? 'UP' : 'DOWN' }}</span>
+                                        </td>
+                                        <td class="py-1.5 px-2 text-right font-mono text-cyan-400">{{ fmtBps(i.rx_bps) }}</td>
+                                        <td class="py-1.5 px-2 text-right font-mono text-fuchsia-400">{{ fmtBps(i.tx_bps) }}</td>
+                                        <td class="py-1.5 px-2 text-right font-mono" :class="(i.ifInDiscards + i.ifOutDiscards) > 0 ? 'text-amber-400 font-bold' : 'text-surface-500'">{{ (i.ifInDiscards || 0) + (i.ifOutDiscards || 0) }}</td>
+                                        <td class="py-1.5 px-2 text-right font-mono" :class="(i.ifInErrors + i.ifOutErrors) > 0 ? 'text-red-400 font-bold' : 'text-surface-500'">{{ (i.ifInErrors || 0) + (i.ifOutErrors || 0) }}</td>
+                                        <td class="py-1.5 px-2 text-right font-mono text-surface-400">{{ fmtBps(i.ifSpeed) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div v-if="overlayIfaces.length === 0" class="py-8 text-center text-surface-500 text-sm">Sin datos de interfaces (query InfluxDB)</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="flex items-center gap-6 mt-2 sm:mt-0">
-                <div class="text-right">
-                    <div class="text-xl md:text-2xl font-black font-mono text-white leading-tight">{{ currentTime }}</div>
-                    <div class="text-xs text-surface-400 uppercase font-semibold tracking-wider">{{ currentDate }}</div>
-                </div>
-                <div class="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-full text-emerald-400 text-xs font-bold uppercase tracking-wider animate-pulse">
-                    <span class="w-2.5 h-2.5 bg-emerald-400 rounded-full"></span>
-                    <span>EN VIVO (10s)</span>
-                </div>
-            </div>
-        </header>
-
-        <!-- Router General Stats Row -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div class="bg-surface-900/80 rounded-xl p-4 border border-surface-700/50 shadow-lg flex items-center justify-between">
-                <div>
-                    <span class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Router Principal</span>
-                    <h3 class="text-lg font-bold text-white font-mono mt-0.5">{{ backboneData.device_name || 'VIDANET-BACKBONE' }}</h3>
-                    <p class="text-[11px] text-surface-400 font-mono">{{ backboneData.ip || '10.0.0.1' }}</p>
-                </div>
-                <div class="p-2.5 bg-surface-800 rounded-lg text-brand-400 border border-surface-700">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
-                </div>
-            </div>
-
-            <div class="bg-surface-900/80 rounded-xl p-4 border border-surface-700/50 shadow-lg">
-                <div class="flex justify-between items-center mb-1">
-                    <span class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Uso CPU</span>
-                    <span class="text-sm font-bold font-mono" :class="backboneData.cpu > 80 ? 'text-red-400' : backboneData.cpu > 50 ? 'text-amber-400' : 'text-emerald-400'">{{ backboneData.cpu || 0 }}%</span>
-                </div>
-                <div class="h-2 bg-surface-800 rounded-full overflow-hidden border border-surface-700/60">
-                    <div class="h-full rounded-full transition-all duration-500" :class="backboneData.cpu > 80 ? 'bg-red-500' : backboneData.cpu > 50 ? 'bg-amber-500' : 'bg-emerald-500'" :style="{ width: Math.min(backboneData.cpu || 0, 100) + '%' }"></div>
-                </div>
-                <div class="text-[10px] text-surface-400 mt-1 flex justify-between font-mono">
-                    <span>Cores: {{ backboneData.cpu_cores ? backboneData.cpu_cores.length : 16 }}</span>
-                    <span>Uptime: {{ backboneData.uptime || 'N/A' }}</span>
-                </div>
-            </div>
-
-            <div class="bg-surface-900/80 rounded-xl p-4 border border-surface-700/50 shadow-lg">
-                <div class="flex justify-between items-center mb-1">
-                    <span class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Memoria RAM</span>
-                    <span class="text-sm font-bold font-mono" :class="backboneData.memory > 80 ? 'text-red-400' : 'text-emerald-400'">{{ backboneData.memory || 0 }}%</span>
-                </div>
-                <div class="h-2 bg-surface-800 rounded-full overflow-hidden border border-surface-700/60">
-                    <div class="h-full rounded-full bg-emerald-500 transition-all duration-500" :style="{ width: Math.min(backboneData.memory || 0, 100) + '%' }"></div>
-                </div>
-                <div class="text-[10px] text-surface-400 mt-1 font-mono">
-                    Usado: {{ backboneData.memory_used_mb || 0 }} MB / {{ backboneData.memory_total_mb || 0 }} MB
-                </div>
-            </div>
-
-            <div class="bg-surface-900/80 rounded-xl p-4 border border-surface-700/50 shadow-lg">
-                <div class="flex justify-between items-center mb-1">
-                    <span class="text-xs font-semibold text-surface-400 uppercase tracking-wider">Temperatura Router</span>
-                    <span class="text-sm font-bold font-mono" :class="backboneData.temperature > 60 ? 'text-red-400' : 'text-amber-300'">{{ backboneData.temperature || 0 }}°C</span>
-                </div>
-                <div class="h-2 bg-surface-800 rounded-full overflow-hidden border border-surface-700/60">
-                    <div class="h-full rounded-full bg-amber-500 transition-all duration-500" :style="{ width: Math.min(((backboneData.temperature || 0)/80)*100, 100) + '%' }"></div>
-                </div>
-                <div class="text-[10px] text-surface-400 mt-1 font-mono">
-                    Estado: <span class="text-emerald-400 font-semibold">Óptimo</span>
-                </div>
-            </div>
+            <div v-if="errorMsg" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-red-500/20 border border-red-500/40 text-red-300 px-4 py-2 rounded-xl text-sm font-bold z-50">{{ errorMsg }}</div>
+</div>
         </div>
-
-        <!-- WAN Providers Charts Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-            <!-- Provider 1: 1sfp-sfpplus3_WAN-3-UPSTREAM -->
-            <div class="bg-surface-900 rounded-2xl p-5 border border-surface-700/60 shadow-xl flex flex-col justify-between space-y-4">
-                <div>
-                    <div class="flex items-center justify-between border-b border-surface-700/60 pb-3 mb-3">
-                        <div>
-                            <span class="px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">Proveedor WAN 1</span>
-                            <h2 class="text-xl font-black text-white font-mono mt-1">1sfp-sfpplus3_WAN-3-UPSTREAM</h2>
-                        </div>
-                        <div class="text-right">
-                            <div class="text-xs font-semibold text-surface-400">Tráfico Total</div>
-                            <div class="text-lg font-bold font-mono text-cyan-400">{{ formatBps(besserRx + besserTx) }}</div>
-                        </div>
-                    </div>
-                    <!-- Chart container -->
-                    <div id="chart-besser" class="w-full h-64"></div>
-                </div>
-
-                <!-- Integrated 4-Block Grid: Traffic (bps) + Optical SFP Metrics (dBm) for UPSTREAM -->
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 bg-surface-950/80 p-3 rounded-xl border border-surface-800">
-                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
-                        <div class="text-[11px] font-bold text-cyan-400 uppercase flex items-center gap-1">
-                            <svg class="w-3.5 h-3.5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
-                            Descarga (Rx)
-                        </div>
-                        <div class="text-lg font-black font-mono text-white mt-1">{{ formatBps(besserRx) }}</div>
-                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">1sfp-sfpplus3</div>
-                    </div>
-                    
-                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
-                        <div class="text-[11px] font-bold uppercase flex items-center gap-1" :class="getDbmColorClass(besserRxDbm)">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                            Potencia Rx (SFP)
-                        </div>
-                        <div class="text-lg font-black font-mono mt-1" :class="getDbmColorClass(besserRxDbm)">{{ formatDbm(besserRxDbm) }}</div>
-                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">Señal Óptica (dBm)</div>
-                    </div>
-
-                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
-                        <div class="text-[11px] font-bold text-fuchsia-400 uppercase flex items-center gap-1">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
-                            Subida (Tx)
-                        </div>
-                        <div class="text-lg font-black font-mono text-white mt-1">{{ formatBps(besserTx) }}</div>
-                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">1sfp-sfpplus3</div>
-                    </div>
-
-                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
-                        <div class="text-[11px] font-bold text-purple-400 uppercase flex items-center gap-1">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                            Potencia Tx (SFP)
-                        </div>
-                        <div class="text-lg font-black font-mono text-purple-300 mt-1">{{ formatDbm(besserTxDbm) }}</div>
-                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">Láser SFP (dBm)</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Provider 2: VLAN_251_UPSTREAM -->
-            <div class="bg-surface-900 rounded-2xl p-5 border border-surface-700/60 shadow-xl flex flex-col justify-between space-y-4">
-                <div>
-                    <div class="flex items-center justify-between border-b border-surface-700/60 pb-3 mb-3">
-                        <div>
-                            <span class="px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/30">Proveedor WAN 2</span>
-                            <h2 class="text-xl font-black text-white font-mono mt-1">VLAN_251_UPSTREAM</h2>
-                        </div>
-                        <div class="text-right">
-                            <div class="text-xs font-semibold text-surface-400">Tráfico Total</div>
-                            <div class="text-lg font-bold font-mono text-purple-400">{{ formatBps(tecnovenRx + tecnovenTx) }}</div>
-                        </div>
-                    </div>
-                    <!-- Chart container -->
-                    <div id="chart-tecnoven" class="w-full h-64"></div>
-                </div>
-
-                <!-- Integrated 4-Block Grid: Traffic (bps) + Optical SFP Metrics (dBm) for UPSTREAM 1sfp-sfpplus1 -->
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 bg-surface-950/80 p-3 rounded-xl border border-surface-800">
-                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
-                        <div class="text-[11px] font-bold text-cyan-400 uppercase flex items-center gap-1">
-                            <svg class="w-3.5 h-3.5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
-                            Descarga (Rx)
-                        </div>
-                        <div class="text-lg font-black font-mono text-white mt-1">{{ formatBps(tecnovenSfpRx) }}</div>
-                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">1sfp-sfpplus1</div>
-                    </div>
-                    
-                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
-                        <div class="text-[11px] font-bold uppercase flex items-center gap-1" :class="getDbmColorClass(tecnovenSfpRxDbm)">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                            Potencia Rx (SFP)
-                        </div>
-                        <div class="text-lg font-black font-mono mt-1" :class="getDbmColorClass(tecnovenSfpRxDbm)">{{ formatDbm(tecnovenSfpRxDbm) }}</div>
-                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">Señal Óptica (dBm)</div>
-                    </div>
-
-                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
-                        <div class="text-[11px] font-bold text-fuchsia-400 uppercase flex items-center gap-1">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
-                            Subida (Tx)
-                        </div>
-                        <div class="text-lg font-black font-mono text-white mt-1">{{ formatBps(tecnovenSfpTx) }}</div>
-                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">1sfp-sfpplus1</div>
-                    </div>
-
-                    <div class="p-2 bg-surface-900/60 rounded-lg border border-surface-800/80">
-                        <div class="text-[11px] font-bold text-purple-400 uppercase flex items-center gap-1">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                            Potencia Tx (SFP)
-                        </div>
-                        <div class="text-lg font-black font-mono text-purple-300 mt-1">{{ formatDbm(tecnovenSfpTxDbm) }}</div>
-                        <div class="text-[10px] text-surface-400 font-mono mt-0.5">Láser SFP (dBm)</div>
-                    </div>
-                </div>
-            </div>
-
-        </div>
-
-        <!-- Remaining Interfaces Grid -->
-        <div class="bg-surface-900 rounded-2xl p-5 border border-surface-700/60 shadow-xl space-y-4">
-            <h3 class="text-base font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <svg class="w-5 h-5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
-                Otras Interfaces de Backbone
-            </h3>
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                <div v-for="iface in otherInterfaces" :key="iface.name" 
-                     class="bg-surface-950/90 rounded-xl p-3 border border-surface-800 hover:border-surface-700 transition-colors">
-                    <div class="flex items-center justify-between mb-1">
-                        <span class="font-mono font-bold text-xs text-surface-200 truncate" :title="iface.name">{{ iface.name }}</span>
-                        <span :class="iface.running ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-red-500/20 text-red-400 border-red-500/40'" 
-                              class="w-2 h-2 rounded-full border"></span>
-                    </div>
-                    <div class="space-y-0.5 text-[11px] font-mono">
-                        <div class="flex justify-between text-cyan-400">
-                            <span>Rx:</span>
-                            <span class="font-bold">{{ formatBps(iface.rx_bytes_per_sec || 0) }}</span>
-                        </div>
-                        <div class="flex justify-between text-fuchsia-400">
-                            <span>Tx:</span>
-                            <span class="font-bold">{{ formatBps(iface.tx_bytes_per_sec || 0) }}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
     </div>
 
     <script>
         const { createApp, ref, onMounted, computed } = Vue;
-        function getApiKey() { return localStorage.getItem('api_key') || ''; }
-        function clearApiKey() { localStorage.removeItem('api_key'); }
-        let apiPromptLock = null;
-        function promptForKey(force = false) {
-            if (!force && getApiKey()) return Promise.resolve(getApiKey());
-            if (apiPromptLock) return apiPromptLock;
-            apiPromptLock = new Promise((resolve) => {
-                setTimeout(() => {
-                    const key = window.prompt('Ingresa la API Key del sistema (confirmar y presionar Enter):');
-                    if (key && key.trim()) { localStorage.setItem('api_key', key.trim()); resolve(key.trim()); }
-                    else { resolve(''); }
-                    apiPromptLock = null;
-                }, 50);
-            });
-            return apiPromptLock;
-        }
-        async function apiFetch(url, opts = {}, authRetried = false) {
-            let key = getApiKey();
-            if (!key && !authRetried) key = await promptForKey();
-            const headers = { ...(opts.headers || {}), 'Content-Type': 'application/json' };
-            if (key) headers['X-API-Key'] = key;
-            opts.headers = headers;
-            const res = await fetch(url, opts);
-            if (res.status === 401) {
-                if (authRetried) throw new Error('API Key inválida');
-                clearApiKey();
-                key = await promptForKey(true);
-                if (!key) throw new Error('Autenticación requerida');
-                return apiFetch(url, opts, true);
-            }
-            return res;
-        }
+
+        const CABECERA_NAMES = ['VIDANET-BACKBONE', 'SISAL-VIDANET', 'NARANJILLOS-VIDANET', 'PRADO-VIDANET', 'YAGUA-VIDANET', 'NODO-TESORO'];
 
         createApp({
             setup() {
-                const currentTime = ref('');
-                const currentDate = ref('');
-                const backboneData = ref({});
-                const interfacesList = ref([]);
-                const tvConfig = ref({ wan1_interface: '1sfp-sfpplus3_WAN-3-UPSTREAM', wan2_interface: 'VLAN_251_UPSTREAM', wan2_sfp_physical: '1sfp-sfpplus1', selected_interfaces: [], refresh_seconds: 10 });
-
-                const besserRx = ref(0);
-                const besserTx = ref(0);
-                const tecnovenRx = ref(0);
-                const tecnovenTx = ref(0);
-                const tecnovenSfpRx = ref(0);
-                const tecnovenSfpTx = ref(0);
-
-                const besserRxDbm = ref(null);
-                const besserTxDbm = ref(null);
-                const tecnovenSfpRxDbm = ref(null);
-                const tecnovenSfpTxDbm = ref(null);
-
-                let chartBesser = null;
-                let chartTecnoven = null;
-
-                const maxHistory = 20;
-                const historyBesserRx = [];
-                const historyBesserTx = [];
-                const historyTecnovenRx = [];
-                const historyTecnovenTx = [];
-                const timeLabels = [];
+                const currentTime = ref(''); const currentDate = ref('');
+                const pingTargets = ref([]);
+                const mkMetrics = ref([]);
+                const mkTemp = ref([]);
+                const ifacesByDevice = ref({});
+                const overlay = ref(null);
+                const errorMsg = ref('');
+                const stageScale = ref(1);
+                const CAB_TOP = 486, CAB_H = 460;
 
                 function updateClock() {
                     const now = new Date();
                     currentTime.value = now.toLocaleTimeString();
                     currentDate.value = now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
                 }
-
-                function formatBps(bps) {
+                function fmt(v) { if (v === null || v === undefined || isNaN(v)) return '--'; return Math.round(v) + '%'; }
+                function fmtTemp(v) { if (v === null || v === undefined || isNaN(v)) return '--'; return Math.round(v) + '°C'; }
+                function fmtNumber(v) { if (v === null || v === undefined || isNaN(v)) return '--'; return String(Math.round(v)); }
+                function fmtBps(bps) {
                     if (!bps || isNaN(bps)) return '0 bps';
-                    if (bps >= 1e9) return (bps / 1e9).toFixed(2) + ' Gbps';
-                    if (bps >= 1e6) return (bps / 1e6).toFixed(2) + ' Mbps';
-                    if (bps >= 1e3) return (bps / 1e3).toFixed(1) + ' Kbps';
-                    return Math.round(bps) + ' bps';
+                    if (bps >= 1e9) return (bps / 1e9).toFixed(2) + 'G';
+                    if (bps >= 1e6) return (bps / 1e6).toFixed(2) + 'M';
+                    if (bps >= 1e3) return (bps / 1e3).toFixed(1) + 'K';
+                    return Math.round(bps) + ' b';
                 }
-
-                function formatDbm(val) {
-                    if (val === null || val === undefined || isNaN(val)) return '-- dBm';
-                    return (val > 0 ? '+' : '') + Number(val).toFixed(2) + ' dBm';
+                function fmtUptime(s) {
+                    if (!s || isNaN(s)) return '--';
+                    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+                    if (d > 0) return `${d}d ${h}h`;
+                    if (h > 0) return `${h}h ${m}m`;
+                    return `${m}m`;
                 }
+                function bar(v) { if (v === null || v === undefined || isNaN(v)) return '0%'; return Math.min(Math.max(v, 0), 100) + '%'; }
+                function barClass(v, hi, mid) { if (v === null || v === undefined || isNaN(v)) return 'bg-surface-700'; if (v > hi) return 'bg-red-500'; if (v > mid) return 'bg-amber-500'; return 'bg-emerald-500'; }
+                function pctClass(v, hi, mid) { if (v === null || v === undefined || isNaN(v)) return 'text-surface-400'; if (v > hi) return 'text-red-400'; if (v > mid) return 'text-amber-400'; return 'text-emerald-400'; }
+                function tempClass(v) { if (v === null || v === undefined || isNaN(v)) return 'text-surface-400'; if (v > 60) return 'text-red-400'; if (v > 45) return 'text-amber-400'; return 'text-emerald-400'; }
 
-                function getDbmColorClass(val) {
-                    if (val === null || val === undefined || isNaN(val)) return 'text-surface-400';
-                    if (val > -20.0) return 'text-emerald-400';
-                    if (val > -25.0) return 'text-amber-400';
-                    return 'text-red-400';
+                function getApiKey() {
+                    const c = document.cookie.match(/(?:^|;\s*)vidanet_api_key=([^;]+)/);
+                    return localStorage.getItem('api_key') || (c ? decodeURIComponent(c[1]) : '');
                 }
-
-                const otherInterfaces = computed(() => {
-                    const selected = tvConfig.value.selected_interfaces || [];
-                    const mainNames = [tvConfig.value.wan1_interface, tvConfig.value.wan2_interface, tvConfig.value.wan2_sfp_physical];
-                    let list = interfacesList.value.filter(i => i.interface_name && !mainNames.includes(i.interface_name));
-                    if (selected.length > 0) {
-                        list = list.filter(i => selected.includes(i.interface_name));
+                function saveApiKey(k) {
+                    localStorage.setItem('api_key', k);
+                    document.cookie = 'vidanet_api_key=' + encodeURIComponent(k) + '; path=/; max-age=31536000; SameSite=Lax';
+                }
+                function clearApiKey() {
+                    localStorage.removeItem('api_key');
+                    document.cookie = 'vidanet_api_key=; path=/; max-age=0; SameSite=Lax';
+                }
+                let apiPromptLock = null;
+                function promptForKey(force = false) {
+                    if (!force && getApiKey()) return Promise.resolve(getApiKey());
+                    if (apiPromptLock) return apiPromptLock;
+                    apiPromptLock = new Promise((resolve) => {
+                        setTimeout(() => {
+                            const key = window.prompt('Ingresa la API Key del sistema (confirmar y presionar Enter):');
+                            if (key && key.trim()) { saveApiKey(key.trim()); resolve(key.trim()); }
+                            else { resolve(''); }
+                            apiPromptLock = null;
+                        }, 50);
+                    });
+                    return apiPromptLock;
+                }
+                async function apiFetch(url, opts = {}, authRetried = false) {
+                    let key = getApiKey();
+                    if (!key && !authRetried) key = await promptForKey();
+                    const headers = { ...(opts.headers || {}), 'Content-Type': 'application/json' };
+                    if (key) headers['X-API-Key'] = key;
+                    opts.headers = headers;
+                    const res = await fetch(url, opts);
+                    if (res.status === 401) {
+                        if (authRetried) throw new Error('API Key inválida');
+                        clearApiKey();
+                        key = await promptForKey(true);
+                        if (!key) throw new Error('Autenticación requerida');
+                        return apiFetch(url, opts, true);
                     }
-                    return list.map(i => ({ ...i, name: i.interface_name, running: i.ifOperStatus === 1 }));
+                    return res;
+                }
+                async function getJson(url) {
+                    const res = await apiFetch(url);
+                    if (!res.ok) throw new Error(url + ' -> ' + res.status);
+                    const j = await res.json();
+                    return (j && j.data !== undefined) ? j.data : j;
+                }
+
+                function stageStyle() { return { transform: `scale(${stageScale.value})` }; }
+
+                // ---- derived ----
+                const mkByDevice = computed(() => {
+                    const m = {};
+                    for (const r of mkMetrics.value) m[r.device_name || r.device_ip] = r;
+                    return m;
+                });
+                const tempByDevice = computed(() => {
+                    const m = {};
+                    for (const r of mkTemp.value) {
+                        const nm = r.device_name;
+                        if (!m[nm]) m[nm] = {};
+                        const v = r.temperature_c;
+                        if (v !== null && v !== undefined && !isNaN(v)) {
+                            if ((r.sensor_name || '').toLowerCase().includes('board')) m[nm].board = v;
+                            m[nm].last = v;
+                        }
+                    }
+                    return m;
+                });
+                const pingByName = computed(() => {
+                    const m = {};
+                    for (const t of pingTargets.value) m[t.name] = t;
+                    return m;
+                });
+                const dnsTargets = computed(() => pingTargets.value.filter(t => t.type === 'dns'));
+                const dnsOk = computed(() => dnsTargets.value.filter(d => d.status === 1).length);
+                const dnsTotal = computed(() => dnsTargets.value.length);
+                const dnsStats = computed(() => {
+                    const ups = dnsTargets.value.filter(d => d.status === 1);
+                    if (!ups.length) return 'Sin salida a Internet';
+                    const avg = ups.reduce((a, d) => a + (d.latency || 0), 0) / ups.length;
+                    return `${avg.toFixed(0)}ms latencia media`;
+                });
+                const pingOk = computed(() => CABECERA_NAMES.filter(n => { const p = pingByName.value[n]; return p && p.status === 1; }).length);
+                const pingTotal = computed(() => CABECERA_NAMES.length);
+
+                function ifacesFor(name) { return ifacesByDevice.value[name] || []; }
+                function sfpList(name) {
+                    return ifacesFor(name).filter(x => (x.interface_name || '').includes('sfp'))
+                        .sort((a, b) => (a.interface_index || 0) - (b.interface_index || 0));
+                }
+                function totals(name, filterFn) {
+                    let rx = 0, tx = 0;
+                    for (const i of ifacesFor(name)) {
+                        if (filterFn && !filterFn(i)) continue;
+                        if ((i.rx_bps || 0) > 0) rx += i.rx_bps;
+                        if ((i.tx_bps || 0) > 0) tx += i.tx_bps;
+                    }
+                    return { rx, tx };
+                }
+                function dropsInfo(name) {
+                    let maxD = 0, iface = '';
+                    for (const i of ifacesFor(name)) {
+                        const d = (i.ifInDiscards || 0) + (i.ifOutDiscards || 0);
+                        if (d > maxD) { maxD = d; iface = i.interface_name; }
+                    }
+                    return { drops: maxD, iface };
+                }
+
+                const core = computed(() => {
+                    const name = 'VIDANET-BACKBONE';
+                    const sys = mkByDevice.value[name] || {};
+                    const tp = tempByDevice.value[name] || {};
+                    const sfps = sfpList(name);
+                    const sfpRx = sfps.reduce((a, s) => a + (s.rx_bps || 0), 0);
+                    const sfpTx = sfps.reduce((a, s) => a + (s.tx_bps || 0), 0);
+                    const dr = dropsInfo(name);
+                    const pg = pingByName.value[name];
+                    return {
+                        name, model: sys.model || '', ip: sys.device_ip || '',
+                        cpu: sys.cpu_load ?? null, mem: sys.memory_percent ?? null,
+                        temp: tp.board ?? tp.last ?? null, uptime: fmtUptime(sys.uptime_net),
+                        drops: dr.drops, dropsIface: dr.iface, sfpRx, sfpTx,
+                        sfps: sfps.map(s => ({
+                            name: s.interface_name,
+                            short: s.interface_name,
+                            role: s.interface_name.includes('BESSER') ? 'WAN 3 · BESSER' : s.interface_name.includes('TECNOVEN') ? 'WAN 1 · TECNOVEN' : s.interface_name.includes('SWITCH') ? 'LAN · FIBRA' : 'SFP',
+                            op: s.ifOperStatus, rx: s.rx_bps || 0, tx: s.tx_bps || 0
+                        })),
+                        pingUp: pg && pg.status === 1
+                    };
+                });
+                const corePingClass = computed(() => core.value.pingUp ? 'bg-emerald-400' : 'bg-red-400');
+                const coreDropsClass = computed(() => core.value.drops > 0 ? 'text-amber-400' : 'text-surface-200');
+
+                const wanUp = computed(() => core.value.sfps.filter(s => s.op === 1 && (s.role.includes('WAN'))).length);
+                const wanTotal = computed(() => core.value.sfps.filter(s => s.role.includes('WAN')).length || '--');
+
+                const cabeceras = computed(() => {
+                    return CABECERA_NAMES.filter(n => n !== 'VIDANET-BACKBONE').map(name => {
+                        const sys = mkByDevice.value[name] || {};
+                        const tp = tempByDevice.value[name] || {};
+                        const dr = dropsInfo(name);
+                        const t = totals(name);
+                        const pg = pingByName.value[name];
+                        const pppoe = (sys.pppoe_online !== undefined && sys.pppoe_total !== undefined)
+                            ? `${sys.pppoe_online}/${sys.pppoe_total}` : '';
+                        return {
+                            name, model: sys.model || '', ip: sys.device_ip || '',
+                            cpu: sys.cpu_load ?? null, mem: sys.memory_percent ?? null,
+                            temp: tp.board ?? tp.last ?? null, uptime: fmtUptime(sys.uptime_net),
+                            drops: dr.drops, dropsIface: dr.iface, rx: t.rx, tx: t.tx, pppoe,
+                            pingUp: pg && pg.status === 1,
+                            loss: pg && pg.loss !== undefined ? pg.loss : null,
+                            latency: pg && pg.latency !== undefined ? pg.latency : null
+                        };
+                    });
                 });
 
-                function initCharts() {
-                    const baseChartOptions = {
-                        chart: {
-                            type: 'area',
-                            height: 180,
-                            toolbar: { show: false },
-                            animations: { enabled: true, dynamicAnimation: { speed: 800 } },
-                            background: 'transparent',
-                        },
-                        colors: ['#22d3ee', '#e879f9'],
-                        stroke: { curve: 'smooth', width: 2.5 },
-                        fill: { type: 'gradient', gradient: { shadeStops: [{ offset: 0, opacity: 0.4 }, { offset: 100, opacity: 0.05 }] } },
-                        dataLabels: { enabled: false },
-                        xaxis: { categories: [], labels: { style: { colors: '#94a3b8', fontSize: '10px' } } },
-                        yaxis: { labels: { style: { colors: '#94a3b8', fontSize: '10px' }, formatter: (val) => formatBps(val) } },
-                        grid: { borderColor: '#334155', strokeDashArray: 3 },
-                        tooltip: { theme: 'dark' }
-                    };
-
-                    chartBesser = new ApexCharts(document.querySelector("#chart-besser"), {
-                        ...baseChartOptions,
-                        series: [
-                            { name: 'Descarga (Rx)', data: historyBesserRx },
-                            { name: 'Subida (Tx)', data: historyBesserTx }
-                        ]
-                    });
-                    chartBesser.render();
-
-                    chartTecnoven = new ApexCharts(document.querySelector("#chart-tecnoven"), {
-                        ...baseChartOptions,
-                        series: [
-                            { name: 'Descarga (Rx)', data: historyTecnovenRx },
-                            { name: 'Subida (Tx)', data: historyTecnovenTx }
-                        ]
-                    });
-                    chartTecnoven.render();
+                function cabLeft(i) {
+                    const gap = 44, cardW = 260;
+                    const n = cabeceras.value.length || 5;
+                    const totalW = n * cardW + (n - 1) * gap;
+                    const start = (1892 - totalW) / 2;
+                    return start + i * (cardW + gap);
                 }
 
-                async function fetchTVConfig() {
-                    try {
-                        const res = await apiFetch('/api/tv/config');
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (data) tvConfig.value = { ...tvConfig.value, ...data };
-                        }
-                    } catch (e) {
-                        console.error('Error fetching TV config:', e);
-                    }
-                }
+                // ---- EDGES: hub abajo del core -> cada cabecera ----
+                const CORE_BOTTOM_Y = 446;   // borde inferior del card Core (198+248)
+                const CORE_X = 960;
+                const middleY = (CORE_BOTTOM_Y + CAB_TOP) / 2;
+                const edges = computed(() => {
+                    const list = [];
+                    const cabs = cabeceras.value;
+                    cabs.forEach((c, i) => {
+                        const x = cabLeft(i) + 130;
+                        const path = `M ${CORE_X} ${CORE_BOTTOM_Y} C ${CORE_X} ${middleY}, ${x} ${middleY}, ${x} ${CAB_TOP}`;
+                        list.push({ id: 'c-' + i, path, cx: x, cy: CAB_TOP, status: c.pingUp ? 'up' : 'down' });
+                    });
+                    return list;
+                });
 
-                async function fetchData() {
-                    try {
-                        // Fetch TV config periodically (lightweight)
-                        if (Math.random() < 0.2) fetchTVConfig();
+                const overlayIfaces = computed(() => overlay.value ? ifacesFor(overlay.value) : []);
+                const overlayModel = computed(() => (mkByDevice.value[overlay.value] || {}).model || '');
+                function openOverlay(name) { overlay.value = name; }
 
-                        const [mkRes, ifRes] = await Promise.allSettled([
-                            apiFetch('/api/v1/metrics/mikrotik').then(r => r.json()),
-                            apiFetch('/api/v1/metrics/mikrotik/interfaces').then(r => r.json())
+                async function fetchAll() {
+                    try {
+                        const [dev, ping, mk, temp] = await Promise.allSettled([
+                            getJson('/api/devices/all'),
+                            getJson('/api/ping/status'),
+                            getJson('/api/v1/metrics/mikrotik'),
+                            getJson('/api/v1/metrics/mikrotik/temperature')
                         ]);
-
-                        if (mkRes.status === 'fulfilled' && mkRes.value && mkRes.value.data) {
-                            const list = mkRes.value.data;
-                            const backbone = list.find(d => d.device_name === 'VIDANET-BACKBONE') || list[0] || {};
-                            backboneData.value = backbone;
+                        if (ping.status === 'fulfilled') {
+                            const p = (ping.value && ping.value.targets) ? ping.value.targets : (ping.value || []);
+                            pingTargets.value = Array.isArray(p) ? p : [];
                         }
+                        if (mk.status === 'fulfilled') mkMetrics.value = Array.isArray(mk.value) ? mk.value : [];
+                        if (temp.status === 'fulfilled') mkTemp.value = Array.isArray(temp.value) ? temp.value : [];
 
-                        if (ifRes.status === 'fulfilled' && ifRes.value) {
-                            const rawIfaces = Array.isArray(ifRes.value) ? ifRes.value : (ifRes.value.data || []);
-                            interfacesList.value = rawIfaces;
-
-                            const ifaceByName = (name) => rawIfaces.find(i => i.interface_name === name);
-                            const w1 = tvConfig.value.wan1_interface;
-                            const w2 = tvConfig.value.wan2_interface;
-                            const w2sfp = tvConfig.value.wan2_sfp_physical;
-
-                            const besser = ifaceByName(w1) || rawIfaces.find(i => (i.interface_name || '').includes('UPSTREAM'));
-                            const tecnoven = ifaceByName(w2) || rawIfaces.find(i => (i.interface_name || '').includes('UPSTREAM'));
-                            const sfp1 = ifaceByName(w2sfp);
-
-                            besserRx.value = besser ? (besser.rx_bps || 0) : 0;
-                            besserTx.value = besser ? (besser.tx_bps || 0) : 0;
-                            if (besser && besser.sfp_rx_power !== undefined && besser.sfp_rx_power !== null) besserRxDbm.value = besser.sfp_rx_power;
-                            if (besser && besser.sfp_tx_power !== undefined && besser.sfp_tx_power !== null) besserTxDbm.value = besser.sfp_tx_power;
-
-                            tecnovenRx.value = tecnoven ? (tecnoven.rx_bps || 0) : 0;
-                            tecnovenTx.value = tecnoven ? (tecnoven.tx_bps || 0) : 0;
-
-                            tecnovenSfpRx.value = sfp1 ? (sfp1.rx_bps || 0) : tecnovenRx.value;
-                            tecnovenSfpTx.value = sfp1 ? (sfp1.tx_bps || 0) : tecnovenTx.value;
-                            if (sfp1 && sfp1.sfp_rx_power !== undefined) tecnovenSfpRxDbm.value = sfp1.sfp_rx_power;
-                            if (sfp1 && sfp1.sfp_tx_power !== undefined) tecnovenSfpTxDbm.value = sfp1.sfp_tx_power;
-
-                            const timeStr = new Date().toLocaleTimeString();
-                            if (timeLabels.length >= maxHistory) {
-                                timeLabels.shift();
-                                historyBesserRx.shift();
-                                historyBesserTx.shift();
-                                historyTecnovenRx.shift();
-                                historyTecnovenTx.shift();
-                            }
-                            timeLabels.push(timeStr);
-                            historyBesserRx.push(besserRx.value);
-                            historyBesserTx.push(besserTx.value);
-                            historyTecnovenRx.push(tecnovenRx.value);
-                            historyTecnovenTx.push(tecnovenTx.value);
-
-                            if (chartBesser) {
-                                chartBesser.updateOptions({ xaxis: { categories: timeLabels } });
-                                chartBesser.updateSeries([
-                                    { name: 'Descarga (Rx)', data: historyBesserRx },
-                                    { name: 'Subida (Tx)', data: historyBesserTx }
-                                ]);
-                            }
-                            if (chartTecnoven) {
-                                chartTecnoven.updateOptions({ xaxis: { categories: timeLabels } });
-                                chartTecnoven.updateSeries([
-                                    { name: 'Descarga (Rx)', data: historyTecnovenRx },
-                                    { name: 'Subida (Tx)', data: historyTecnovenTx }
-                                ]);
-                            }
-                        }
+                        const results = await Promise.allSettled(
+                            CABECERA_NAMES.map(n => getJson('/api/v1/metrics/mikrotik/interfaces?device_name=' + encodeURIComponent(n)))
+                        );
+                        const map = {};
+                        CABECERA_NAMES.forEach((n, i) => {
+                            const v = results[i].status === 'fulfilled' ? results[i].value : null;
+                            map[n] = Array.isArray(v) ? v : [];
+                        });
+                        ifacesByDevice.value = map;
+                        errorMsg.value = '';
                     } catch (e) {
-                        console.error('Error fetching backbone metrics:', e);
+                        errorMsg.value = 'Error de datos: ' + e.message;
+                        console.error(e);
                     }
                 }
 
-                async function preloadHistory() {
-                    try {
-                        const w1 = tvConfig.value.wan1_interface;
-                        const w2 = tvConfig.value.wan2_interface;
-                        const names = [w1, w2].filter(Boolean);
-                        if (names.length === 0) return;
-                        const url = `/api/v1/metrics/mikrotik/interfaces/history?device_name=VIDANET-BACKBONE&interfaces=${encodeURIComponent(names.join(','))}&minutes=20&every=30s`;
-                        const res = await apiFetch(url);
-                        if (!res.ok) return;
-                        const payload = await res.json();
-                        const rows = payload.data || [];
-                        if (rows.length === 0) return;
-
-                        const byTime = new Map();
-                        for (const r of rows) {
-                            if (!r.time) continue;
-                            const t = new Date(r.time).toLocaleTimeString();
-                            if (!byTime.has(t)) byTime.set(t, {});
-                            byTime.get(t)[r.interface_name] = { rx: r.rx_bps || 0, tx: r.tx_bps || 0 };
-                        }
-                        const times = [...byTime.keys()].sort();
-                        while (times.length > maxHistory) times.shift();
-
-                        for (const t of times) {
-                            const d = byTime.get(t);
-                            timeLabels.push(t);
-                            historyBesserRx.push((d[w1] || {}).rx || 0);
-                            historyBesserTx.push((d[w1] || {}).tx || 0);
-                            historyTecnovenRx.push((d[w2] || {}).rx || 0);
-                            historyTecnovenTx.push((d[w2] || {}).tx || 0);
-                        }
-
-                        if (chartBesser) {
-                            chartBesser.updateOptions({ xaxis: { categories: timeLabels } });
-                            chartBesser.updateSeries([
-                                { name: 'Descarga (Rx)', data: historyBesserRx },
-                                { name: 'Subida (Tx)', data: historyBesserTx }
-                            ]);
-                        }
-                        if (chartTecnoven) {
-                            chartTecnoven.updateOptions({ xaxis: { categories: timeLabels } });
-                            chartTecnoven.updateSeries([
-                                { name: 'Descarga (Rx)', data: historyTecnovenRx },
-                                { name: 'Subida (Tx)', data: historyTecnovenTx }
-                            ]);
-                        }
-                    } catch (e) {
-                        console.error('Error preloading backbone history:', e);
-                    }
-                }
-
-                onMounted(async () => {
+                onMounted(() => {
                     updateClock();
                     setInterval(updateClock, 1000);
-                    initCharts();
-                    await fetchTVConfig();
-                    await preloadHistory();
-                    fetchData();
-                    setInterval(fetchData, 10000);
+                    fetchAll();
+                    setInterval(fetchAll, 15000);
+                    function recompute() {
+                        stageScale.value = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+                    }
+                    recompute();
+                    window.addEventListener('resize', recompute);
                 });
 
                 return {
-                    currentTime,
-                    currentDate,
-                    backboneData,
-                    interfacesList,
-                    otherInterfaces,
-                    besserRx,
-                    besserTx,
-                    tecnovenRx,
-                    tecnovenTx,
-                    tecnovenSfpRx,
-                    tecnovenSfpTx,
-                    besserRxDbm,
-                    besserTxDbm,
-                    tecnovenSfpRxDbm,
-                    tecnovenSfpTxDbm,
-                    formatBps,
-                    formatDbm,
-                    getDbmColorClass
+                    currentTime, currentDate, pingTargets, mkMetrics, mkTemp, ifacesByDevice,
+                    dnsOk, dnsTotal, dnsStats, pingOk, pingTotal, wanUp, wanTotal,
+                    core, corePingClass, coreDropsClass,
+                    cabeceras, cabLeft, edges, overlay,
+                    overlayIfaces, overlayModel, openOverlay, errorMsg, stageStyle,
+                    fmt, fmtTemp, fmtNumber, fmtBps, fmtUptime, bar, barClass, pctClass, tempClass,
+                    CAB_TOP, CAB_H
                 };
             }
         }).mount('#app');

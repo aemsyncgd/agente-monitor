@@ -1,5 +1,4 @@
 # src/api/routes/metrics.py
-import asyncio
 from fastapi import APIRouter, Query
 from typing import Optional
 
@@ -13,6 +12,8 @@ from ..influx_helper import (
     get_interface_history,
     get_client_locations,
     get_status_window,
+    run_influx,
+    _dash_cache,
 )
 
 router = APIRouter()
@@ -25,7 +26,7 @@ async def get_optical_power_endpoint(
     hours: int = Query(24, description="Hours of history")
 ):
     """Get optical power metrics for ONUs."""
-    data = get_optical_power(olt_name=olt_name)
+    data = await run_influx(get_optical_power, olt_name, None, False)
     return {
         "measurement": "optical_power",
         "filters": {"olt_name": olt_name, "pon_port": pon_port, "hours": hours},
@@ -40,7 +41,7 @@ async def get_olt_metrics(
     hours: int = Query(24, description="Hours of history")
 ):
     """Get OLT system metrics (CPU, memory, temperature)."""
-    data = await asyncio.to_thread(get_olt_summary)
+    data = await run_influx(get_olt_summary)
     if olt_name:
         data = [r for r in data if r.get("olt_name") == olt_name]
     return {
@@ -58,7 +59,7 @@ async def get_interface_metrics(
     hours: int = Query(24, description="Hours of history")
 ):
     """Get interface traffic metrics."""
-    data = get_interfaces(device_name=device_name)
+    data = await run_influx(get_interfaces, device_name)
     if interface_type:
         data = [r for r in data if r.get("interface_type") == interface_type]
     return {
@@ -73,10 +74,13 @@ async def get_interface_metrics(
 async def get_client_locations_endpoint(
     olt_name: Optional[str] = Query(None, description="Filter by OLT name"),
     search: Optional[str] = Query(None, description="Buscar por MAC, serial o ubicacion"),
-    hours: int = Query(168, description="Ventana hacia atras en horas"),
+    hours: int = Query(6, description="Ventana hacia atras en horas"),
 ):
     """Ubicacion PON por MAC de cliente (medicion onu_location), ultima por MAC."""
-    data = get_client_locations(olt_name=olt_name, search=search, hours=hours)
+    data = await run_influx(
+        _dash_cache, f"client_locations_{olt_name}_{search}_{hours}",
+        get_client_locations, olt_name, search, hours,
+    )
     return {
         "measurement": "onu_location",
         "filters": {"olt_name": olt_name, "search": search, "hours": hours},
@@ -95,7 +99,7 @@ async def get_olt_interface_metrics(
     Data del ultimo ciclo (ventana 45m). `device_name` debe ser el olt_name
     (hostname) de la OLT para empatar con olt_system.
     """
-    data = await asyncio.to_thread(get_olt_interfaces, device_name)
+    data = await run_influx(get_olt_interfaces, device_name)
     if interface_type:
         data = [r for r in data if r.get("interface_type") == interface_type]
     return {
@@ -112,7 +116,7 @@ async def get_olt_power_metrics(
     online_only: bool = Query(False, description="Solo ONUs online (status=3)"),
 ):
     """Get ONU optical power/status by OLT (latest per ONU)."""
-    data = await asyncio.to_thread(get_olt_power, olt_name, online_only)
+    data = await run_influx(get_olt_power, olt_name, online_only)
     return {
         "measurement": "optical_power",
         "filters": {"olt_name": olt_name, "online_only": online_only},
@@ -127,7 +131,7 @@ async def get_mikrotik_metrics(
     hours: int = Query(24, description="Hours of history")
 ):
     """Get MikroTik router system metrics (CPU, memory, uptime, firmware)."""
-    data = get_recent_metrics("mikrotik_system", limit=200, minutes=get_status_window())
+    data = await run_influx(get_recent_metrics, "mikrotik_system", 200, get_status_window())
     if device_name:
         data = [r for r in data if r.get("device_name") == device_name]
     return {
@@ -144,7 +148,7 @@ async def get_mikrotik_temperature(
     hours: int = Query(24, description="Hours of history")
 ):
     """Get MikroTik temperature readings (CPU and board sensors)."""
-    data = get_recent_metrics("mikrotik_temperature", limit=500)
+    data = await run_influx(get_recent_metrics, "mikrotik_temperature", 500)
     if device_name:
         data = [r for r in data if r.get("device_name") == device_name]
     return {
@@ -161,7 +165,7 @@ async def get_mikrotik_cpu_cores(
     hours: int = Query(24, description="Hours of history")
 ):
     """Get MikroTik per-core CPU utilization."""
-    data = get_recent_metrics("mikrotik_cpu_core", limit=500)
+    data = await run_influx(get_recent_metrics, "mikrotik_cpu_core", 500)
     if device_name:
         data = [r for r in data if r.get("device_name") == device_name]
     return {
@@ -178,7 +182,7 @@ async def get_mikrotik_interfaces(
     hours: int = Query(24, description="Hours of history")
 ):
     """Get MikroTik interface metrics (traffic, errors, discards)."""
-    data = get_recent_metrics("mikrotik_interface", limit=5000, minutes=15)
+    data = await run_influx(get_recent_metrics, "mikrotik_interface", 5000, 15)
     if device_name:
         data = [r for r in data if r.get("device_name") == device_name]
     return {
@@ -198,7 +202,7 @@ async def get_mikrotik_interfaces_history(
 ):
     """Serie temporal de rx_bps/tx_bps por interfaz para precargar gráficos."""
     names = [i.strip() for i in interfaces.split(",") if i.strip()] if interfaces else []
-    data = get_interface_history(device_name, names, minutes=minutes, every=every)
+    data = await run_influx(get_interface_history, device_name, names, minutes, every)
     return {
         "measurement": "mikrotik_interface",
         "filters": {"device_name": device_name, "interfaces": names,

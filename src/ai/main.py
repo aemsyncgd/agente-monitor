@@ -94,24 +94,34 @@ def _check_ping_status(influx, notifier, config):
                     _down_hosts[host_name] = now
                 downtime = now - _down_hosts[host_name]
                 if downtime >= down_threshold:
-                    notifier.send_ping_alert(
-                        host_name=host_name,
-                        host_ip=host_ip,
-                        host_type=host_type,
-                        status="down",
-                        downtime_seconds=downtime,
+                    notifier.send_llm_alert(
+                        title=f"host_down — {host_name}",
+                        severity="critical",
+                        dedup_key=f"ping:{host_name}",
+                        state_fingerprint={"status": "down"},
+                        extra={
+                            "host_name": host_name,
+                            "host_ip": host_ip,
+                            "host_type": host_type,
+                            "downtime_seconds": downtime,
+                            "down_since": _down_hosts[host_name],
+                        },
                     )
             else:
                 up_count += 1
                 if host_name in _down_hosts:
                     downtime = now - _down_hosts[host_name]
-                    notifier.send_ping_alert(
-                        host_name=host_name,
-                        host_ip=host_ip,
-                        host_type=host_type,
-                        status="up",
-                        downtime_seconds=downtime,
-                        avg_latency=float(point.get("latency_ms_avg", 0)),
+                    notifier.send_llm_alert(
+                        title=f"host_up — {host_name}",
+                        severity="info",
+                        dedup_key=f"ping:{host_name}",
+                        state_fingerprint={"status": "up"},
+                        extra={
+                            "host_name": host_name,
+                            "host_ip": host_ip,
+                            "host_type": host_type,
+                            "downtime_seconds": downtime,
+                        },
                     )
                     del _down_hosts[host_name]
 
@@ -119,6 +129,32 @@ def _check_ping_status(influx, notifier, config):
 
     except Exception as e:
         logger.error(f"Ping status query failed: {e}")
+
+
+def run_ping_check():
+    """Run ping check standalone (used by manual trigger)."""
+    from ..config_ia import load_config_ia
+    from ..storage.influx_client import InfluxClient
+    from .. import notifier_ai
+
+    config_path = os.environ.get("CONFIG_PATH", "config/config_ia.yaml")
+    try:
+        config = load_config_ia(config_path)
+    except Exception as e:
+        logger.error(f"Failed to load config for ping check: {e}")
+        return
+
+    influx = InfluxClient(
+        url=os.environ.get("INFLUXDB_URL", config.influxdb.url),
+        token=os.environ.get("INFLUXDB_TOKEN", config.influxdb.token),
+        org=os.environ.get("INFLUXDB_ORG", config.influxdb.org),
+        bucket=os.environ.get("INFLUXDB_BUCKET", config.influxdb.bucket),
+    )
+    if not influx.connect():
+        logger.error("Ping check: no se pudo conectar a InfluxDB")
+        return
+    notifier = notifier_ai.TelegramNotifierAI(config.telegram)
+    _check_ping_status(influx, notifier, config)
 
 
 def setup_logging(config: ConfigIA):
@@ -249,6 +285,11 @@ def main():
     )
 
     last_train_time = 0
+    if os.path.exists(model_path):
+        try:
+            last_train_time = os.path.getmtime(model_path)
+        except OSError:
+            last_train_time = 0
     last_daily_summary_hour = -1
     report_times_sent: Dict[str, str] = {}
 

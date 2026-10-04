@@ -41,7 +41,9 @@ class MikroTikDevice:
     role: str = "principal"
     modelo: str = ""
     username: str = "admin"
-    use_api: bool = False
+    password: str = ""
+    api_port: int = 8728
+    use_api: bool = False  # True = RouterOS API (leases PPPoE/DHCP), False = SNMP
     interfaces: List[InterfaceInfo] = field(default_factory=list)
     status: str = "unknown"
     last_seen: float = 0.0
@@ -55,6 +57,8 @@ class MikroTikDevice:
             "role": self.role,
             "modelo": self.modelo,
             "username": self.username,
+            "password": self.password,
+            "api_port": self.api_port,
             "use_api": self.use_api,
             "interfaces": [i.to_dict() for i in self.interfaces],
             "status": self.status,
@@ -79,6 +83,8 @@ class MikroTikDevice:
             role=data.get("role", "principal"),
             modelo=data.get("modelo", ""),
             username=data.get("username", "admin"),
+            password=data.get("password", ""),
+            api_port=int(data.get("api_port", 8728)),
             use_api=data.get("use_api", False),
             interfaces=interfaces,
             status=data.get("status", "unknown"),
@@ -419,6 +425,10 @@ class WISPConfig:
     - `document_endpoint`: lookup por documento, formato
       ``GET {base_url}{document_endpoint.format(slug=isp_slug, documento=doc)}``
       con header ``x-api-key``.
+    - `serial_endpoint`: lookup por serial ONU (servicio), formato
+      ``GET {base_url}{serial_endpoint.format(slug=isp_slug, serial=serial)}``
+      con header ``x-api-key``. Respuesta czwisp: ``{encontrado, total,
+      servicios:[{cliente, servicio, plan, red, facturacion}]}``.
     """
     enabled: bool = True
     base_url: str = "https://czwisp.com"
@@ -426,10 +436,14 @@ class WISPConfig:
     isp_slug: str = ""
     list_endpoint: str = ""
     document_endpoint: str = "/api/webhooks/cliente/{slug}/cliente"
+    serial_endpoint: str = "/api/webhooks/cliente/{slug}/servicio?onu={serial}"
     page_size: int = 100
     timeout_seconds: int = 30
     documents_csv: str = "data/wisp_documentos.csv"
     cache_hours: int = 24
+    min_interval_ms: int = 250  # caución: espaciado mínimo entre consultas HTTP
+    max_lookups_per_run: int = 400  # tope de seriales consultados por ciclo
+    unknown_retry_hours: int = 168  # reconsultar seriales que WISP no conoce
 
 
 # === Configuración de Enriquecimiento de Clientes ===
@@ -830,12 +844,19 @@ def load_config_ia(path: str) -> ConfigIA:
             api_key_env=w.get("api_key_env", "WISP_API_KEY"),
             isp_slug=w.get("isp_slug") or os.environ.get("WISP_ISP_SLUG", ""),
             list_endpoint=w.get("list_endpoint") or os.environ.get("WISP_LIST_ENDPOINT", ""),
-            document_endpoint=w.get(
-                "document_endpoint", "/api/webhooks/cliente/{slug}/cliente"),
+            document_endpoint=w.get("document_endpoint") or os.environ.get(
+                "WISP_DOCUMENT_ENDPOINT",
+                "/api/webhooks/cliente/{slug}/cliente?documento={documento}"),
+            serial_endpoint=w.get("serial_endpoint") or os.environ.get(
+                "WISP_SERIAL_ENDPOINT",
+                "/api/webhooks/cliente/{slug}/servicio?onu={serial}"),
             page_size=w.get("page_size", 100),
             timeout_seconds=w.get("timeout_seconds", 30),
             documents_csv=w.get("documents_csv", "data/wisp_documentos.csv"),
-            cache_hours=w.get("cache_hours", 24)
+            cache_hours=w.get("cache_hours", 24),
+            min_interval_ms=w.get("min_interval_ms", 250),
+            max_lookups_per_run=w.get("max_lookups_per_run", 400),
+            unknown_retry_hours=w.get("unknown_retry_hours", 168),
         )
 
     if "enrichment" in raw:

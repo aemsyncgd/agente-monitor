@@ -16,6 +16,9 @@ FAKE_FDB_PORT = {"6.0.235.216.23.233.145": "18"}
 FAKE_ONU_STATUS = {"5.17": "3"}
 FAKE_ONU_SERIAL = {"5.17": "VSOL00f530fe"}
 FAKE_ONU_MODEL = {"5.17": "V624"}
+FAKE_VSOL_MAC = {"2": "6C 68 A4 D4 62 B9"}
+FAKE_VSOL_PORT = {"2": "PON5:ONU17"}
+FAKE_VSOL_VLAN = {"2": "256"}
 
 _TABLES = {
     "1.3.6.1.2.1.31.1.1.1.1": FAKE_IFNAME,
@@ -24,6 +27,9 @@ _TABLES = {
     "1.3.6.1.4.1.37950.1.1.6.1.1.1.1.5": FAKE_ONU_STATUS,
     "1.3.6.1.4.1.37950.1.1.6.1.1.2.1.5": FAKE_ONU_SERIAL,
     "1.3.6.1.4.1.37950.1.1.6.1.1.2.1.6": FAKE_ONU_MODEL,
+    "1.3.6.1.4.1.37950.1.1.5.10.3.2.1.2": FAKE_VSOL_VLAN,
+    "1.3.6.1.4.1.37950.1.1.5.10.3.2.1.3": FAKE_VSOL_MAC,
+    "1.3.6.1.4.1.37950.1.1.5.10.3.2.1.5": FAKE_VSOL_PORT,
 }
 
 
@@ -193,7 +199,8 @@ def test_build_mac_metrics_skips_missing_port():
 
 
 @pytest.mark.asyncio
-async def test_capture_macs_async_walks_and_builds():
+async def test_capture_macs_async_uses_vsol_table_first(monkeypatch):
+    monkeypatch.setenv("OLT_WEB_ENABLED", "false")
     cfg = OltConfig(ip="192.0.2.10", community="public",
                     hostname="OLT-PRADO-1", modelo="V1600G1", nodo="PRADO")
     c = OltCollector(config=cfg)
@@ -211,7 +218,35 @@ async def test_capture_macs_async_walks_and_builds():
     ms = result["metrics"]
     assert [m["measurement"] for m in ms] == ["onu_mac", "onu_location"]
     assert ms[0]["tags"]["location"] == "GPON05_17"
-    assert calls[0] == c.OID_IF_DESC  # primero ifName
+    assert ms[0]["tags"]["interface_name"] == "PON5:ONU17"
+    assert ms[0]["fields"]["vlan"] == 256
+    assert ms[0]["fields"]["onu_serial"] == "VSOL00f530fe"
+    # La FDB privada VSOL es la fuente primaria; no cae a dot1d.
+    assert c.OID_VSOL_MAC in calls and c.OID_VSOL_PORT in calls
+    assert c.OID_FDB_MAC not in calls
+
+
+@pytest.mark.asyncio
+async def test_capture_macs_async_falls_back_to_dot1d_when_vsol_empty(monkeypatch):
+    monkeypatch.setenv("OLT_WEB_ENABLED", "false")
+    cfg = OltConfig(ip="192.0.2.10", community="public",
+                    hostname="OLT-PRADO-1", modelo="V1600G1", nodo="PRADO")
+    c = OltCollector(config=cfg)
+    c.mac_walk_delay = 0
+    calls = []
+
+    async def empty_vsol(oid, *args, **kwargs):
+        calls.append(oid)
+        if oid.startswith("1.3.6.1.4.1.37950.1.1.5.10.3.2.1"):
+            return {}
+        return dict(_TABLES.get(oid, {}))
+
+    c._subprocess_bulkwalk = empty_vsol  # type: ignore[assignment]
+
+    result = await c._capture_macs_async()
+    ms = result["metrics"]
+    assert [m["measurement"] for m in ms] == ["onu_mac", "onu_location"]
+    assert ms[0]["tags"]["location"] == "GPON05_17"
     assert c.OID_FDB_MAC in calls and c.OID_FDB_PORT in calls
 
 

@@ -261,10 +261,22 @@ class WispScheduler:
                 f"Enrichment job: {stats.matched} enriquecidos, "
                 f"{stats.pending} pendientes, {stats.mismatched} descuadrados"
             )
+            self._rebuild_client_store()
             self._log_success("enrichment")
         except Exception as e:
             logger.error(f"Enrichment failed: {e}")
             self._log_failure("enrichment", str(e))
+
+    def _rebuild_client_store(self) -> None:
+        """Refresca el cache Redis de fichas (no debe romper el job si falla)."""
+        try:
+            from .redis_store import get_client_store
+            influx = getattr(self.client_enricher, "influx", None)
+            if influx is None:
+                return
+            get_client_store().rebuild_from_influx(influx)
+        except Exception as e:
+            logger.warning(f"ClientStore rebuild failed: {e}")
 
     def _run_fault_detection(self) -> None:
         if not self.fault_detector:

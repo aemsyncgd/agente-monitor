@@ -160,18 +160,24 @@ async def generate_report_now():
             bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", ia_config.telegram.bot_token),
             chat_id=os.environ.get("TELEGRAM_CHAT_ID", ia_config.telegram.chat_id),
         )
-        async with _generating_lock:
-            ok = await asyncio.to_thread(reporter.run)
-        if ok:
-            return {"status": "ok", "message": "Reporte enviado a Telegram correctamente"}
-        raise HTTPException(status_code=502, detail="Fallo al enviar el reporte a Telegram")
-    except HTTPException:
-        raise
+        await asyncio.get_event_loop().run_in_executor(None, reporter.run)
+
+        return {"status": "ok", "message": "Reporte enviado a Telegram correctamente"}
     except Exception as e:
         logger.error(f"Generate report failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error generando reporte: {e}")
 
 
+@router.post("/trigger-alerts")
+async def trigger_alerts_now():
+    """Ejecuta manualmente la revisión de alertas (ping/host state) siguiendo la lógica de dedup por cambio."""
+    try:
+        from ...ai import main as ai_main
+        await asyncio.to_thread(ai_main.run_ping_check)
+        return {"status": "ok", "message": "Revisión de alertas ejecutada correctamente"}
+    except Exception as e:
+        logger.error(f"Trigger alerts failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error ejecutando revisión de alertas: {e}")
 @router.get("/discover")
 async def discover():
     result = {"mikrotiks": [], "olts": []}

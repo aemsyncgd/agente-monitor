@@ -3,10 +3,11 @@
 # mantenimiento.sh — Atajos prácticos para el agente-monitor.
 #
 # Uso:
-#   ./mantenimiento.sh --now     Detener TODO el agente (incluido InfluxDB).
-#   ./mantenimiento.sh --ready   Iniciar TODO el agente (Incluido InfluxDB) y
-#                                esperar a que quede operativo.
-#   ./mantenimiento.sh --status  Mostrar el estado de todos los servicios.
+#   ./mantenimiento.sh --now     Detener TODO el agente (incluidos InfluxDB y Redis).
+#   ./mantenimiento.sh --ready   Iniciar TODO el agente (incluidos InfluxDB y Redis)
+#                                y esperar a que quede operativo.
+#   ./mantenimiento.sh --status  Mostrar el estado de todos los servicios
+#                               (agente unificado, extras, InfluxDB y Redis).
 #   ./mantenimiento.sh --help    Mostrar esta ayuda.
 #
 # Todo se maneja con systemctl a nivel de usuario (systemctl --user),
@@ -14,8 +15,16 @@
 #
 set -uo pipefail
 
-SERVICE_AGENTE="agente-monitor.service"
+SERVICE_AGENTE="agente-monitor.service"          # unidad unificada (collector+api+ai+llm)
 SERVICE_INFLUX="influxdb-ia.service"
+SERVICE_REDIS="redis-ia.service"
+
+# Servicios que corren por separado de la unidad unificada.
+EXTRA_SERVICES=(
+    "agente-monitor-wisp-agent.service"
+    "agente-monitor-scheduler.service"
+    "agente-monitor-bot.service"
+)
 
 log() {
     echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -33,10 +42,11 @@ usage() {
 mantenimiento.sh — Atajos prácticos para el agente-monitor.
 
 Uso:
-  ./mantenimiento.sh --now     Detener TODO el agente (incluido InfluxDB).
-  ./mantenimiento.sh --ready   Iniciar TODO el agente (incluido InfluxDB) y
-                               esperar a que quede operativo.
-  ./mantenimiento.sh --status  Mostrar el estado de todos los servicios.
+  ./mantenimiento.sh --now     Detener TODO el agente (incluidos InfluxDB y Redis).
+  ./mantenimiento.sh --ready   Iniciar TODO el agente (incluidos InfluxDB y Redis)
+                               y esperar a que quede operativo.
+  ./mantenimiento.sh --status  Mostrar el estado de todos los servicios
+                               (agente unificado, extras, InfluxDB y Redis).
   ./mantenimiento.sh --help    Mostrar esta ayuda.
 
 Todo se maneja con systemctl a nivel de usuario (systemctl --user),
@@ -54,6 +64,15 @@ do_status() {
     systemctl --user is-active "${SERVICE_AGENTE}" >/dev/null 2>&1 \
         && echo "  ${SERVICE_AGENTE}  -> ACTIVO" \
         || echo "  ${SERVICE_AGENTE}  -> INACTIVO"
+    local svc
+    for svc in "${EXTRA_SERVICES[@]}"; do
+        systemctl --user is-active "${svc}" >/dev/null 2>&1 \
+            && echo "  ${svc}  -> ACTIVO" \
+            || echo "  ${svc}  -> INACTIVO"
+    done
+    systemctl --user is-active "${SERVICE_REDIS}" >/dev/null 2>&1 \
+        && echo "  ${SERVICE_REDIS}  -> ACTIVO" \
+        || echo "  ${SERVICE_REDIS}  -> INACTIVO"
     echo "--------------------------------------------------"
 
     local influx_ok=no
@@ -61,6 +80,13 @@ do_status() {
         influx_ok=si
     fi
     echo "  InfluxDB (8086)      -> healthy: ${influx_ok}"
+    local redis_ok=no
+    if redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q "PONG"; then
+        redis_ok=si
+    elif podman exec redis-ia redis-cli ping 2>/dev/null | grep -q "PONG"; then
+        redis_ok=si
+    fi
+    echo "  Redis (6379)         -> PING: ${redis_ok}"
     local api_ok=no
     if curl -s -m 3 -o /dev/null -w "%{http_code}" "http://localhost:8000/api/reporte/status" 2>/dev/null | grep -q "200"; then
         api_ok=si
@@ -71,8 +97,14 @@ do_status() {
 do_stop() {
     log "Deteniendo el agente-monitor..."
     systemctl --user stop "${SERVICE_AGENTE}" || echo "  aviso: fallo al detener ${SERVICE_AGENTE}"
+    local svc
+    for svc in "${EXTRA_SERVICES[@]}"; do
+        systemctl --user stop "${svc}" 2>/dev/null || true
+    done
     log "Deteniendo InfluxDB..."
     systemctl --user stop "${SERVICE_INFLUX}" || echo "  aviso: fallo al detener ${SERVICE_INFLUX}"
+    log "Deteniendo Redis..."
+    systemctl --user stop "${SERVICE_REDIS}" 2>/dev/null || echo "  aviso: ${SERVICE_REDIS} no está gestionado por systemd"
     log "Detenido. Revisa el estado con ./mantenimiento.sh --status"
 }
 
@@ -92,6 +124,11 @@ do_start() {
     done
     log "InfluxDB healthy."
 
+    log "Iniciando Redis (ClientStore)..."
+    systemctl --user start "${SERVICE_REDIS}" 2>/dev/null \
+        || podman start redis-ia 2>/dev/null \
+        || echo "  aviso: no se pudo iniciar Redis (el buscador caerá a InfluxDB)"
+
     log "Iniciando agente-monitor..."
     systemctl --user start "${SERVICE_AGENTE}" || { echo "ERROR: no se pudo iniciar ${SERVICE_AGENTE}" >&2; exit 1; }
 
@@ -105,7 +142,15 @@ do_start() {
         fi
         sleep 2
     done
-    log "API lista. Todo iniciado."
+    log "API lista."
+
+    local svc
+    for svc in "${EXTRA_SERVICES[@]}"; do
+        systemctl --user start "${svc}" 2>/dev/null \
+            || echo "  aviso: no se pudo iniciar ${svc} (instala con manage-services.sh install all)"
+    done
+
+    log "Todo iniciado."
     do_status
 }
 

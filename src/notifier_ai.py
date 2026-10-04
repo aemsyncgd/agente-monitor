@@ -236,7 +236,7 @@ class TelegramNotifierAI:
         if status == "down":
             fingerprint = {"status": "down"}
             if not self._state_store.should_send(key, fingerprint):
-                logger.debug(f"Host {host_name} already reported down, skipping")
+                logger.debug(f"Host {host_name} ya reportado caido, omitiendo")
                 return False
 
             minutes = max(1, int(downtime_seconds // 60))
@@ -246,17 +246,17 @@ class TelegramNotifierAI:
                 f"<b>Nombre:</b> {self._esc(host_name)}",
                 f"<b>IP:</b> <code>{self._esc(host_ip)}</code>",
                 f"<b>Tipo:</b> {self._esc(host_type)}",
-                "<b>Estado:</b> ⛔ SIN RESPUESTA",
+                "<b>Estado:</b> ❌ SIN RESPUESTA",
                 f"<b>Tiempo caído:</b> {minutes} min",
+                "<b>Causa probable:</b> Perdida de conectividad del equipo "
+                "(posible corte de energia, fallo del enlace o del dispositivo)",
                 separator,
-                "⚠️ <i>Verificar conectividad</i>",
+                "⚠️ <i>Verificar energia, enlace y estado del equipo</i>",
                 f"⏰ <code>{time.strftime('%H:%M')}</code>",
+                "🤖 Generado por el agente IA",
             ]
-            message = "\n".join(lines)
-            # down_since se guarda para poder reportar el tiempo caído total el día
-            # de la recuperación, incluso si el agente reinició en el medio.
             return self._send_message(
-                message,
+                "\n".join(lines),
                 key=key,
                 state_fingerprint=fingerprint,
                 state_extra={"down_since": time.time()},
@@ -264,15 +264,15 @@ class TelegramNotifierAI:
 
         fingerprint = {"status": "up"}
         if not self._state_store.should_send(key, fingerprint):
-            logger.debug(f"Host {host_name} already reported up, skipping")
+            logger.debug(f"Host {host_name} ya reportado recuperado, omitiendo")
             return False
 
         entry = self._state_store.get(key)
         down_since = (entry or {}).get("down_since")
         if downtime_seconds <= 0 and down_since:
             downtime_seconds = time.time() - down_since
-
         minutes = max(1, int(downtime_seconds // 60))
+
         lines = [
             "🟢 <b>HOST RECUPERADO</b>",
             separator,
@@ -280,12 +280,20 @@ class TelegramNotifierAI:
             f"<b>IP:</b> <code>{self._esc(host_ip)}</code>",
             f"<b>Tipo:</b> {self._esc(host_type)}",
             "<b>Estado:</b> ✅ RESPONDIENDO",
-            f"<b>Latencia:</b> <code>{avg_latency:.1f} ms</code>",
             f"<b>Tiempo caído total:</b> {minutes} min",
-            f"⏰ <code>{time.strftime('%H:%M')}</code>",
         ]
-        message = "\n".join(lines)
-        return self._send_message(message, key=key, state_fingerprint=fingerprint)
+        if avg_latency:
+            lines.append(f"<b>Latencia:</b> {self._esc(f'{avg_latency:.1f}')} ms")
+        lines += [
+            "<b>Causa probable:</b> El equipo volvió a responder tras la caída detectada",
+            separator,
+            "✅ <i>Conectividad restablecida</i>",
+            f"⏰ <code>{time.strftime('%H:%M')}</code>",
+            "🤖 Generado por el agente IA",
+        ]
+        return self._send_message(
+            "\n".join(lines), key=key, state_fingerprint=fingerprint
+        )
 
     def send_area_alert(
         self,
@@ -344,8 +352,11 @@ class TelegramNotifierAI:
                 if shown_count > 8:
                     lines.append(f"  ... y {shown_count - 8} más")
             lines.append("")
+            lines.append(f"<b>Causa probable:</b> Falla detectada en zona/NAP; posible corte de fibra, caída de equipos o pérdida de conectividad en el segmento")
+            lines.append("")
             lines.append("⚠️ <i>Verificar zona/NAP y fibra óptica</i>")
             lines.append(f"⏰ <code>{time.strftime('%H:%M')}</code>")
+            lines.append("🤖 Generado por el agente IA")
             return self._send_message(
                 "\n".join(lines),
                 key=key,
@@ -370,9 +381,15 @@ class TelegramNotifierAI:
         if not is_broadcast:
             lines.append(f"<b>OLT:</b> {self._esc(olt)}")
         lines.append(f"<b>Duración caída:</b> {max(1, duration_minutes)} min")
+        lines.append("")
+        lines.append(f"<b>Causa probable:</b> El segmento volvió a la normalidad tras la caída detectada")
+        lines.append("")
         lines.append("✅ <i>Estado normal</i>")
         lines.append(f"⏰ <code>{time.strftime('%H:%M')}</code>")
-        return self._send_message("\n".join(lines), key=key, state_fingerprint=fingerprint)
+        lines.append("🤖 Generado por el agente IA")
+        return self._send_message(
+            "\n".join(lines), key=key, state_fingerprint=fingerprint
+        )
 
     def send_daily_summary(self, stats: Dict) -> bool:
 
@@ -424,7 +441,8 @@ class TelegramNotifierAI:
 
     def send_llm_alert(self, title: str, severity: str = "warning",
                        message: str = "", dedup_key: Optional[str] = None,
-                       state_fingerprint: Optional[Dict] = None) -> bool:
+                       state_fingerprint: Optional[Dict] = None,
+                       extra: Optional[Dict] = None) -> bool:
         """Generic alert produced by the LLM agent.
 
         Si se proveen `dedup_key` + `state_fingerprint`, se aplica dedup por
@@ -432,11 +450,69 @@ class TelegramNotifierAI:
         cambia (sobrevive reinicios). Sin dedup_key cae en cooldown en memoria
         (comportamiento original).
         """
+        extra = extra or {}
         emoji = {
             "critical": "🔴",
             "warning": "🟠",
             "info": "ℹ️",
         }.get(severity, "🤖")
+
+        # Detectar evento host down/up para usar formato compacto unificado
+        title_lower = (title or "").lower()
+        is_host_down = "host_down" in title_lower or (
+            state_fingerprint and state_fingerprint.get("status") == "down"
+        )
+        is_host_up = "host_up" in title_lower or (
+            state_fingerprint and state_fingerprint.get("status") == "up"
+        )
+
+        if is_host_down or is_host_up:
+            host_name = extra.get("host_name") or extra.get("device_id") or title.replace("host_down —", "").replace("host_up —", "").strip()
+            host_ip = extra.get("host_ip", "N/D")
+            host_type = extra.get("host_type", "equipo")
+            downtime_seconds = extra.get("downtime_seconds", 0)
+            minutes = max(1, int(downtime_seconds // 60)) if downtime_seconds > 0 else 1
+            separator = "━━━━━━━━━━━━━━━━"
+
+            if is_host_down:
+                lines = [
+                    "🔴 <b>HOST CAÍDO</b>",
+                    separator,
+                    f"<b>Nombre:</b> {self._esc(host_name)}",
+                    f"<b>IP:</b> <code>{self._esc(host_ip)}</code>",
+                    f"<b>Tipo:</b> {self._esc(host_type)}",
+                    "<b>Estado:</b> ⛔ SIN RESPUESTA",
+                    f"<b>Tiempo caído:</b> {minutes} min",
+                    f"<b>Causa probable:</b> El enlace o equipo dejó de responder; posible caída de enlace, corte de energía o fallo de hardware",
+                    separator,
+                    "⚠️ <i>Verificar conectividad</i>",
+                    f"⏰ <code>{time.strftime('%H:%M')}</code>",
+                    "🤖 Generado por el agente IA",
+                ]
+                state_extra = {"down_since": extra.get("down_since") or time.time()}
+            else:
+                lines = [
+                    "🟢 <b>HOST RECUPERADO</b>",
+                    separator,
+                    f"<b>Nombre:</b> {self._esc(host_name)}",
+                    f"<b>IP:</b> <code>{self._esc(host_ip)}</code>",
+                    f"<b>Tipo:</b> {self._esc(host_type)}",
+                    "<b>Estado:</b> ✅ RESPONDIENDO",
+                    f"<b>Tiempo caído:</b> {minutes} min",
+                    f"<b>Causa probable:</b> El equipo volvió a responder tras la caída detectada",
+                    separator,
+                    "✅ <i>Conectividad restablecida</i>",
+                    f"⏰ <code>{time.strftime('%H:%M')}</code>",
+                    "🤖 Generado por el agente IA",
+                ]
+                state_extra = {"down_since": None}
+
+            return self._send_message(
+                "\n".join(lines),
+                key=dedup_key or f"ping:{host_name}",
+                state_fingerprint=state_fingerprint,
+                state_extra=state_extra,
+            )
 
         lines = [f"{emoji} <b>{self._esc(title)}</b>", ""]
         if message:

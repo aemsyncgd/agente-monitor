@@ -42,8 +42,9 @@ def test_get_client_locations_queries_onu_location(monkeypatch):
     rows = ih.get_client_locations()
 
     assert 'r["_measurement"] == "onu_location"' in captured["flux"]
-    assert 'group(columns: ["mac"]' in captured["flux"]
+    assert 'group(columns: ["mac", "_field"]' in captured["flux"]
     assert "|> last()" in captured["flux"]
+    assert 'pivot(rowKey: ["mac", "location"' in captured["flux"]
     assert rows[0]["mac"] == "00:EB:D8:17:E9:91"
     assert rows[0]["location"] == "GPON05_17"
 
@@ -78,7 +79,7 @@ def test_get_client_locations_search_case_insensitive(monkeypatch):
 def test_clients_endpoint_returns_expected_shape(monkeypatch):
     monkeypatch.setattr(
         routes_mod, "get_client_locations",
-        lambda **kw: [dict(FAKE_LOCATION)],
+        lambda olt_name=None, search=None, hours=168: [dict(FAKE_LOCATION)],
     )
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -91,15 +92,15 @@ def test_clients_endpoint_returns_expected_shape(monkeypatch):
     body = res.json()
     assert body["measurement"] == "onu_location"
     assert body["count"] == 1
-    assert body["filters"] == {"olt_name": None, "search": None, "hours": 168}
+    assert body["filters"] == {"olt_name": None, "search": None, "hours": 6}
     assert body["data"][0]["mac"] == "00:EB:D8:17:E9:91"
 
 
 def test_clients_endpoint_forwards_filters(monkeypatch):
     captured = {}
 
-    def fake_get(**kwargs):
-        captured.update(kwargs)
+    def fake_get(olt_name=None, search=None, hours=168):
+        captured.update({"olt_name": olt_name, "search": search, "hours": hours})
         return []
 
     monkeypatch.setattr(routes_mod, "get_client_locations", fake_get)

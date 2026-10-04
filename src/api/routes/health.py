@@ -2,7 +2,12 @@
 from fastapi import APIRouter
 import time
 
-from ..influx_helper import _check_connection, get_overall_stats
+from ..influx_helper import (
+    _check_connection,
+    get_overall_stats,
+    get_pipeline_status,
+    run_influx,
+)
 
 router = APIRouter()
 
@@ -11,8 +16,16 @@ _start_time = time.time()
 
 @router.get("/")
 async def health_check():
-    """System health check with real InfluxDB connectivity."""
-    influx_ok = _check_connection()
+    """System health check with real InfluxDB connectivity.
+
+    `_check_connection` es una query síncrona a InfluxDB: corre en el executor
+    dedicado de Influx con cota de 6s; nunca bloquea el event loop ni espera
+    detrás de queries pesadas.
+    """
+    try:
+        influx_ok = await run_influx(_check_connection, _timeout=6)
+    except Exception:
+        influx_ok = False
     return {
         "status": "healthy" if influx_ok else "degraded",
         "uptime": time.time() - _start_time,
@@ -28,7 +41,7 @@ async def health_check():
 async def collector_status():
     """Get collector status from OLT count in InfluxDB."""
     try:
-        stats = get_overall_stats()
+        stats = await run_influx(get_overall_stats, _timeout=15)
         return {
             "olt_collectors": [],
             "mikrotik_collectors": [],
@@ -41,6 +54,17 @@ async def collector_status():
             "mikrotik_collectors": [],
             "total_metrics_collected": 0,
         }
+
+
+@router.get("/pipeline")
+async def pipeline_status():
+    """Frescura de escritura por medicion del pipeline de datos (enriquecimiento,
+    potencias OLT, sesiones PPPoE, WISP...). No tira errores si Influx no responde."""
+    try:
+        data = await run_influx(get_pipeline_status, _timeout=15)
+        return {"status": "ok", "detail": data}
+    except Exception as e:
+        return {"status": "error", "detail": {"error": str(e), "measurements": []}}
 
 
 @router.get("/ai")

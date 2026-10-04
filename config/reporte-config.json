@@ -11,11 +11,11 @@
       "name": "VIDANET-BACKBONE",
       "interfaces": [
         {
-          "name": "1sfp-sfpplus1-WAN_1-UPSTREAM",
+          "name": "1sfp-sfpplus3-WAN_3-BESSER",
           "analyze": true
         },
         {
-          "name": "1sfp-sfpplus3-WAN_3-UPSTREAM",
+          "name": "vlan251_TECNOVEN",
           "analyze": true
         }
       ]
@@ -31,7 +31,12 @@
     },
     {
       "name": "NARANJILLOS-VIDANET",
-      "interfaces": []
+      "interfaces": [
+        {
+          "name": "sfp-sfpplus1-LINK-NARANJILLO-BACKBONE",
+          "analyze": false
+        }
+      ]
     },
     {
       "name": "PRADO-VIDANET",

@@ -17,7 +17,7 @@ from ...storage.influx_client import InfluxClient
 from ...collectors.influx_writer import CollectorInfluxWriter
 from ...collectors.mikrotik_collector import MikroTikCollector, MikroTikConfig
 from ...collectors.olt_collector import OltCollector, OltConfig
-from ..influx_helper import get_active_device_ips
+from ..influx_helper import get_active_device_ips, run_influx
 
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -220,7 +220,7 @@ async def list_all_devices():
     manager = get_config_manager()
     devices = manager.get_flat_device_list()
     try:
-        active_ips = get_active_device_ips()
+        active_ips = await run_influx(get_active_device_ips)
     except Exception:
         active_ips = {}
     for group in ("mikrotiks", "olts"):

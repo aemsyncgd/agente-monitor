@@ -8,23 +8,22 @@
 <!-- ======================= BADGES : STACK ======================= -->
 | | |
 |:---|---:|
-| ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white) | ![FastAPI](https://img.shields.io/badge/FastAPI-0.100-009688?style=for-the-badge&logo=fastapi&logoColor=white) | ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white) |
-
-| ![scikit-learn](https://img.shields.io/badge/scikit--learn-2.x-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white) | ![pandas](https://img.shields.io/badge/pandas-2.x-150458?style=for-the-badge&logo=pandas&logoColor=white) | ![InfluxDB](https://img.shields.io/badge/InfluxDB-2.x-22ADF6?style=for-the-badge&logo=influxdb&logoColor=white) |
-
-| ![SNMP](https://img.shields.io/badge/SNMP-%2B%20ICMP-1F6FEB?style=for-the-badge) | ![Telegram](https://img.shields.io/badge/Telegram-Notificaciones-26A5E4?style=for-the-badge&logo=telegram&logoColor=white) | ![Ollama](https://img.shields.io/badge/Ollama-LLM-000000?style=for-the-badge&logo=ollama&logoColor=white) |
-
-| ![Podman](https://img.shields.io/badge/Podman-Compose-2496ED?style=for-the-badge&logo=podman&logoColor=white) | ![Linux](https://img.shields.io/badge/Linux-Systemd-FCC624?style=for-the-badge&logo=linux&logoColor=black) | ![pytest](https://img.shields.io/badge/pytest-Passing-2E9E5B?style=for-the-badge&logo=pytest&logoColor=white) |
-
+| ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white) | ![FastAPI](https://img.shields.io/badge/FastAPI-0.100-009688?style=for-the-badge&logo=fastapi&logoColor=white) |
+| ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white) | ![scikit-learn](https://img.shields.io/badge/scikit--learn-2.x-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white) |
+| ![InfluxDB](https://img.shields.io/badge/InfluxDB-2.7-22ADF6?style=for-the-badge&logo=influxdb&logoColor=white) | ![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white) |
+| ![Chroma](https://img.shields.io/badge/ChromaDB-RAG-BBD96C?style=for-the-badge&logo=chroma&logoColor=white) | ![APScheduler](https://img.shields.io/badge/APScheduler-3.x-009688?style=for-the-badge) |
+| ![SNMP](https://img.shields.io/badge/SNMP-%2B%20ICMP-1F6FEB?style=for-the-badge) | ![Telegram](https://img.shields.io/badge/Telegram-Notificaciones-26A5E4?style=for-the-badge&logo=telegram&logoColor=white) |
+| ![Ollama](https://img.shields.io/badge/LLM-Ollama%20%7C%20OpenRouter%20%7C%20Anthropic-000000?style=for-the-badge&logo=ollama&logoColor=white) | ![Podman](https://img.shields.io/badge/Podman-Compose-2496ED?style=for-the-badge&logo=podman&logoColor=white) |
+| ![Linux](https://img.shields.io/badge/Linux-systemd%20--user-FCC624?style=for-the-badge&logo=linux&logoColor=black) | ![pytest](https://img.shields.io/badge/pytest-333%20passed-2E9E5B?style=for-the-badge&logo=pytest&logoColor=white) |
 | ![GPL v3](https://img.shields.io/badge/License-GPL--3.0-orange?style=for-the-badge) | ![Status](https://img.shields.io/badge/Estado-Producci%C3%B3n-2E9E5B?style=for-the-badge) |
 
 </div>
 
 ---
 
-Sistema de **monitoreo autónomo** para proveedores de Internet **FTTH/GPON**. Recopila datos de OLTs y MikroTiks vía **SNMP**, detecta **anomalías ópticas** con un **autoencoder** entrenado en PyTorch, correlaciona fallas con los clientes afectados y genera **análisis y alertas automáticas** con un **agente LLM** (Ollama / OpenRouter / Anthropic). Todo se presenta en un **dashboard web** (FastAPI + InfluxDB) y se notifica por **Telegram**.
+Sistema de **monitoreo autónomo** para proveedores de Internet **FTTH/GPON**. Recopila datos de OLTs y MikroTiks vía **SNMP**, mide disponibilidad con **ICMP**, detecta **anomalías ópticas** con un **autoencoder** (PyTorch), correlaciona fallas con los **clientes afectados**, y genera **análisis y alertas automáticas** con un **agente LLM** (Ollama / OpenRouter / Anthropic). Todo se presenta en un **dashboard web** (FastAPI + InfluxDB + Redis) y se notifica por **Telegram**, con **reportes diarios illustrated** con gráficos.
 
-> **🔒 Nota de seguridad:** los secretos (tokens, passwords, communities SNMP, topología real) **no** se incluyen en el repositorio: se cargan desde `.env` / `.env.ia` y archivos de configuración ignorados por `.gitignore`. Ver [Seguridad](#-seguridad).
+> **🔒 Nota de seguridad:** los secretos (tokens, passwords, communities SNMP, topología real, datos de clientes) **no** se incluyen en el repositorio: se cargan desde `.env` / `.env.ia` y de archivos ignorados por `.gitignore`. Ver [Seguridad](#-seguridad).
 
 ---
 
@@ -32,15 +31,15 @@ Sistema de **monitoreo autónomo** para proveedores de Internet **FTTH/GPON**. R
 
 | 🛰️ Colectores SNMP | 🧠 Anomalías con IA | 📡 Monitoreo ICMP |
 |:---:|:---:|:---:|
-| Potencia óptica ONU (RX/TX dBm), puertos GE/PON, CPU/RAM/temp de OLTs y MikroTiks, tráfico de interfaces, errores, discards, PPPoE. | Detección de degradación óptica con **autoencoder** (umbral configurable y reentrenamiento diario). | Disponibilidad y latencia de equipos y DNS con alertas por caída y por recuperación. |
+| Potencia óptica ONU (RX/TX dBm), puertos GE/PON, CPU/RAM/temp de OLTs y MikroTiks, tráfico de interfaces, errores, discards, PPPoE, tabla MAC por ONU (SNMP **y** respaldo por panel web VSOL). | Detección de degradación óptica con **autoencoder** (umbral configurable y reentrenamiento diario). | Disponibilidad y latencia de equipos y DNS con alertas por caída y por recuperación, dedup por cambio de estado. |
 
-| 🔮 Predicción de fallas | 🤖 Agente LLM | 🧾 Correlación con clientes |
+| 🔮 Predicción de fallas | 🕵️ Ficha de clientes | 🤖 Agente LLM |
 |:---:|:---:|:---:|
-| Predice fallas a futuro según tendencias de degradación de potencia (horas estimadas). | Inspecciona la red con herramientas de solo lectura (`get_network_summary`, `lookup_client`, `clients_on_pon`…), correlaciona **OLT→PON→NAP→clientes** e informa. | Agrupa clientes afectados por **zona** y por **casilla PON** desde el CSV de suscripciones. |
+| Predice fallas a futuro según tendencias de degradación de potencia (horas estimadas). | **Buscador unificado** por documento, serial ONU, MAC, usuario PPPoE, nombre o dirección: ficha vital (WISP + Influx), estado, histórico de 30 días, Optical, y **análisis de grupo por zona/NAP** con clientes afectados. | Inspecciona la red con herramientas de solo lectura, correlaciona **OLT→PON→NAP→clientes** e informa con **Causa probable**. |
 
-| ⚡ Notificaciones Telegram | 📊 Dashboard en vivo | 🖥️ Operación simple |
+| ⚡ Telegram | 📊 Dashboards | 🧱 Operación |
 |:---:|:---:|:---:|
-| Alertas con cooldown, reportes programados con gráficos, resúmenes e incidencias **LOS / DyingGap**. | API REST FastAPI + panel web (MikroTiks, OLTs por puerto PON/ONU, anomalías, agentes, reportes). | Servicios **systemd** de usuario, `Podman` para InfluxDB y Redis (contenedores `influxdb-ia`/`redis-ia`). |
+| Alertas con dedup persistente y formato HTML unificado, reportes programados con **gráficos de tráfico**, resúmenes e incidencias **LOS / DyingGap**. | Panel web principal + **dashboards TV** `/backbone` y `/olts` (lienzo 1920×1080 escalado, sin datos fake, refresco 15 s) + mapa topológico interactivo. | 7 servicios **systemd de usuario** (`systemctl --user`, sin sudo) y 2 contenedores **Podman** (`influxdb-ia`, `redis-ia`). |
 
 ---
 
@@ -48,43 +47,124 @@ Sistema de **monitoreo autónomo** para proveedores de Internet **FTTH/GPON**. R
 
 ```mermaid
 flowchart LR
-    subgraph IN[📡 Ingestión]
+    subgraph SRC["🌐 Fuentes"]
         direction TB
-        COL["Colectores SNMP<br/>OLTs · MikroTiks"] --> IDB[("InfluxDB 2.x")]
-        PING["Monitoreo ICMP"] --> IDB
+        OLT["OLTs VSOL<br/>SNMP v2c"]:::src
+        MK["MikroTiks<br/>SNMP v2c"]:::src
+        PING["Equipos + DNS<br/>ICMP"]:::src
+        WISP["WISP / czwisp<br/>API REST"]:::src
+        WEBOLT["Panel web OLT<br/>respaldo MAC"]:::src
     end
 
-    subgraph AI[🧠 Inteligencia]
+    subgraph ING["📥 Ingestión"]
         direction TB
-        IDB --> AE["Autoencoder<br/>detección de anomalías"]
-        AE --> PRED["Predicción de fallas"]
-        AG["Agente LLM<br/>Ollama · OpenRouter · Anthropic"]
-        AG --> TOOLS["Herramientas solo-lectura"]
-        TOOLS --> IDB
+        COL["Colectores SNMP<br/>OLT · MikroTik"]:::ing
+        PC["Colector ICMP"]:::ing
+        WC["Cliente WISP"]:::ing
+        WC2["MAC por ONU<br/>SNMP + web"]:::ing
     end
 
-    subgraph OUT[📤 Salidas]
+    subgraph STORE["🗄️ Estado"]
         direction TB
-        IDB --> API["API FastAPI · Dashboard"]
-        PRED --> AL["Alertas Telegram · Reportes"]
-        AG --> AL
-        API --> WEB["Panel web"]
-        AL --> TG([Telegram])
+        IDB[("InfluxDB 2.7<br/>bucket: monitoreo")]:::store
+        RDS[("Redis 7<br/>ClientStore")]:::store
+        RAG[("ChromaDB<br/>memoria RAG")]:::store
     end
 
-    AE --> AL
+    subgraph INT["🧠 Inteligencia"]
+        direction TB
+        ENR["Enriquecedor<br/>WISP + OLT + MikroTik"]:::brain
+        AE["Autoencoder<br/>anomalías ópticas"]:::brain
+        PRED["Predicción de fallas"]:::brain
+        FD["Detector de fallas<br/>NAP / OLT"]:::brain
+        AG["Agente LLM<br/>herramientas solo lectura"]:::brain
+    end
 
-    classDef ingest fill:#0f2e4d,stroke:#22d3ee,color:#e0f2fe;
+    subgraph SRV["⚙️ Servicios"]
+        direction TB
+        SCH["Scheduler<br/>reportes · health · RAG"]:::svc
+        BOT["Bot Telegram"]:::svc
+        WISPA["Agente WISP 24/7"]:::svc
+    end
+
+    subgraph OUT["📤 Salidas"]
+        direction TB
+        API["API FastAPI<br/>:8000"]:::out
+        DASH["Dashboard web<br/>/ · /backbone · /olts"]:::out
+        AL["Alertas + reportes<br/>con gráficos"]:::out
+        TG(["Telegram"]):::out
+    end
+
+    OLT --> COL
+    MK --> COL
+    WEBOLT --> WC2
+    PING --> PC
+    WISP --> WC
+
+    COL --> IDB
+    PC --> IDB
+    WC --> IDB
+    WC2 --> IDB
+
+    ENR --> IDB
+    SCH --> RDS
+    ENR --> RDS
+    AG --> RAG
+
+    IDB --> AE
+    AE --> PRED
+    IDB --> FD
+    IDB --> AG
+    RDS -.-> API
+    RDS -.-> AG
+
+    IDB --> API
+    API --> DASH
+
+    PRED --> AL
+    FD --> AL
+    AG --> AL
+    WISPA --> AL
+    SCH --> AL
+    AL --> TG
+    BOT --> TG
+
+    classDef src fill:#0b2b3d,stroke:#38bdf8,color:#e0f2fe;
+    classDef ing fill:#0f2e4d,stroke:#22d3ee,color:#e0f2fe;
     classDef store fill:#052e16,stroke:#4ade80,color:#dcfce7;
     classDef brain fill:#2e1065,stroke:#a78bfa,color:#ede9fe;
+    classDef svc fill:#422006,stroke:#fbbf24,color:#fef3c7;
     classDef out fill:#3b0a45,stroke:#e879f9,color:#fae8ff;
-    class COL,PING ingest;
-    class IDB store;
-    class AE,AG,TOOLS,PRED brain;
-    class API,WEB,AL,TG out;
 ```
 
-Los componentes corren como **servicios systemd de usuario** (`systemctl --user`, sin sudo); InfluxDB y Redis corren en contenedores **Podman** (`influxdb-ia`, `redis-ia`) vía `compose.yml`.
+**Cómo circula el dato:** los colectores escriben en **InfluxDB** (fuente de verdad). El **enriquecedor** cruza WISP + OLT + MikroTik y publica un snapshot de fichas en **Redis** (`ClientStore`) que el scheduler reconstruye periódicamente; el buscador de clientes y el agente LLM lo consultan sin golpear InfluxDB por request (si Redis no está, caen a consultas directas). El **autoencoder** marca anomalías ópticas y el **detector de fallas** agrupa por NAP/OLT; ambos alimentan las alertas. El **agente LLM** usa herramientas de solo lectura para explicar causas. El **scheduler** dispara el reporte diario con gráficos y los reindexados de RAG.
+
+---
+
+## 🧱 Componentes y servicios
+
+Los procesos de aplicación corren como **servicios systemd de usuario** (`systemctl --user`, sin sudo). InfluxDB y Redis corren como **contenedores Podman**.
+
+### Contenedores (`compose.yml`)
+
+| Contenedor | Imagen | Puerto | Función | Volumen |
+|:---|:---|:---:|:---|:---|
+| `influxdb-ia` | `docker.io/library/influxdb:2.7` | `8086` | Base de datos de series de tiempo (org `vidanet`, bucket `monitoreo`) | `./influxdb/data`, `./influxdb/config` |
+| `redis-ia` | `docker.io/library/redis:7-alpine` | `6379` | Cache `ClientStore` (fichas de clientes, índices y grupos) | `./redis/data` |
+
+### Servicios de aplicación
+
+| Servicio | Módulo | Función |
+|:---|:---|:---|
+| `collector` | `src.collectors.main` | SNMP (OLT + MikroTik), MAC por ONU, ICMP, muestreo de tráfico |
+| `api` | `src.api.main` (uvicorn `:8000`) | API REST + dashboard web |
+| `ai-agent` | `src.ai.main` | Autoencoder, anomalías, predicciones, alertas IA |
+| `llm-agent` | `src.ai.llm_agent.main` | Agente LLM con herramientas de solo lectura |
+| `wisp-agent` | `src.ai.agent_loop` | Agente WISP 24/7 (correlación de fallas y alertas) |
+| `scheduler` | `src.scheduler_cli` | Reportes, health checks, reindexado RAG, reconstrucción de `ClientStore` |
+| `bot` | `src.telegram_bot` | Bot interactivo de Telegram |
+
+> **Opción "todo en uno":** el unit `agente-monitor.service` ejecuta `scripts/start-all.sh`, que lanza **collector + api + ai-agent + llm-agent** en un solo proceso supervisor (con espera a que InfluxDB esté healthy). Los otros tres (`wisp-agent`, `scheduler`, `bot`) siguen como units separados para no duplicar procesos.
 
 ---
 
@@ -96,34 +176,59 @@ Los componentes corren como **servicios systemd de usuario** (`systemctl --user`
 ```
 agente-monitor/
 ├── src/
-│   ├── main.py                  # Agente base (eventos, legacy Zabbix)
+│   ├── main.py                  # Agente base (legacy)
 │   ├── config.py / config_ia.py # Configuración + variables de entorno
-│   ├── collectors/              # Colectores SNMP (OLT/MikroTik) + escaneo ONU
-│   ├── ai/                      # Motor IA: autoencoder, detección, agente LLM
-│   │   └── llm_agent/           # Agente LLM (herramientas de solo lectura)
-│   ├── api/                     # API FastAPI + dashboard (static/ y templates/)
-│   ├── reporte/                 # Generación de reportes y gráficos
-│   ├── storage/                 # Cliente InfluxDB
-│   ├── notifier*.py             # Notificaciones Telegram
-│   ├── grouper.py               # Agrupación de clientes por zona (ML)
-│   ├── client_enricher.py       # Cruce WISP + OLT + MikroTik → clientes_enriquecidos
-│   └── fault_detector.py        # Detección de caídas por NAP/OLT
+│   ├── collectors/              # Colectores SNMP (OLT/MikroTik), MAC por ONU, ICMP, tráfico
+│   │   ├── olt_collector.py     # OLTs VSOL: óptica, PON/ONU, GE, MAC (SNMP + web)
+│   │   ├── olt_web_mac.py       # Respaldo: tabla MAC desde el panel web VSOL
+│   │   ├── mikrotik_collector.py# MikroTiks: sistema, interfaces, temperatura
+│   │   └── ping_collector.py    # Disponibilidad ICMP
+│   ├── ai/                      # Motor IA: autoencoder, detección, correlación, agente LLM
+│   │   ├── main.py              # Loop de IA (anomalías, predicciones, alertas)
+│   │   ├── autoencoder.py       # Modelo de detección óptica
+│   │   ├── detector.py          # Reglas de anomalía
+│   │   ├── correlator.py        # Patrones (cascada, masa, recurrencia)
+│   │   ├── reasoner.py          # Análisis y LLM
+│   │   ├── rag.py / memory*.py  # Memoria RAG (ChromaDB)
+│   │   └── llm_agent/           # Agente LLM (agente, tools, providers, memoria)
+│   ├── api/                     # API FastAPI + dashboard
+│   │   ├── main.py              # App, auth, routers
+│   │   ├── auth.py              # API keys y roles (admin/operator/viewer)
+│   │   ├── influx_helper.py     # Helpers de consulta + estado del pipeline
+│   │   ├── snmp_live.py         # Consultas SNMP en vivo (modal de detalle)
+│   │   ├── routes/              # metrics, anomalies, health, nodes, devices,
+│   │   │                        # ping, reporte, traffic, tv, clientes, agent*
+│   │   └── static/              # index.html · backbone.html · olts.html
+│   ├── reporte/reporter.py      # Reportes Telegram + gráficos (matplotlib)
+│   ├── storage/influx_client.py # Cliente InfluxDB (requiere .connect())
+│   ├── redis_store.py           # ClientStore: snapshot de fichas en Redis
+│   ├── client_enricher.py       # Base de clientes enriquecidos
+│   ├── client_search.py         # Buscador unificado + análisis de grupo
+│   ├── wisp_client.py           # Cliente WISP/czwisp (+ lookup por serial)
+│   ├── fault_detector.py        # Caídas por NAP/OLT y clientes afectados
+│   ├── notifier_ai.py           # Telegram: alertas unificadas + reportes
+│   ├── alert_state.py           # Dedup persistente por estado
+│   ├── scheduler.py / scheduler_cli.py
+│   └── telegram_bot.py          # Bot interactivo
 ├── config/
 │   ├── config.yaml              # Config base del agente
-│   ├── config_ia.yaml           # Config IA/colectores/LLM/API
+│   ├── config_ia.yaml           # Config IA / colectores / LLM / API / Redis
 │   ├── nodes.yaml.example       # Plantilla de nodos (OLTs/MikroTiks)
 │   ├── ping_targets.yaml.example# Plantilla de blancos ICMP
 │   ├── instructions.json        # Instrucciones del agente IA
 │   ├── llm_config.json          # Config runtime del agente LLM
+│   ├── reporte-config.json      # Qué hosts/interfaces entran al reporte
 │   └── telegram-report-format.conf
-├── tests/                       # Suite de pruebas (pytest)
-├── assets/                      # Banner y recursos del README
-├── scripts/start-all.sh         # Arranque de todos los componentes
-├── mantenimiento.sh             # Atajos systemctl --user
-├── compose.yml                  # InfluxDB/Redis en Podman
-├── Dockerfile*                  # Imágenes por componente
+├── systemd/                     # Units de usuario (7 servicios + unidad unificada)
+├── scripts/                     # manage-services.sh · start-all.sh · seed_rag.py
+├── tests/                       # Suite pytest (333 tests)
+├── assets/                      # Banner del README
+├── docs/                        # Especificaciones y planes de diseño (por sesión)
+├── compose.yml                  # InfluxDB + Redis
+├── Dockerfile*                  # Imágenes por componente (api, ai, collector)
+├── mantenimiento.sh             # Atajos de systemctl --user
 ├── requirements.txt             # Dependencias base
-└── requirements-ia.txt          # Dependencias IA/API/test
+└── requirements-ia.txt          # Dependencias IA / API / test
 ```
 
 </details>
@@ -132,15 +237,15 @@ agente-monitor/
 
 ## 🪄 Requisitos
 
-- **Python 3.11+**
-- **InfluxDB 2.x** (recomendado vía `compose.yml`)
-- Acceso **SNMP** a OLTs y MikroTiks; **ICMP** a los blancos de ping
+- **Python 3.11+** (probado en 3.11 y 3.13)
+- **Podman** (o Docker) + `podman-compose` para InfluxDB y Redis
+- Acceso **SNMP** a OLTs y MikroTiks; **ICMP** a los blancos de ping; acceso **web/SSH** para respaldos
 - **Telegram Bot** para notificaciones *(opcional si se deshabilitan)*
 - **Ollama** o API OpenRouter/Anthropic *(solo si se usa el agente LLM)*
 
 ---
 
-## 🚀 Puesta en marcha
+## 🚀 Puesta en marcha (clone → operativo)
 
 ### 1 · Clonar y preparar el entorno
 
@@ -158,30 +263,14 @@ pip install -r requirements.txt -r requirements-ia.txt
 Los secretos nunca se editan en el código. Copia las plantillas y completa los valores:
 
 ```bash
-cp .env.example .env                          # secretos base (INFLUXDB_ADMIN_TOKEN)
-cp .env.ia.example .env.ia                    # secretos del sistema IA
-cp config/nodes.yaml.example config/nodes.yaml          # topología real
+cp .env.example .env                                # secretos base (INFLUXDB_ADMIN_TOKEN para compose)
+cp .env.ia.example .env.ia                          # secretos del sistema IA
+cp config/nodes.yaml.example config/nodes.yaml      # topología real
 cp config/ping_targets.yaml.example config/ping_targets.yaml
 ```
 
 > **⚠️ Importante:** `config/nodes.yaml` y `config/ping_targets.yaml` contienen IPs
 > internas y **communities SNMP** — están **excluidos de git** para evitar su publicación.
-
-| Variable | Descripción |
-| --- | --- |
-| `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram para alertas/reportes |
-| `TELEGRAM_CHAT_ID` | Chat o grupo donde se envían las notificaciones |
-| `INFLUXDB_URL` / `INFLUXDB_TOKEN` | Endpoint y token de InfluxDB |
-| `INFLUXDB_ORG` / `INFLUXDB_BUCKET` | Organización y bucket de InfluxDB |
-| `INFLUXDB_ADMIN_TOKEN` | Token admin inicial (usado por `compose.yml`) |
-| `SNMP_COMMUNITY` | Community string SNMP de los equipos |
-| `SSH_USERNAME` / `SSH_PASSWORD` | Credenciales SSH para verificación de fallas |
-| `API_KEY` | API key **admin** de la API (obligatoria) |
-| `API_KEY_VIEWER` / `API_KEY_OPERATOR` | API keys de solo lectura / operador (opcional) |
-| `ALLOWED_ORIGINS` | Orígenes CORS permitidos (vacíos = *same-origin*) |
-| `ENABLE_HSTS` | HSTS solo si se sirve HTTPS con certificado válido |
-| `OPENROUTER_API_KEY` | API key si el LLM usa OpenRouter |
-| `CONFIG_PATH` | Ruta del archivo de configuración |
 
 Genera claves seguras con:
 
@@ -189,58 +278,126 @@ Genera claves seguras con:
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-### 3 · Iniciar InfluxDB
+#### Variables de entorno (`.env.ia`)
+
+| Variable | Descripción |
+| --- | --- |
+| `INFLUXDB_URL` / `INFLUXDB_TOKEN` | Endpoint y token de InfluxDB |
+| `INFLUXDB_ORG` / `INFLUXDB_BUCKET` | Organización y bucket de InfluxDB |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Bot y destino de las notificaciones |
+| `SNMP_COMMUNITY` | Community string SNMP de los equipos |
+| `SSH_USERNAME` / `SSH_PASSWORD` | Credenciales SSH para verificación de fallas |
+| `WISP_API_KEY` / `WISP_ISP_SLUG` | API de WISP/czwisp (base de clientes) |
+| `WISP_LIST_ENDPOINT` / `WISP_DOCUMENT_ENDPOINT` / `WISP_SERIAL_ENDPOINT` | Endpoints de WISP (listado, documento, serial ONU) |
+| `WISP_DOCUMENTOS_CSV` | Semilla CSV local de documentos |
+| `OLT_WEB_ENABLED` / `OLT_WEB_USER` / `OLT_WEB_PASSWORD` | Panel web VSOL (respaldo de MAC por ONU) |
+| `REDIS_URL` | Redis del `ClientStore` (opcional; hay fallback a InfluxDB) |
+| `API_KEY` | API key **admin** de la API (obligatoria) |
+| `API_KEY_OPERATOR` / `API_KEY_VIEWER` | API keys de operador / solo lectura (opcional) |
+| `ALLOWED_ORIGINS` | Orígenes CORS permitidos (vacíos = *same-origin*) |
+| `ENABLE_HSTS` | HSTS solo si se sirve HTTPS con certificado válido |
+| `CONFIG_PATH` / `NODES_PATH` / `MODEL_PATH` / `PING_TARGETS_PATH` | Rutas de configuración y del modelo |
+| `INFLUXDB_ADMIN_TOKEN` (en `.env`) | Token admin inicial que consume `compose.yml` |
+
+### 3 · Levantar los contenedores (InfluxDB + Redis)
 
 ```bash
 podman compose up -d
-# o bien:  systemctl --user start influxdb-ia.service
+podman ps            # influxdb-ia y redis-ia en Up
 ```
+
+> **Nota:** si `redis-ia` reinicia en bucle (`restart counter` alto), el motivo suele ser
+> que el directorio `redis/data` no es escribible por el usuario del contenedor. Solución:
+> `mkdir -p redis/data && chmod 777 redis/data && systemctl --user restart redis-ia.service`.
 
 Tráfico histórico de interfaces usa el bucket `monitoreo`. Para conservar ≥1 año de
 datos extender la retención (ejecutar una sola vez, 400 días = 9600h):
 
 ```bash
-docker exec influxdb-ia influx bucket list \
+podman exec influxdb-ia influx bucket list \
   --token "$INFLUXDB_ADMIN_TOKEN" --org vidanet   # anotar el id del bucket "monitoreo"
-docker exec influxdb-ia influx bucket update \
+podman exec influxdb-ia influx bucket update \
   --id <id-del-bucket> --retention 9600h \
   --token "$INFLUXDB_ADMIN_TOKEN" --org vidanet
 ```
 
-### 4 · Ejecutar el agente
-
-Un comando lanza collector + API + IA + LLM (espera a que InfluxDB esté healthy):
+### 4 · Instalar y arrancar los servicios
 
 ```bash
-./scripts/start-all.sh
+# Instalar los units de usuario (7 servicios + la unidad unificada)
+./scripts/manage-services.sh install all
+systemctl --user daemon-reload
+
+# Arrancar todo
+./scripts/start-all.sh          # collector + api + ai-agent + llm-agent (espera a InfluxDB)
 ```
 
-Con systemd puedes usar los atajos:
+O serviço por servicio:
+
+```bash
+./scripts/manage-services.sh start collector
+./scripts/manage-services.sh start api
+./scripts/manage-services.sh start ai-agent
+./scripts/manage-services.sh start llm-agent
+./scripts/manage-services.sh start wisp-agent
+./scripts/manage-services.sh start scheduler
+./scripts/manage-services.sh start bot
+
+./scripts/manage-services.sh status        # estado de los 7 servicios
+./scripts/manage-services.sh enable all    # (o por servicio) arranque automático
+```
+
+Atajos equivalentes:
 
 ```bash
 ./mantenimiento.sh --ready    # iniciar todo y esperar a que esté operativo
-./mantenimiento.sh --status   # estado de los servicios
+./mantenimiento.sh --status   # estado
 ./mantenimiento.sh --now      # detener todo
 ```
 
-Componentes individuales:
+> `start-all.sh` y los units usan `.env.ia` para los secretos y aplican los `defaults`
+> de rutas (`CONFIG_PATH`, `NODES_PATH`, `MODEL_PATH`, `INSTRUCTIONS_PATH`).
 
-| Componente | Comando |
-| --- | --- |
-| Colectores SNMP | `python -m src.collectors.main` |
-| Dashboard / API | `uvicorn src.api.main:app --host 0.0.0.0 --port 8000` |
-| Motor IA | `python -m src.ai.main` |
-| Agente LLM | `python -m src.ai.llm_agent.main` |
+El dashboard queda en `http://<host>:8000/` (protegido con API key vía `X-API-Key` o login web).
 
-El dashboard queda en `http://<host>:8000/` (protegido con API key vía `X-API-Key`).
-
-### 5 · Containers (opcional)
+### 5 · Verificar
 
 ```bash
-podman build -f Dockerfile.ai -t agente-monitor-ai .
-podman build -f Dockerfile.collector -t agente-monitor-collector .
-podman build -f Dockerfile.api -t agente-monitor-api .
+curl -s localhost:8000/health                 # salud de la API
+curl -s localhost:8000/api/v1/health/pipeline  # frescura de cada pipeline de ingesta
+curl -s localhost:8000/api/reporte/status      # estado del reporte
 ```
+
+### 6 · Imágenes Docker/Podman (opcional)
+
+```bash
+podman build -f Dockerfile.collector -t agente-monitor-collector .
+podman build -f Dockerfile.api       -t agente-monitor-api .
+podman build -f Dockerfile.ai        -t agente-monitor-ai .
+```
+
+---
+
+## 🔌 API (resumen)
+
+Todas las rutas requieren API key salvo `/health` y el login. Prefijos bajo `/api`:
+
+| Grupo | Rutas |
+| --- | --- |
+| Métricas | `/api/v1/metrics/{optical,olt,interfaces,mikrotik,mikrotik/interfaces/history,…}` |
+| Anomalías | `/api/v1/anomalies/{,predictions,history,recent,summary}` |
+| Salud | `/api/v1/health/{,collectors,pipeline,ai}` |
+| Dispositivos | `/api/devices/{all,search,mikrotik/{ip}/interfaces,olt/{ip},refresh/…}` |
+| Nodos | `/api/nodes/{summary,validate,…}` (CRUD de nodos, MikroTiks y OLTs) |
+| Clientes | `/api/clientes/{buscar,{documento},vital,vital/batch,grupo,grupo/analizar,…}` |
+| Ping | `/api/ping/{status,targets}` |
+| Reporte | `/api/reporte/{config,status,generate,trigger-alerts,discover}` |
+| Tráfico | `/api/v1/traffic/{live,history}` |
+| Agente IA | `/api/agent/{status,clients/lookup,…}`, `/api/agent/llm/{status,config,chat,…}` |
+| Operaciones | `/api/services`, `/api/config`, `/api/rag/reindex`, `/api/audit`, `/api/eventbus/…` |
+| TV | `/api/tv/config` |
+
+**Autenticación:** `X-API-Key` con roles `admin` (todo), `operator` (lectura + configuración LLM) y `viewer` (solo lectura). Si no hay API key configurada, la API rechaza peticiones.
 
 ---
 
@@ -248,17 +405,18 @@ podman build -f Dockerfile.api -t agente-monitor-api .
 
 ```bash
 source venv/bin/activate
-pytest
+pytest                 # usa pytest.ini (testpaths = tests)
 ```
 
-Suite actual: **80 tests** · `pytest` + `pytest-asyncio`.
+Suite actual: **333 tests** · `pytest` + `pytest-asyncio`. Cubren colectores, detección de anomalías, correlación de fallas, buscador y analizador de clientes, WISP/czwisp, Redis (`ClientStore`), rutas de la API, dashboard TV, alertas y dedup, y el reporte de Telegram.
 
 ---
 
 ## 🔒 Seguridad
 
-- Los secretos **nunca se versionan**: `.env`, `.env.ia`, `backups/`, `logs/`, `apis.md` (tokens), `config/nodes.yaml` y `config/ping_targets.yaml` (topología + communities SNMP) e `influxdb/` (datos de clientes enriquecidos) están en `.gitignore`.
-- La API usa autenticación por API key con roles (`admin` / `operator` / `viewer`) y CORS restringido.
+- Los secretos **nunca se versionan**: `.env`, `.env.ia`, `backups/`, `logs/`, `apis.md` (tokens), `config/nodes.yaml` y `config/ping_targets.yaml` (topología + communities SNMP), `influxdb/`, `redis/`, `data/` (estado y RAG) están en `.gitignore`.
+- La API usa autenticación por API key con roles (`admin` / `operator` / `viewer`), CORS restringido y HSTS opcional.
+- Los datos de clientes se enmascaran según el rol del solicitante.
 - Si un secreto se filtra alguna vez, **rótalo inmediatamente** (asume que está comprometido).
 
 ---
