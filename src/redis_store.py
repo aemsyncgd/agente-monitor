@@ -33,6 +33,41 @@ _SEARCH_FIELDS = (
 )
 
 
+def _collapse_variants(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Colapsa variantes de tagset del mismo cliente en una sola ficha.
+
+    `clientes_enriquecidos` puede tener conviviendo una fila 'solo OLT' (sin
+    documento -> clave = serial) y una fila con PII para el mismo serial.
+    Sin colapso ambas se escribian y la busqueda exacta por serial devolvia
+    la vacia. Gana la mas rica (nombre > documento); las demas solo
+    rellenan campos que la ganadora trae vacios.
+    """
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    sin_ident: List[Dict[str, Any]] = []
+    for row in rows:
+        ident = _norm(row.get("serial_onu")) or _norm(row.get("documento"))
+        if not ident:
+            sin_ident.append(row)
+            continue
+        groups.setdefault(ident, []).append(row)
+    out: List[Dict[str, Any]] = list(sin_ident)
+    for variants in groups.values():
+        if len(variants) == 1:
+            out.append(variants[0])
+            continue
+        variants.sort(key=lambda r: (
+            bool(str(r.get("nombre") or "").strip()),
+            bool(str(r.get("documento") or "").strip()),
+        ), reverse=True)
+        base = dict(variants[0])
+        for extra in variants[1:]:
+            for k, v in extra.items():
+                if base.get(k) in (None, "") and v not in (None, ""):
+                    base[k] = v
+        out.append(base)
+    return out
+
+
 class ClientStore:
     """Snapshot de fichas en Redis. No debe usarse concurrentemente."""
     _PREFIX_CLI = "cli:"
@@ -53,6 +88,7 @@ class ClientStore:
             logger.warning("ClientStore sin redis; rebuild omitido")
             return 0
 
+        rows = _collapse_variants(rows)
         pipe = self._redis.pipeline(transaction=False)
         # limpiar snapshot anterior
         for key in self._scan_keys(self._PREFIX_CLI + "*"):

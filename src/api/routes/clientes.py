@@ -410,6 +410,12 @@ async def ficha(request: Request, documento: str):
     role = _role_from_request(request)
     row = _try_store(lambda s: s.get_ficha(documento)) or {}
     if not row:
+        # Acceso directo por serial ONU: las fichas con PII se guardan bajo
+        # su documento, pero el indice por serial las localiza.
+        docs = _try_store(lambda s: s.by_serial(documento)) or []
+        if docs:
+            row = (_try_store(lambda s: s.get_fichas(docs[:1])) or [{}])[0] or {}
+    if not row:
         row = get_client_by_documento(documento)
     if not row:
         row = get_pending_by_documento(documento)

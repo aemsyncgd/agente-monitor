@@ -158,3 +158,35 @@ def test_rebuild_almacena_fichas_sin_documento_por_serial(store):
     grupos = {g["clave"]: g for g in store.group_los([1, 4, 6], by="zona")}
     assert grupos["Zeta"]["total"] == 1
     assert grupos["Zeta"]["los"] == 1
+
+def test_rebuild_colapsa_variantes_del_mismo_serial(store):
+    """Mismo serial con fila 'solo OLT' (sin doc) y fila con PII: gana la PII
+    y la vacia no se escribe como ficha duplicada."""
+    rico = _row("55", serial_onu="GPON001", nombre="Cliente Rico",
+                coincidencia="serial")
+    solo_olt = _row("", serial_onu="GPON001", nombre="",
+                    coincidencia="olt_only", plan="50Mbps")
+    for k in ("documento", "usuario_pppoe", "mac"):
+        del solo_olt[k]
+    n = store.rebuild([rico, solo_olt])
+    assert n == 1
+    ficha = store.get_ficha("55")
+    assert ficha["nombre"] == "Cliente Rico"
+    # el plan solo lo traia la variante olt-only: se rellena en la ganadora
+    assert ficha["plan"] == "50Mbps"
+    # sin clave serial duplicada, pero el indice la encuentra
+    assert store.get_ficha("GPON001") is None
+    assert store.by_serial("GPON001") == ["55"]
+    assert store.search("GPON001") == ["55"]
+
+
+def test_rebuild_mantiene_solo_olt_si_no_hay_pii(store):
+    """Sin variante con PII, la fila serial-keyed sigue existiendo."""
+    solo_olt = _row("", serial_onu="GPON002", nombre="",
+                    coincidencia="olt_only")
+    for k in ("documento", "usuario_pppoe", "mac"):
+        del solo_olt[k]
+    n = store.rebuild([solo_olt])
+    assert n == 1
+    assert store.get_ficha("GPON002") is not None
+    assert store.by_serial("GPON002") == ["GPON002"]
