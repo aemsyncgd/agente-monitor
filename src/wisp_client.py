@@ -260,6 +260,28 @@ class WispClient:
             logger.warning(f"Error HTTP czwisp ({url}): {e}")
             return None
 
+    def _get_ex(self, url: str) -> tuple:
+        """GET que distingue fallo transitorio de respuesta definitiva.
+
+        Returns (resp, ok):
+          - (resp, True)  → respuesta definitiva (incluye 404: recurso no existe)
+          - (None, False) → error de red / timeout / 5xx (reintentar pronto)
+        """
+        try:
+            self._pace()
+            resp = self.session.get(url, timeout=self.config.timeout_seconds)
+        except Exception as e:
+            logger.warning(f"Error HTTP czwisp ({url}): {e}")
+            return None, False
+        if getattr(resp, "status_code", 200) == 404:
+            return resp, True
+        try:
+            resp.raise_for_status()
+        except Exception as e:
+            logger.warning(f"Error HTTP czwisp ({url}): {e}")
+            return None, False
+        return resp, True
+
     # --- listado masivo (paginado) ---
     def fetch_list(self, force: bool = False) -> List[dict]:
         """Listado paginado de clientes. Sin endpoint configurado retorna []."""
@@ -313,11 +335,18 @@ class WispClient:
         return f"{url}{sep}page={page}&limit={self.config.page_size}"
 
     # --- lookup por documento ---
-    def fetch_by_document(self, documento: str) -> Optional[dict]:
-        """Lookup individual por documento. Respetando cooldown entre consultas."""
+    def fetch_by_document_ex(self, documento: str) -> tuple:
+        """Lookup por documento → (cliente|None, ok).
+
+        ok=False: fallo transitorio (red/5xx/cooldown) → el caller debe
+        reintentar pronto y NO registrar "no encontrado" en su estado.
+        ok=True:  respuesta definitiva (200 con o sin cliente, o 404).
+        """
         if not documento:
-            return None
+            return None, True
         endpoint = self.config.document_endpoint.strip()
+        if not endpoint:
+            return None, True
         url = self._get_url(endpoint)
         documento = _norm(documento)
         url = url.replace("{documento}", documento)
@@ -326,16 +355,18 @@ class WispClient:
         last = self._last_doc_lookup.get(documento, 0)
         cooldown = 1.0
         if now - last < cooldown:
-            return None
+            return None, False
         self._last_doc_lookup[documento] = now
 
-        resp = self._get(url)
+        resp, ok = self._get_ex(url)
         if resp is None:
-            return None
+            return None, False
+        if getattr(resp, "status_code", 200) == 404:
+            return None, True
         try:
             payload = resp.json()
         except Exception:
-            return None
+            return None, False
         # Respuesta czwisp anidada: {encontrado, total, servicios:[...]}
         services = extract_czwisp_servicios(payload)
         if services:
@@ -346,7 +377,7 @@ class WispClient:
             for k, v in cliente.items():
                 if v not in (None, "") and not first.get(k):
                     first[k] = v
-            return normalize_client(first)
+            return normalize_client(first), True
         # Devolver embedido o el objeto mismo
         inner = payload
         if isinstance(inner, dict):
@@ -358,38 +389,40 @@ class WispClient:
             known = set(["documento", "serial_onu", "usuario_pppoe", "nombre",
                          "nombre_cliente", "usuario", "serial", "documento_identidad"])
             if known.intersection(inner.keys()):
-                return normalize_client(inner)
-        return None
+                return normalize_client(inner), True
+        return None, True
+
+    def fetch_by_document(self, documento: str) -> Optional[dict]:
+        """Lookup individual por documento. Respetando cooldown entre consultas."""
+        return self.fetch_by_document_ex(documento)[0]
 
     # --- lookup por serial ONU (servicio) ---
-    def fetch_by_serial(self, serial: str, force: bool = False) -> Optional[dict]:
-        """Lookup individual por serial ONU vía `serial_endpoint`.
-
-        Usa caché en memoria por serial con TTL = cache_hours; un serial que
-        WISP no conoce también se guarda (None) para no re-consultarlo en el
-        mismo ciclo. El pacing (`min_interval_ms`) se aplica en `_get`.
-        """
+    def fetch_by_serial_ex(self, serial: str, force: bool = False) -> tuple:
+        """Lookup por serial → (cliente|None, ok). Ver `fetch_by_document_ex`."""
         if not serial:
-            return None
+            return None, True
         serial = _norm(serial).upper()
         endpoint = self.config.serial_endpoint.strip()
         if not endpoint:
             logger.info("WISP serial_endpoint no configurado; se omite lookup por serial")
-            return None
+            return None, True
 
         ttl = self.config.cache_hours * 3600
         cached = self._serial_cache.get(serial)
         if not force and cached and time.time() - cached[0] < ttl:
-            return cached[1]
+            return cached[1], True
 
         url = self._get_url(endpoint).replace("{serial}", serial)
-        resp = self._get(url)
+        resp, ok = self._get_ex(url)
         if resp is None:
-            return None
+            return None, False
+        if getattr(resp, "status_code", 200) == 404:
+            self._serial_cache[serial] = (time.time(), None)
+            return None, True
         try:
             payload = resp.json()
         except Exception:
-            return None
+            return None, False
 
         services = extract_czwisp_servicios(payload)
         result: Optional[dict] = None
@@ -400,7 +433,16 @@ class WispClient:
             if result.get("serial_onu") != serial:
                 result["serial_onu"] = serial
         self._serial_cache[serial] = (time.time(), result)
-        return result
+        return result, True
+
+    def fetch_by_serial(self, serial: str, force: bool = False) -> Optional[dict]:
+        """Lookup individual por serial ONU vía `serial_endpoint`.
+
+        Usa caché en memoria por serial con TTL = cache_hours; un serial que
+        WISP no conoce también se guarda (None) para no re-consultarlo en el
+        mismo ciclo. El pacing (`min_interval_ms`) se aplica en `_get`.
+        """
+        return self.fetch_by_serial_ex(serial, force=force)[0]
 
     def clear_serial_cache(self) -> None:
         self._serial_cache.clear()
