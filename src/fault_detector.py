@@ -381,16 +381,21 @@ class FaultDetector:
             if not self._notify:
                 continue
             extra = {}
-            if self.group_analyzer and info.get("serials"):
+            # `serials`/`clients` son para el analyzer, no para el notifier:
+            # despacharlos via **info rompia send_area_alert (kw inesperado).
+            serials = info.get("serials")
+            if self.group_analyzer and serials:
                 try:
-                    res = self.group_analyzer(list(info["serials"]))
+                    res = self.group_analyzer(list(serials))
                     if res:
                         extra["affected"] = res.get("afectados", [])
                         extra["scope_detail"] = res.get("scope") or ""
                 except Exception as e:
                     logger.warning(f"group_analyzer falló: {e}")
+            notify_kwargs = {k: v for k, v in info.items()
+                             if k not in ("serials", "clients")}
             if self.notifier.send_area_alert(
-                **info, kind="down", duration_minutes=0, **extra,
+                **notify_kwargs, kind="down", duration_minutes=0, **extra,
             ):
                 self._state.record(key, {"status": "down"},
                                    down_since=time.time())
