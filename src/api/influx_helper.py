@@ -1,9 +1,10 @@
 # src/api/influx_helper.py
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import logging
+import re
 import threading
 import time
 from typing import Optional, List, Dict, Any
@@ -130,6 +131,11 @@ def _query(flux: str) -> List[Dict[str, Any]]:
                     pass
                 try:
                     row["field"] = record.get_field()
+                except Exception:
+                    pass
+                try:
+                    # get_field() lanza si la consulta es agregada (count, ...);
+                    # get_value() sí existe -> no encadenarlos en un solo try.
                     row["value"] = record.get_value()
                 except Exception:
                     pass
@@ -518,12 +524,37 @@ def get_enriched_clients(
     `last()` por serie + merge en Python agrupando por serial/mac/documento.
     El pivot original (`group+last+pivot`) colisionaba por tipos mixtos
     (`estado_onu` integer vs strings) y devolvia 0 filas con ~14s de latencia.
-    `search`/`pon` y los filtros se aplican en Python (evita inyeccion Flux).
+
+    Filtros de tag (olt/nap/zona y search-identificador) se empujan a Flux:
+    Influx los resuelve por indice de serie (~0.05s) en vez de escanear toda
+    la medicion (~80s). `search` con espacios (nombre) y `pon` se filtran en
+    Python (evita inyeccion Flux y no son tags).
     """
+    def _tag_re(value) -> str:
+        return f'/(?i)^{re.escape(str(value).strip())}$/'
+
+    tag_filters = ""
+    for col, val in (("olt", olt), ("nap", nap), ("zona", zona)):
+        if val:
+            tag_filters += (f'|> filter(fn: (r) => exists r["{col}"] and '
+                            f'r["{col}"] =~ {_tag_re(val)})\n')
+    needle = (search or "").strip()
+    if needle and " " not in needle:
+        # Identificador (serial/doc/mac/pppoe): filtro de tag indexado.
+        pat = _tag_re(needle)
+        tag_filters += (
+            '|> filter(fn: (r) =>'
+            f' (exists r["serial_onu"] and r["serial_onu"] =~ {pat}) or'
+            f' (exists r["documento"] and r["documento"] =~ {pat}) or'
+            f' (exists r["mac"] and r["mac"] =~ {pat}) or'
+            f' (exists r["usuario_pppoe"] and r["usuario_pppoe"] =~ {pat}))\n'
+        )
+
     flux = f'''
 from(bucket: "{INFLUX_BUCKET}")
     |> range(start: -{hours}h)
     |> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos")
+    {tag_filters}
     |> last()
     |> yield(name: "clientes_enriquecidos")
 '''
@@ -545,19 +576,23 @@ from(bucket: "{INFLUX_BUCKET}")
             row = {"_ts": 0.0, "_fts": {}}
             merged[key] = row
         fname = str(rec.get("field") or "")
-        if fname and ts >= row["_fts"].get(fname, -1.0):
+        if fname and rec.get("value") is not None and ts >= row["_fts"].get(fname, -1.0):
             row[fname] = rec.get("value")
             row["_fts"][fname] = ts
         if ts >= row["_ts"]:
+            # Un null de tag (serie sin esa columna) nunca debe tapar un
+            # valor real de otra variante de serie del mismo cliente.
             for k, v in rec.items():
-                if k not in ("time", "field", "value"):
+                if k not in ("time", "field", "value") and v is not None:
                     row[k] = v
             row["_ts"] = ts
 
     rows: List[Dict[str, Any]] = []
     for row in merged.values():
         row.pop("_fts", None)
-        row.pop("_ts", None)
+        ts = row.pop("_ts", None)
+        row["time"] = (datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+                       if ts else None)
         rows.append(row)
 
     if olt:
@@ -703,36 +738,47 @@ def search_clientes(
 
 
 def get_clientes_stats(hours: int = 168) -> Dict[str, Any]:
-    """Totales de enriquecidos / pendientes / descuadrados para el panel."""
-    def _count_measurement(measurement: str, extra: str = "") -> int:
+    """Totales de enriquecidos / pendientes / descuadrados para el panel.
+
+    Cuenta clientes DISTINTOS (group+last por clave), no puntos: el conteo
+    plano de puntos devolia ~1.2M porque cada cliente se re-escribe cada
+    ciclo. Las tres consultas corren en paralelo (~4s en total).
+    """
+    def _count_distinct(group_key: str, measurement: str,
+                        extra: str = "") -> int:
         flux = f'''
 from(bucket: "{INFLUX_BUCKET}")
     |> range(start: -{hours}h)
     |> filter(fn: (r) => r["_measurement"] == "{measurement}")
     {extra}
+    |> group(columns: ["{group_key}"])
+    |> last()
     |> group()
     |> count()
     |> yield(name: "count")
 '''
         rows = _query(flux)
-        if rows and "value" in rows[0]:
-            val = rows[0]["value"]
-            return int(val) if val is not None else 0
+        if rows and rows[0].get("value") is not None:
+            try:
+                return int(rows[0]["value"])
+            except (TypeError, ValueError):
+                return 0
         return 0
 
-    def _count_field(measurement: str, field: str) -> int:
-        return _count_measurement(
-            measurement,
-            f'|> filter(fn: (r) => r["_field"] == "{field}")\n',
-        )
-
-    total = _count_field("clientes_enriquecidos", "estado_onu")
-    descuadrados = _count_measurement(
-        "clientes_enriquecidos",
-        '|> filter(fn: (r) => r["_field"] == "estado_onu")\n'
-        '|> filter(fn: (r) => r["ubicacion_descuadrada"] == "true")\n',
-    )
-    pendientes = _count_field("clientes_pendientes", "nombre")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        fut_total = pool.submit(
+            _count_distinct, "serial_onu", "clientes_enriquecidos",
+            '|> filter(fn: (r) => r["_field"] == "estado_onu")\n')
+        fut_desc = pool.submit(
+            _count_distinct, "serial_onu", "clientes_enriquecidos",
+            '|> filter(fn: (r) => r["_field"] == "estado_onu")\n'
+            '|> filter(fn: (r) => r["ubicacion_descuadrada"] == "true")\n')
+        fut_pend = pool.submit(
+            _count_distinct, "documento", "clientes_pendientes",
+            '|> filter(fn: (r) => r["_field"] == "nombre")\n')
+        total = fut_total.result()
+        descuadrados = fut_desc.result()
+        pendientes = fut_pend.result()
     return {
         "enriquecidos": total,
         "descuadrados": descuadrados,
