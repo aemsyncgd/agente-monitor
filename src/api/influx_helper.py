@@ -1,6 +1,7 @@
 # src/api/influx_helper.py
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 import os
 import logging
 import threading
@@ -282,9 +283,9 @@ def get_interfaces(
     `minutes` controla la ventana de busqueda; las OLTs escriben cada ~15-20 min,
     por lo que se usa una ventana de 25 min para capturar siempre la ultima tasa.
 
-    Solo se traen los campos `rx_bps`/`tx_bps` (los unicos que consumen los
-    dashboards): reduce el volumen del pivot y evita el timeout en la consulta
-    "todas las OLTs" bajo carga de InfluxDB.
+    Se traen `rx_bps`/`tx_bps` (los que consumen los dashboards de tasa) mas
+    `ifOperStatus`, del que depende el modal de NODOS para pintar Up/Down en las
+    interfaces PON. Omitirlo hace que todos los PON aparezcan Down.
     """
     device_filter = ""
     if device_name:
@@ -295,7 +296,7 @@ from(bucket: "{INFLUX_BUCKET}")
     |> range(start: -{minutes}m)
     |> filter(fn: (r) => r["_measurement"] == "interface_traffic")
     {device_filter}
-    |> filter(fn: (r) => r["_field"] == "rx_bps" or r["_field"] == "tx_bps")
+    |> filter(fn: (r) => r["_field"] == "rx_bps" or r["_field"] == "tx_bps" or r["_field"] == "ifOperStatus")
     |> last()
     |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
     |> yield(name: "interface_traffic")
@@ -320,7 +321,13 @@ def get_olt_power(
     online_only: bool = False,
     minutes: int = 45,
 ) -> List[Dict[str, Any]]:
-    """Estado ONU (status, serial, rx/tx power) por OLT, ultima medicion por ONU."""
+    """Estado ONU (status, serial, rx/tx power) por OLT, ultima medicion por ONU.
+
+    Una fila por ONU: el pivot es por identidad de ONU y no por `_time` porque
+    el estado y la potencia de una misma ONU se escriben en instantes distintos
+    (fase ONUs y fase optica). Pivotando por `_time` cada ONU se partia en dos
+    filas y el modal mostraba "—" justamente en la que trae el estado.
+    """
     if olt_name is None and not online_only:
         return _dash_cache("olt_power", _query_olt_power, olt_name, online_only, minutes)
     return _query_olt_power(olt_name, online_only, minutes)
@@ -343,7 +350,7 @@ from(bucket: "{INFLUX_BUCKET}")
     |> filter(fn: (r) => r["_measurement"] == "optical_power")
     {filters}
     |> last()
-    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> pivot(rowKey: ["olt_name", "onu_index"], columnKey: ["_field"], valueColumn: "_value")
     |> yield(name: "optical_power")
 '''
     return _query(flux)
@@ -386,7 +393,7 @@ from(bucket: "{INFLUX_BUCKET}")
     |> filter(fn: (r) => r["_measurement"] == "optical_power")
     {filters}
     |> last()
-    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> pivot(rowKey: ["olt_name", "onu_index"], columnKey: ["_field"], valueColumn: "_value")
     |> yield(name: "optical_power")
 '''
     return _query(flux)
@@ -485,6 +492,18 @@ def _client_kw_match(row: Dict[str, Any], needle: str) -> bool:
     )
 
 
+def _row_ts(value: Any) -> float:
+    """Timestamp comparable (epoch) de un `time` ISO de Influx."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return datetime.fromisoformat(str(value)).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def get_enriched_clients(
     search: Optional[str] = None,
     olt: Optional[str] = None,
@@ -496,37 +515,64 @@ def get_enriched_clients(
 ) -> List[Dict[str, Any]]:
     """Clientes enriquecidos (clientes_enriquecidos), ultima fila por cliente.
 
-    Agrupacion por mac+serial_onu para no colapsar filas OLT-only (sin mac).
-    `search` se aplica en Python (case-insensitive) para evitar inyeccion Flux;
-    `olt`/`nap`/`zona` se aplican en el query (tags); `pon` se filtra en Python
-    sobre el field `pon_port` (post-pivot).
+    `last()` por serie + merge en Python agrupando por serial/mac/documento.
+    El pivot original (`group+last+pivot`) colisionaba por tipos mixtos
+    (`estado_onu` integer vs strings) y devolvia 0 filas con ~14s de latencia.
+    `search`/`pon` y los filtros se aplican en Python (evita inyeccion Flux).
     """
-    filters = ""
-    if olt:
-        filters += f'|> filter(fn: (r) => r["olt"] == "{olt}")'
-    if nap:
-        filters += f'|> filter(fn: (r) => r["nap"] == "{nap}")'
-    if zona:
-        filters += f'|> filter(fn: (r) => r["zona"] == "{zona}")'
-
     flux = f'''
 from(bucket: "{INFLUX_BUCKET}")
     |> range(start: -{hours}h)
     |> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos")
-    {filters}
-    |> group(columns: ["mac", "serial_onu"], mode: "by")
     |> last()
-    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-    |> sort(columns: ["olt", "nap"])
     |> yield(name: "clientes_enriquecidos")
 '''
-    rows = _query(flux)
+    records = _query(flux)
+    merged: Dict[str, Dict[str, Any]] = {}
+    for rec in records:
+        key = (str(rec.get("serial_onu") or "")
+               or str(rec.get("mac") or "")
+               or str(rec.get("documento") or "")
+               or str(rec.get("usuario_pppoe") or ""))
+        if not key:
+            key = "|".join(
+                f"{k}={v}" for k, v in sorted(
+                    (k, v) for k, v in rec.items()
+                    if k not in ("time", "field", "value")))
+        ts = _row_ts(rec.get("time"))
+        row = merged.get(key)
+        if row is None:
+            row = {"_ts": 0.0, "_fts": {}}
+            merged[key] = row
+        fname = str(rec.get("field") or "")
+        if fname and ts >= row["_fts"].get(fname, -1.0):
+            row[fname] = rec.get("value")
+            row["_fts"][fname] = ts
+        if ts >= row["_ts"]:
+            for k, v in rec.items():
+                if k not in ("time", "field", "value"):
+                    row[k] = v
+            row["_ts"] = ts
+
+    rows: List[Dict[str, Any]] = []
+    for row in merged.values():
+        row.pop("_fts", None)
+        row.pop("_ts", None)
+        rows.append(row)
+
+    if olt:
+        rows = [r for r in rows if (r.get("olt") or "") == olt]
+    if nap:
+        rows = [r for r in rows if (r.get("nap") or "") == nap]
+    if zona:
+        rows = [r for r in rows if (r.get("zona") or "") == zona]
     if search:
         needle = search.strip().lower()
         rows = [r for r in rows if _client_kw_match(r, needle)]
     if pon:
         needle_pon = str(pon).strip().lower()
         rows = [r for r in rows if needle_pon in (r.get("pon_port") or "").lower()]
+    rows.sort(key=lambda r: (str(r.get("olt") or ""), str(r.get("nap") or "")))
     return rows[:limit]
 
 
@@ -581,6 +627,55 @@ from(bucket: "{INFLUX_BUCKET}")
     return rows[0] if rows else {}
 
 
+def get_pending_filtered(search: Optional[str] = None,
+                         nap: Optional[str] = None,
+                         zona: Optional[str] = None,
+                         limit: int = 500,
+                         hours: int = 168) -> List[Dict[str, Any]]:
+    """Pendientes normalizados al shape de enriquecidos y filtrados.
+
+    Los pendientes se marcan con `pendiente: "true"`; `olt` no aplica (una
+    fila pendiente todavia no cruza ONU), solo nap/zona/search.
+    """
+    if limit <= 0:
+        return []
+    pend_rows = get_pending_clients(hours=hours, limit=limit)
+    needle = (search or "").strip().lower()
+    out: List[Dict[str, Any]] = []
+    for p in pend_rows:
+        normalized = {
+            "documento": p.get("documento", ""),
+            "usuario_pppoe": p.get("usuario_pppoe", ""),
+            "serial_onu": p.get("serial_onu", ""),
+            "mac": "",
+            "nombre": p.get("nombre", ""),
+            "direccion": "",
+            "olt": "",
+            "nodo": "",
+            "nap": p.get("nap", ""),
+            "zona": p.get("zona", ""),
+            "estado_onu": -1,
+            "coincidencia": "",
+            "ubicacion_descuadrada": "false",
+            "telefono": "",
+            "time": p.get("time"),
+            "causa": p.get("causa", ""),
+            "pendiente": "true",
+            "estado_servicio": "",
+            "pppoe_status": "",
+        }
+        if nap and (normalized["nap"] or "").lower() != str(nap).strip().lower():
+            continue
+        if zona and (normalized["zona"] or "").lower() != str(zona).lower():
+            continue
+        if needle and not _client_kw_match(normalized, needle):
+            continue
+        out.append(normalized)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def search_clientes(
     search: Optional[str] = None,
     olt: Optional[str] = None,
@@ -600,39 +695,10 @@ def search_clientes(
         search=search, olt=olt, nap=nap, zona=zona, limit=limit, hours=hours,
     )
     if include_pending and len(rows) < limit:
-        pend_rows = get_pending_clients(hours=hours, limit=limit)
-        needle = (search or "").strip().lower()
-        for p in pend_rows:
-            normalized = {
-                "documento": p.get("documento", ""),
-                "usuario_pppoe": p.get("usuario_pppoe", ""),
-                "serial_onu": p.get("serial_onu", ""),
-                "mac": "",
-                "nombre": p.get("nombre", ""),
-                "direccion": "",
-                "olt": "",
-                "nodo": "",
-                "nap": p.get("nap", ""),
-                "zona": p.get("zona", ""),
-                "estado_onu": -1,
-                "coincidencia": "",
-                "ubicacion_descuadrada": "false",
-                "telefono": "",
-                "time": p.get("time"),
-                "causa": p.get("causa", ""),
-                "pendiente": "true",
-                "estado_servicio": "",
-                "pppoe_status": "",
-            }
-            if nap and (normalized["nap"] or "").lower() != str(nap).strip().lower():
-                continue
-            if zona and (normalized["zona"] or "").lower() != str(zona).lower():
-                continue
-            if needle and not _client_kw_match(normalized, needle):
-                continue
-            rows.append(normalized)
-            if len(rows) >= limit:
-                break
+        rows.extend(get_pending_filtered(
+            search=search, nap=nap, zona=zona,
+            limit=limit - len(rows), hours=hours,
+        ))
     return rows[:limit]
 
 

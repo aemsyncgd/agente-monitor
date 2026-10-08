@@ -440,3 +440,48 @@ class TestEntradasInvalidas:
         res = svc.find_many([])
         assert res["results"] == []
         assert res["total"] == 0
+
+
+class TestSegundaPasada168h:
+    """find_many reintenta a 168h los identificadores sin PII."""
+
+    def test_identificador_sin_fila_se_reintenta_a_168h(self, monkeypatch):
+        svc, _ = _mk({"clientes_enriquecidos": []})
+        hours_seen = []
+
+        def fake(idents, mac_q, hours):
+            hours_seen.append(hours)
+            if hours >= 168 and S1 in idents:
+                return [_enriched(S1, nombre="PEDRO JOSE")]
+            return []
+
+        monkeypatch.setattr(svc, "_enriched_by_ident", fake)
+        res = svc.find_many([S1])
+        assert 24 in hours_seen and 168 in hours_seen
+        assert res["results"][0]["found"] == 1
+
+    def test_identificador_resuelto_con_nombre_no_reintenta(self, monkeypatch):
+        svc, _ = _mk({"clientes_enriquecidos": [_enriched(S1)]},
+                     serials={S1: {"serial_onu": S1}})
+        hours_seen = []
+
+        def fake(idents, mac_q, hours):
+            hours_seen.append(hours)
+            return [_enriched(S1)]
+
+        monkeypatch.setattr(svc, "_enriched_by_ident", fake)
+        svc.find_many([S1])
+        assert hours_seen == [24]
+
+    def test_nombre_no_se_reescanea_a_168h(self, monkeypatch):
+        """Los nombres sólo se consultan a 24h (containsStr = scan caro)."""
+        svc, _ = _mk({"clientes_enriquecidos": []})
+        hours_seen = []
+
+        def fake_name(names, hours):
+            hours_seen.append(hours)
+            return []
+
+        monkeypatch.setattr(svc, "_enriched_by_name", fake_name)
+        svc.find_many(["PEDRO JOSE"])
+        assert hours_seen == [24]

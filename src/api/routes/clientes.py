@@ -22,6 +22,7 @@ from ..influx_helper import (
     get_enriched_clients,
     get_pending_clients,
     get_pending_by_documento,
+    get_pending_filtered,
     get_clientes_stats,
     get_client_by_documento,
     search_clientes,
@@ -251,9 +252,20 @@ async def buscar(
     Nombre, documento, direccion, serial, pppoe, mac, olt, nap, zona.
     Respuesta enmascarada segun rol."""
     role = _role_from_request(request)
-    rows = search_clientes(
-        search=q, olt=olt, nap=nap, zona=zona, limit=limit
-    )
+    rows: Optional[List[dict]] = None
+    try:
+        store = _get_store()
+        if store.count() > 0:
+            docs = store.search(q, limit=limit, nap=nap, zona=zona, olt=olt)
+            rows = store.get_fichas(docs)
+    except Exception:
+        rows = None
+    if rows is None:
+        rows = search_clientes(search=q, olt=olt, nap=nap, zona=zona, limit=limit)
+    elif len(rows) < limit:
+        rows = rows + get_pending_filtered(
+            search=q, nap=nap, zona=zona, limit=limit - len(rows),
+        )
     return [
         _to_lite(_apply_masking(r, role)) for r in rows
     ]
@@ -269,7 +281,18 @@ async def listar(
 ):
     """Lista filtrada por olt/nap/zona. Respuesta enmascarada segun rol."""
     role = _role_from_request(request)
-    rows = get_enriched_clients(olt=olt, nap=nap, zona=zona, limit=limit)
+    rows: Optional[List[dict]] = None
+    try:
+        store = _get_store()
+        if store.count() > 0:
+            docs = store.search("", limit=limit, nap=nap, zona=zona, olt=olt)
+            rows = store.get_fichas(docs)
+            rows.sort(key=lambda r: (str(r.get("olt") or ""),
+                                     str(r.get("nap") or "")))
+    except Exception:
+        rows = None
+    if rows is None:
+        rows = get_enriched_clients(olt=olt, nap=nap, zona=zona, limit=limit)
     return [
         _to_lite(_apply_masking(r, role)) for r in rows
     ]

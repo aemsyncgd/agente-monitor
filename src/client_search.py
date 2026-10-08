@@ -688,6 +688,26 @@ class ClientSearchService:
 
         # 1) Resolver cada consulta -> enriched row (1 consulta)
         resolved = self._enriched_lookup(cleaned)  # q -> enriched|None
+        # 2ª pasada: identificadores/MAC sin fila o sin nombre -> ventana
+        # 168h. Son filtros de tag (baratos, ~0.03s); los nombres NO se
+        # re-escanean a 168h (containsStr sobre toda la medición = timeout).
+        def _row_nombre(row) -> str:
+            if not row:
+                return ""
+            return str(row.get("nombre")
+                       or (row.get("_fields") or {}).get("nombre") or "")
+
+        missing = [
+            q for q in cleaned
+            if not _row_nombre(resolved.get(q))
+            and not _looks_like_name(q)
+        ]
+        if missing:
+            wide = self._enriched_lookup(missing, hours=168)
+            for q in missing:
+                w = wide.get(q)
+                if w and (_row_nombre(w) or not resolved.get(q)):
+                    resolved[q] = w
         serials: List[str] = []
 
         def _add(sn: str) -> None:

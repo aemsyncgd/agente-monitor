@@ -60,6 +60,10 @@ def client(monkeypatch):
                         lambda **kw: [dict(_ROW)])
     monkeypatch.setattr(clientes_route, "get_pending_clients",
                         lambda **kw: [dict(_PEND_ROW)])
+    monkeypatch.setattr(clientes_route, "get_pending_filtered",
+                        lambda **kw: [])
+    monkeypatch.setattr(clientes_route, "_get_store",
+                        lambda: _FakeStore([]))
     monkeypatch.setattr(clientes_route, "get_pending_by_documento",
                         lambda doc, **kw: dict(_PEND_ROW) if doc == "9999" else {})
     monkeypatch.setattr(clientes_route, "get_clientes_stats",
@@ -88,6 +92,8 @@ def test_buscar(client):
 def test_buscar_incluye_pendientes(monkeypatch):
     monkeypatch.setattr(clientes_route, "search_clientes",
                         lambda **kw: [dict(_ROW), dict(_PEND_ROW)])
+    monkeypatch.setattr(clientes_route, "_get_store",
+                        lambda: _FakeStore([]))
     app = FastAPI()
     app.include_router(router)
     with TestClient(app) as c:
@@ -150,6 +156,81 @@ def test_listar_filtros(client):
     resp = client.get("/api/clientes", params={"nap": "NAP-1"})
     assert resp.status_code == 200
     assert len(resp.json()) == 1
+
+
+def test_buscar_primero_redis(monkeypatch):
+    """buscar sirve desde el ClientStore sin tocar Influx."""
+    store = _FakeStore([dict(_ROW), dict(_ROW, documento="555",
+                                         nombre="Ana Lopez", nap="NAP-9")])
+    monkeypatch.setattr(clientes_route, "_get_store", lambda: store)
+    monkeypatch.setattr(clientes_route, "search_clientes",
+                        lambda **kw: (_ for _ in ()).throw(
+                            AssertionError("no debe caer a Influx")))
+    monkeypatch.setattr(clientes_route, "get_pending_filtered",
+                        lambda **kw: [])
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as c:
+        resp = c.get("/api/clientes/buscar", params={"q": "perez"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["documento"] == "12345678"
+    assert data[0]["nombre"] == "Juan Perez"
+
+
+def test_buscar_store_agrega_pendientes(monkeypatch):
+    store = _FakeStore([dict(_ROW)])
+    pend = dict(_PEND_ROW)
+    monkeypatch.setattr(clientes_route, "_get_store", lambda: store)
+    monkeypatch.setattr(clientes_route, "search_clientes",
+                        lambda **kw: (_ for _ in ()).throw(
+                            AssertionError("no debe caer a Influx")))
+    monkeypatch.setattr(clientes_route, "get_pending_filtered",
+                        lambda **kw: [dict(pend)])
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as c:
+        resp = c.get("/api/clientes/buscar", params={"q": "e"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 2
+    assert [d["documento"] for d in data] == ["12345678", "9999"]
+    assert data[1]["pendiente"] is True
+
+
+def test_buscar_redis_cae_a_influx_si_redis_caido(monkeypatch):
+    def _down():
+        raise ConnectionError("redis caido")
+    monkeypatch.setattr(clientes_route, "_get_store", _down)
+    monkeypatch.setattr(clientes_route, "search_clientes",
+                        lambda **kw: [dict(_ROW)])
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as c:
+        resp = c.get("/api/clientes/buscar", params={"q": "perez"})
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_listar_primero_redis(monkeypatch):
+    store = _FakeStore([
+        dict(_ROW, documento="12345678"),
+        dict(_ROW, documento="555", nombre="Ana Lopez",
+             olt="OLT-2", nap="NAP-2"),
+    ])
+    monkeypatch.setattr(clientes_route, "_get_store", lambda: store)
+    monkeypatch.setattr(clientes_route, "get_enriched_clients",
+                        lambda **kw: (_ for _ in ()).throw(
+                            AssertionError("no debe caer a Influx")))
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as c:
+        resp = c.get("/api/clientes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 2
+    assert [d["olt"] for d in data] == ["OLT-1", "OLT-2"]
 
 
 def test_mask_pppoe_short():
@@ -406,6 +487,30 @@ def test_grupo_analizar_require_entrada(monkeypatch):
 class _FakeStore:
     def __init__(self, fichas):
         self._por_doc = {f["documento"]: dict(f) for f in fichas}
+
+    def count(self):
+        return len(self._por_doc)
+
+    def search(self, q, limit=25, nap=None, zona=None, olt=None):
+        needle = (q or "").strip().lower()
+        out = []
+        for f in self._por_doc.values():
+            if nap and str(f.get("nap") or "").lower() != str(nap).lower():
+                continue
+            if zona and str(f.get("zona") or "").lower() != str(zona).lower():
+                continue
+            if olt and str(f.get("olt") or "").lower() != str(olt).lower():
+                continue
+            if needle:
+                hay = " ".join(str(f.get(k) or "") for k in (
+                    "nombre", "documento", "usuario_pppoe", "serial_onu",
+                    "mac", "nap", "zona", "direccion")).lower()
+                if needle not in hay:
+                    continue
+            out.append(f["documento"])
+            if len(out) >= limit:
+                break
+        return out
 
     def get_ficha(self, doc):
         return self._por_doc.get(doc)
