@@ -351,10 +351,11 @@ def _merge_snapshot_rows(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def _match_kw(ficha: Dict[str, Any], needle: str) -> bool:
     if not needle:
         return True
-    for field in _SEARCH_FIELDS:
-        if needle in _norm(ficha.get(field)):
-            return True
-    return False
+    # AND por tokens: "PEREZ JUAN" encuentra "Juan Perez Diaz" aunque no
+    # sean contiguos (el substring simple nunca matcheaba eso).
+    tokens = _norm(needle).split()
+    haystack = " ".join(_norm(ficha.get(f)) for f in _SEARCH_FIELDS)
+    return all(t in haystack for t in tokens)
 
 
 _store_lock = threading.Lock()

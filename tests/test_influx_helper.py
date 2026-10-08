@@ -75,3 +75,12 @@ def test_ignora_filas_sin_olt_name():
     result = _collapse_olt_rows(rows)
     assert len(result) == 1
     assert result[0]["olt_name"] == "OLT-PRADO-1"
+
+def test_client_kw_match_and_por_tokens():
+    from src.api.influx_helper import _client_kw_match
+    row = {"nombre": "Juan Perez Diaz", "documento": "12345678",
+           "direccion": "Calle 1", "serial_onu": "GPON001"}
+    assert _client_kw_match(row, "perez juan")
+    assert _client_kw_match(row, "12345678")
+    assert not _client_kw_match(row, "perez gomez")
+    assert _client_kw_match({"nombre": "ana maria"}, "ana")

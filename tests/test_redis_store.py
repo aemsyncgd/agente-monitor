@@ -190,3 +190,11 @@ def test_rebuild_mantiene_solo_olt_si_no_hay_pii(store):
     assert n == 1
     assert store.get_ficha("GPON002") is not None
     assert store.by_serial("GPON002") == ["GPON002"]
+
+
+def test_search_and_por_tokens_no_contiguos(store):
+    """'PEREZ JUAN' encuentra 'Juan Perez Diaz' aunque no sean contiguos."""
+    store.rebuild([_row("77", nombre="Juan Perez Diaz")])
+    assert store.search("PEREZ JUAN") == ["77"]
+    assert store.search("perez juan") == ["77"]
+    assert store.search("PEREZ GOMEZ") == []

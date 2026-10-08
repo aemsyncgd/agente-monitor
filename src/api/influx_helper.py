@@ -484,18 +484,18 @@ from(bucket: "{INFLUX_BUCKET}")
 
 
 def _client_kw_match(row: Dict[str, Any], needle: str) -> bool:
-    """Match full-text case-insensitive sobre los campos clave de un cliente."""
-    return (
-        needle in (row.get("nombre") or "").lower()
-        or needle in (row.get("documento") or "").lower()
-        or needle in (row.get("direccion") or "").lower()
-        or needle in (row.get("serial_onu") or "").lower()
-        or needle in (row.get("usuario_pppoe") or "").lower()
-        or needle in (row.get("mac") or "").lower()
-        or needle in (row.get("olt") or "").lower()
-        or needle in (row.get("nap") or "").lower()
-        or needle in (row.get("zona") or "").lower()
+    """Match full-text case-insensitive sobre los campos clave de un cliente.
+
+    AND por tokens: "PEREZ JUAN" encuentra "Juan Perez Diaz" aunque no
+    aparezcan contiguos (el substring simple nunca matcheaba eso).
+    """
+    tokens = needle.split()
+    haystack = " ".join(
+        str(row.get(f) or "").lower()
+        for f in ("nombre", "documento", "direccion", "serial_onu",
+                  "usuario_pppoe", "mac", "olt", "nap", "zona")
     )
+    return all(t in haystack for t in tokens)
 
 
 def _row_ts(value: Any) -> float:
