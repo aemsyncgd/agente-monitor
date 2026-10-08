@@ -243,6 +243,7 @@ class CollectorsConfig:
     olt_config_path: str = "/app/config/olts.conf"
     nodes_config_path: str = "/app/config/nodes.yaml"
     olt_rest_seconds: int = 60  # pausa entre pasadas del ciclo OLT (escaneo paralelo)
+    start_offset_seconds: int = 0  # desfase inicial del ciclo OLT vs scheduler
     traffic_sampler: TrafficSamplerConfig = field(default_factory=TrafficSamplerConfig)
 
 
@@ -470,6 +471,7 @@ class FaultDetectionConfig:
     status_online_value: int = 3
     refresh_after_grouping: bool = True
     refresh_timeout_seconds: int = 30
+    max_olts_refresh: int = 3  # techo de OLTs refrescadas por corrida (rotando)
     state_file: str = "data/fault_state.json"
 
 
@@ -626,6 +628,7 @@ def load_config_ia(path: str) -> ConfigIA:
             olt_config_path=c.get("olt_config_path", "/app/config/olts.conf"),
             nodes_config_path=c.get("nodes_config_path", "/app/config/nodes.yaml"),
             olt_rest_seconds=c.get("olt_rest_seconds", 60),
+            start_offset_seconds=c.get("start_offset_seconds", 0),
             traffic_sampler=TrafficSamplerConfig(
                 enabled=ts.get("enabled", True),
                 interval_seconds=ts.get("interval_seconds", 300),
@@ -882,6 +885,7 @@ def load_config_ia(path: str) -> ConfigIA:
             status_online_value=fd.get("status_online_value", 3),
             refresh_after_grouping=fd.get("refresh_after_grouping", True),
             refresh_timeout_seconds=fd.get("refresh_timeout_seconds", 30),
+            max_olts_refresh=fd.get("max_olts_refresh", 3),
             state_file=fd.get("state_file", "data/fault_state.json")
         )
 

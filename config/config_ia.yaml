@@ -7,6 +7,9 @@ collectors:
   interval_seconds: 900
   olt_timeout: 90
   olt_rest_seconds: 60
+  # Arranque desfasado del primer ciclo OLT (~:01:30) para no coincidir con
+  # los jobs del scheduler en la hora redonda tras un reboot.
+  start_offset_seconds: 90
   nodes_config_path: config/nodes.yaml
   olt_config_path: config/olts.conf
   traffic_sampler:
@@ -164,7 +167,9 @@ enrichment:
   state_file: data/enrichment_state.json
 fault_detection:
   enabled: true
-  interval_minutes: 10
+  # 15 min (no 10): p90 real de duracion ~40 min hace inviable 10 min; los
+  # cortes de fibra duran horas, el tick solo marca cada cuánto se re-intenta.
+  interval_minutes: 15
   threshold_clients_los: 3
   broadcast_down_ratio: 0.6
   onu_lookback_minutes: 360
@@ -172,6 +177,10 @@ fault_detection:
   status_online_value: 3
   refresh_after_grouping: true
   refresh_timeout_seconds: 30
+  # Techo de OLTs refrescadas por corrida (refresh SNMP secuencial 60-90s
+  # c/u). Rotando entre corridas todas las OLTs candidatas se cubren en
+  # ≤3 ticks sin desbordar la ventana.
+  max_olts_refresh: 3
   state_file: data/fault_state.json
 audit:
   enabled: true

@@ -246,6 +246,7 @@ class FaultDetector:
         self.group_analyzer = group_analyzer
         self._state = LastStateStore(config.state_file)
         self._notify = notifier is not None
+        self._refresh_rotation = 0
 
     # ----- lectura de clientes enriquecidos -----
     def _load_clients(self) -> List[dict]:
@@ -323,7 +324,19 @@ class FaultDetector:
 
         Devuelve True si al menos una OLT respondió.
         """
-        olt_to_refresh = {g.olt for g in candidates}.union(broadcast)
+        olt_to_refresh = sorted({g.olt for g in candidates}.union(broadcast))
+
+        # Techo por corrida con rotación: cada OLT refrescada cuesta 30-90 s
+        # de SNMP secuencial; sin techo, 8 OLTs candidatas = ~10 min que
+        # desbordan la ventana del job. Rotando el inicio, todas las OLTs se
+        # cubren en ceil(N/max) corridas consecutivas.
+        cap = max(1, int(getattr(self.config, "max_olts_refresh", 3) or 3))
+        if len(olt_to_refresh) > cap:
+            start = self._refresh_rotation % len(olt_to_refresh)
+            olt_to_refresh = (olt_to_refresh[start:] +
+                              olt_to_refresh[:start])[:cap]
+            self._refresh_rotation = (start + cap) % max(1, len(olt_to_refresh))
+
         status_map: Dict[str, Dict[str, int]] = {}
         for olt in olt_to_refresh:
             lookup = self.olt_lookup.get(olt)

@@ -428,6 +428,16 @@ def main():
         f"pausa de {olt_rest}s entre pasadas"
     )
 
+    # Desfase inicial: tras un reboot, scheduler y colector arrancan en el
+    # mismo segundo; este offset separa la primera pasada OLT de los jobs.
+    start_offset = max(0, int(getattr(config.collectors, "start_offset_seconds", 0) or 0))
+    if start_offset:
+        logger.info(f"Arranque desfasado: primer ciclo OLT en {start_offset}s")
+        waited = 0
+        while waited < start_offset and running.is_set():
+            time.sleep(min(10, start_offset - waited))
+            waited += 10
+
     while running.is_set():
         try:
             cycle_start = time.time()

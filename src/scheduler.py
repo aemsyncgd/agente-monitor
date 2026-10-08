@@ -14,7 +14,29 @@ import os
 import time
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# Higiene de scheduling: un disparo que cae dentro de una corrida larga se
+# colapsa (coalesce) en vez de encolarse, y nunca corren dos instancias del
+# mismo job a la vez. misfire_grace_time evita que APScheduler descarte
+# disparos que se retrasaron menos de 1 minuto.
+_JOB_KWARGS = {
+    "coalesce": True,
+    "max_instances": 1,
+    "misfire_grace_time": 60,
+}
+
+
+def _phase_start(offset_minutes: int) -> datetime:
+    """Ancla de fase: hoy a las 00:{offset}, en el pasado.
+
+    IntervalTrigger alinea sus disparos al start_date: con interval=15 y
+    ancla 00:04, los jobs corren a las :04, :19, :34 y :49 — desfasados de
+    los demás jobs y de la hora redonda en la que suelen reiniciarse los
+    servicios tras un reboot.
+    """
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return today + timedelta(minutes=offset_minutes)
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +98,7 @@ class WispScheduler:
                 CronTrigger(hour=hour, minute=minute),
                 id="daily_report",
                 replace_existing=True,
+                **_JOB_KWARGS,
             )
             logger.info(f"Daily report scheduled at {sc.daily_report_hour}")
         except Exception as e:
@@ -94,6 +117,7 @@ class WispScheduler:
                 CronTrigger(day_of_week=day, hour=hour, minute=minute),
                 id="weekly_report",
                 replace_existing=True,
+                **_JOB_KWARGS,
             )
             logger.info(f"Weekly report scheduled for {sc.weekly_report_day} at {sc.weekly_report_hour}")
         except Exception as e:
@@ -107,6 +131,7 @@ class WispScheduler:
                 CronTrigger(day=sc.monthly_report_day, hour=hour, minute=minute),
                 id="monthly_report",
                 replace_existing=True,
+                **_JOB_KWARGS,
             )
             logger.info(
                 f"Monthly report scheduled on day {sc.monthly_report_day} at "
@@ -120,9 +145,10 @@ class WispScheduler:
         try:
             self.scheduler.add_job(
                 self._run_health_check,
-                IntervalTrigger(minutes=interval),
+                IntervalTrigger(minutes=interval, start_date=_phase_start(0)),
                 id="health_check",
                 replace_existing=True,
+                **_JOB_KWARGS,
             )
             logger.info(f"Health check scheduled every {interval} minutes")
         except Exception as e:
@@ -133,9 +159,10 @@ class WispScheduler:
         try:
             self.scheduler.add_job(
                 self._run_rag_reindex,
-                IntervalTrigger(hours=interval_hours),
+                IntervalTrigger(hours=interval_hours, start_date=_phase_start(30)),
                 id="rag_reindex",
                 replace_existing=True,
+                **_JOB_KWARGS,
             )
             logger.info(f"RAG reindex scheduled every {interval_hours} hours")
         except Exception as e:
@@ -146,9 +173,10 @@ class WispScheduler:
         try:
             self.scheduler.add_job(
                 self._run_memory_cleanup,
-                IntervalTrigger(hours=interval_hours),
+                IntervalTrigger(hours=interval_hours, start_date=_phase_start(45)),
                 id="memory_cleanup",
                 replace_existing=True,
+                **_JOB_KWARGS,
             )
             logger.info(f"Memory cleanup scheduled every {interval_hours} hours")
         except Exception as e:
@@ -163,9 +191,10 @@ class WispScheduler:
         try:
             self.scheduler.add_job(
                 self._run_enrichment,
-                IntervalTrigger(minutes=interval),
+                IntervalTrigger(minutes=interval, start_date=_phase_start(4)),
                 id="enrichment",
                 replace_existing=True,
+                **_JOB_KWARGS,
             )
             logger.info(f"Enrichment scheduled every {interval} minutes")
         except Exception as e:
@@ -178,9 +207,10 @@ class WispScheduler:
         try:
             self.scheduler.add_job(
                 self._run_fault_detection,
-                IntervalTrigger(minutes=interval),
+                IntervalTrigger(minutes=interval, start_date=_phase_start(9)),
                 id="fault_detection",
                 replace_existing=True,
+                **_JOB_KWARGS,
             )
             logger.info(f"Fault detection scheduled every {interval} minutes")
         except Exception as e:
