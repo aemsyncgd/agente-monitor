@@ -29,6 +29,7 @@ todo el inventario OLT aunque el catálogo WISP este incompleto o ausente.
 """
 import json
 import logging
+import re
 import time
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
@@ -81,6 +82,15 @@ def _norm_mac(value) -> str:
     if parts and len(parts[0]) == 1:
         parts = [p.rjust(2, "0") for p in parts]
     return ":".join(parts)
+
+
+def _dni_from_pppoe(user) -> str:
+    """Extrae el run de dígitos más largo de un usuario PPPoE como DNI.
+
+    Formatos reales: `VN12345678-1` -> `12345678`; `A9876543B` -> `9876543`.
+    """
+    runs = re.findall(r"\d{6,}", str(user or ""))
+    return max(runs, key=len) if runs else ""
 
 
 def _tag(doc: dict, key: str) -> str:
@@ -307,6 +317,57 @@ def _clean_tags(tags: Dict[str, any]) -> Dict[str, str]:
     return out
 
 
+def _merge_catalog_live(catalog: Dict[str, dict], live: List[dict]) -> List[dict]:
+    """Fusiona el catálogo de Influx con la fuente viva (lista/CSV).
+
+    La fuente viva gana campo a campo (no vacíos) y se marca para
+    re-persistirse; las entradas solo-catálogo llevan `_from_catalog` y no
+    se re-escriben, preservando así su `_ts` como fecha real de refresh.
+    """
+    clients = list(catalog.values())
+    by_serial: Dict[str, int] = {}
+    by_doc: Dict[str, int] = {}
+    by_user: Dict[str, int] = {}
+    for i, c in enumerate(clients):
+        s = _tag(c, "serial_onu").upper()
+        if s:
+            by_serial.setdefault(s, i)
+        d = _tag(c, "documento")
+        if d:
+            by_doc.setdefault(d, i)
+        u = _tag(c, "usuario_pppoe").lower()
+        if u:
+            by_user.setdefault(u, i)
+
+    for c in live:
+        i = None
+        s = _tag(c, "serial_onu").upper()
+        if s and s in by_serial:
+            i = by_serial[s]
+        elif _tag(c, "documento") and _tag(c, "documento") in by_doc:
+            i = by_doc[_tag(c, "documento")]
+        elif _tag(c, "usuario_pppoe") and _tag(c, "usuario_pppoe").lower() in by_user:
+            i = by_user[_tag(c, "usuario_pppoe").lower()]
+        if i is None:
+            i = len(clients)
+            clients.append(dict(c))
+            if s:
+                by_serial.setdefault(s, i)
+            if _tag(c, "documento"):
+                by_doc.setdefault(_tag(c, "documento"), i)
+            if _tag(c, "usuario_pppoe"):
+                by_user.setdefault(_tag(c, "usuario_pppoe").lower(), i)
+        else:
+            merged = dict(clients[i])
+            for k, v in c.items():
+                if v not in (None, ""):
+                    merged[k] = v
+            merged["_ts"] = time.time()
+            clients[i] = merged
+        clients[i].pop("_from_catalog", None)
+    return clients
+
+
 # ---------------------------------------------------------------------------
 # Orquestador (lee Influx + WISP, persiste resultados)
 # ---------------------------------------------------------------------------
@@ -320,6 +381,9 @@ class EnrichStats:
     by_causa: Dict[str, int] = field(default_factory=dict)
     serial_lookups: int = 0
     serial_found: int = 0
+    doc_lookups: int = 0
+    doc_found: int = 0
+    catalog: int = 0
 
 
 class ClientEnricher:
@@ -349,7 +413,13 @@ class ClientEnricher:
                 logger.error("InfluxDB no disponible; enriquecimiento omitido")
                 return stats
 
-        clients = self.wisp.list_clients() if self.wisp else []
+        # El catálogo vivo (list_endpoint/CSV) viene casi siempre vacío: sin
+        # re-sembrarlo desde `wisp_clients` cada ciclo, la ficha parpadearía
+        # (0 wisp / N olt-only) y se perdería la PII ya resuelta.
+        catalog = self._load_wisp_catalog()
+        live = self.wisp.list_clients() if self.wisp else []
+        clients = _merge_catalog_live(catalog, live)
+        stats.catalog = len(catalog)
         stats.wisp_total = len(clients)
 
         olt_location = self._load_rows(self.olt_measurement, "onu", last_only=True)
@@ -362,13 +432,32 @@ class ClientEnricher:
             self.dhcp_measurement, "dhcp",
             fields=["mac_address"])
 
-        clients, stats = self._lookup_olt_serials(clients, olt_rows, stats)
+        doc_on = bool(self.wisp) and bool(
+            getattr(self.wisp.config, "document_endpoint", "").strip()) \
+            and hasattr(self.wisp, "fetch_by_document_ex")
+        serial_on = bool(self.wisp) and bool(
+            getattr(self.wisp.config, "serial_endpoint", "").strip())
+        state = self._load_state() if (doc_on or serial_on) else None
+        if doc_on:
+            clients, stats = self._lookup_by_document(
+                clients, olt_rows, pppoe_rows, stats, state=state)
+        if serial_on:
+            budget = None
+            if stats.doc_lookups:
+                cap = getattr(self.wisp.config, "max_lookups_per_run", 400)
+                budget = max(cap - stats.doc_lookups, 0)
+            clients, stats = self._lookup_olt_serials(
+                clients, olt_rows, stats, state=state, budget=budget)
+        if state is not None:
+            self._save_state(state)
 
         logger.info(
             f"Enriquecimiento fuentes: olt={len(olt_rows)} "
             f"(location={len(olt_location)}/optical={len(olt_optic)}) "
             f"pppoe={len(pppoe_rows)} dhcp={len(dhcp_rows)} "
-            f"wisp={stats.wisp_total} serial_lookups={stats.serial_lookups} "
+            f"wisp={stats.wisp_total} (catalog={stats.catalog}) "
+            f"doc_lookups={stats.doc_lookups} doc_found={stats.doc_found} "
+            f"serial_lookups={stats.serial_lookups} "
             f"serial_found={stats.serial_found}"
         )
 
@@ -441,78 +530,324 @@ class ClientEnricher:
 
     # ----- delta-driven: lookup WISP por serial de ONUs OLT -----
     def _lookup_olt_serials(self, clients: List[dict], olt_rows: List[dict],
-                            stats: EnrichStats) -> (List[dict], EnrichStats):
-        """Consulta WISP por serial solo para ONUs OLT sin cliente WISP conocido.
+                            stats: EnrichStats,
+                            state: Optional[Dict] = None,
+                            budget: Optional[int] = None) -> (List[dict], EnrichStats):
+        """Consulta WISP por serial para ONUs OLT sin datos WISP vigentes.
 
-        Evita saturar el endpoint: (1) se salta seriales ya matcheados por el
-        catálogo, (2) respeta `max_lookups_per_run` por ciclo, (3) recuerda en
-        `state_file` los seriales que WISP no conoce (`unknown_retry_hours`) y
-        los encontrados (`cache_hours`), y (4) `fetch_by_serial` aplica pacing
-        (`min_interval_ms`) + caché en memoria.
+        Reglas por estado en `wisp_serial_lookups`:
+          - rec inexistente + sin datos -> consultar; con datos -> lo refresca
+            la cadena por documento (no se duplica la llamada aquí).
+          - found   -> reconsultar a las `cache_hours`.
+          - notfound-> reconsultar a las `unknown_retry_hours`.
+          - err     -> reconsultar a las `error_retry_hours` (5xx/red).
+        `state` (dict completo del fichero) y `budget` opcionales permiten
+        compartir presupuesto con la cadena por documento; sin ellos se
+        carga/guarda el fichero internamente (compatibilidad con tests).
         """
         if not self.wisp:
             return clients, stats
-        serialize = getattr(self.wisp.config, "serial_endpoint", "").strip()
-        if not serialize:
+        if not getattr(self.wisp.config, "serial_endpoint", "").strip():
             return clients, stats
+
+        own_state = state is None
+        if own_state:
+            state = self._load_state()
+        serial_map = state.setdefault("wisp_serial_lookups", {})
 
         known = {_tag(c, "serial_onu").upper() for c in clients
                  if _tag(c, "serial_onu")}
-        state = self._load_lookup_state()
         now = time.time()
         fresh_h = getattr(self.wisp.config, "cache_hours", 24) * 3600
         unknown_h = getattr(self.wisp.config, "unknown_retry_hours", 168) * 3600
-        cap = getattr(self.wisp.config, "max_lookups_per_run", 400)
+        err_h = getattr(self.wisp.config, "error_retry_hours", 1) * 3600
+        cap = budget if budget is not None else getattr(
+            self.wisp.config, "max_lookups_per_run", 400)
 
         pending_serials: List[str] = []
         for row in olt_rows:
             serial = _field(row, "onu_serial").upper()
-            if not serial or serial in known:
+            if not serial:
                 continue
-            rec = state.get(serial)
+            rec = serial_map.get(serial)
             if rec is None:
+                if serial in known:
+                    continue
                 pending_serials.append(serial)
                 continue
-            if rec.get("found"):
-                if now - rec.get("ts", 0) >= fresh_h:
-                    pending_serials.append(serial)
-            elif now - rec.get("ts", 0) >= unknown_h:
+            age = now - rec.get("ts", 0)
+            if rec.get("err"):
+                due = age >= err_h
+            elif rec.get("found"):
+                due = age >= fresh_h
+            else:
+                due = age >= unknown_h
+            if due:
                 pending_serials.append(serial)
 
         stats.serial_lookups = len(pending_serials)
+        fetch_ex = getattr(self.wisp, "fetch_by_serial_ex", None)
         for serial in pending_serials[:cap]:
-            client = self.wisp.fetch_by_serial(serial)
-            state[serial] = {"ts": now, "found": bool(client)}
+            if fetch_ex:
+                client, ok = fetch_ex(serial)
+            else:
+                client, ok = self.wisp.fetch_by_serial(serial), True
+            rec = {"ts": now, "found": bool(client)}
+            if not ok:
+                rec["err"] = True
+                rec["found"] = False
+            serial_map[serial] = rec
             if client:
                 known.add(serial)
                 clients.append(client)
                 stats.serial_found += 1
 
-        self._save_lookup_state(state)
+        if own_state:
+            self._save_state(state)
         logger.info(
             f"WISP lookup por serial: {len(pending_serials)} pendientes, "
             f"{stats.serial_found} encontrados (cap={cap})"
         )
         return clients, stats
 
-    def _load_lookup_state(self) -> Dict:
+    # ----- cadena principal: OLT -> MAC -> PPPoE -> DNI -> WISP -----
+    def _lookup_by_document(self, clients: List[dict], olt_rows: List[dict],
+                            pppoe_rows: List[dict], stats: EnrichStats,
+                            state: Optional[Dict] = None,
+                            budget: Optional[int] = None) -> (List[dict], EnrichStats):
+        """Resuelve clientes WISP por documento (DNI) derivado de la OLT.
+
+        Para cada serial OLT con datos WISP ausentes o vencidos toma el
+        usuario PPPoE por prioridad (RB activo -> histórico -> catálogo),
+        extrae el DNI y consulta `document_endpoint`. El serial OLT es la
+        fuente de verdad: se impone sobre el que devuelva WISP.
+        """
+        if not self.wisp:
+            return clients, stats
+        if not getattr(self.wisp.config, "document_endpoint", "").strip():
+            return clients, stats
+        fetch_ex = getattr(self.wisp, "fetch_by_document_ex", None)
+        if not fetch_ex:
+            return clients, stats
+
+        own_state = state is None
+        if own_state:
+            state = self._load_state()
+        doc_map = state.setdefault("wisp_doc_lookups", {})
+
+        cap = budget if budget is not None else getattr(
+            self.wisp.config, "max_lookups_per_run", 400)
+        fresh_h = getattr(self.wisp.config, "cache_hours", 24) * 3600
+        unknown_h = getattr(self.wisp.config, "unknown_retry_hours", 168) * 3600
+        err_h = getattr(self.wisp.config, "error_retry_hours", 1) * 3600
+        now = time.time()
+
+        idx: Dict[str, int] = {}
+        client_ts: Dict[str, float] = {}
+        for i, c in enumerate(clients):
+            serial = _tag(c, "serial_onu").upper()
+            if serial and serial not in idx:
+                idx[serial] = i
+                if c.get("_ts"):
+                    client_ts[serial] = _ts_seconds(c["_ts"])
+
+        # Usuario PPPoE activo por MAC (fuente 2: RB) y histórico por serial.
+        pppoe_by_mac: Dict[str, str] = {}
+        for row in pppoe_rows:
+            mac = _norm_mac(_field(row, "mac_address"))
+            user = _tag(row, "username").lower()
+            if mac and user:
+                pppoe_by_mac.setdefault(mac, user)
+
+        olt_by_serial: Dict[str, dict] = {}
+        for row in olt_rows:
+            serial = _field(row, "onu_serial").upper()
+            if serial:
+                olt_by_serial.setdefault(serial, row)
+
+        targets: List[str] = []
+        for serial in olt_by_serial:
+            rec = doc_map.get(serial)
+            if rec is not None:
+                age = now - rec.get("ts", 0)
+                if rec.get("err"):
+                    due = age >= err_h
+                elif rec.get("found"):
+                    due = age >= fresh_h
+                else:
+                    due = age >= unknown_h
+                if due:
+                    targets.append(serial)
+                continue
+            if serial in idx:
+                ts = client_ts.get(serial)
+                if not ts or now - ts < fresh_h:
+                    # Datos frescos (o edad desconocida): sembrar el estado
+                    # para no re-consultar hasta que la propia fila envejezca.
+                    doc_map[serial] = {"ts": ts or now, "found": True,
+                                       "via": "catalogo"}
+                    continue
+                # Datos viejos sin rec: cae a targets para refrescar.
+            targets.append(serial)
+
+        stats.doc_lookups = 0
+        stats.doc_found = 0
+        if not targets:
+            if own_state:
+                self._save_state(state)
+            return clients, stats
+
+        enriched_user = self._load_usuario_by_serial()
+
+        for serial in targets:
+            if stats.doc_lookups >= cap:
+                break
+            olt_row = olt_by_serial.get(serial) or {}
+            mac = _norm_mac(_tag(olt_row, "mac"))
+            user = pppoe_by_mac.get(mac, "")
+            if not user:
+                user = enriched_user.get(serial, "")
+            if not user and serial in idx:
+                user = _tag(clients[idx[serial]], "usuario_pppoe")
+            dni = _dni_from_pppoe(user)
+            if not dni:
+                continue
+            client, ok = fetch_ex(dni)
+            stats.doc_lookups += 1
+            prev = doc_map.get(serial) or {}
+            if not ok:
+                doc_map[serial] = {"ts": now, "err": True, "dni": dni,
+                                   "found": bool(prev.get("found"))}
+                continue
+            doc_map[serial] = {"ts": now, "found": bool(client), "dni": dni}
+            if not client:
+                continue
+            client = dict(client)
+            client["serial_onu"] = serial  # la OLT manda sobre el serial WISP
+            if user:
+                client["usuario_pppoe"] = user
+            client["_ts"] = now
+            if serial in idx:
+                clients[idx[serial]] = client
+            else:
+                idx[serial] = len(clients)
+                clients.append(client)
+            stats.doc_found += 1
+
+        logger.info(
+            f"WISP lookup por documento: {len(targets)} candidatos, "
+            f"{stats.doc_lookups} consultas, {stats.doc_found} encontrados "
+            f"(cap={cap})"
+        )
+        if own_state:
+            self._save_state(state)
+        return clients, stats
+
+    def _load_usuario_by_serial(self) -> Dict[str, str]:
+        """usuario_pppoe histórico por serial desde `clientes_enriquecidos`."""
+        try:
+            results = self.influx.query(
+                f'from(bucket: "{self.influx.bucket}")\n'
+                "  |> range(start: -168h)\n"
+                '  |> filter(fn: (r) => r["_measurement"] == "clientes_enriquecidos")\n'
+                '  |> filter(fn: (r) => r["_field"] == "nombre")\n'
+                "  |> last()\n"
+                '  |> yield(name: "usuarios")\n'
+            ) or []
+        except Exception as e:
+            logger.warning(f"Usuarios históricos por serial: {e}")
+            return {}
+        out: Dict[str, str] = {}
+        for r in results:
+            serial = str(r.get("serial_onu") or "").strip().upper()
+            user = str(r.get("usuario_pppoe") or "").strip().lower()
+            if serial and user and serial not in out:
+                out[serial] = user
+        return out
+
+    # ----- catálogo WISP persistido (re-sembrado por ciclo) -----
+    def _load_wisp_catalog(self) -> Dict[str, dict]:
+        """Último estado de `wisp_clients` por serial (-168h), con `_ts`.
+
+        `nap` (tag de escritura) se aliasa a `nap_nombre` (clave de lectura
+        de `enrich_clients`). Filas del mismo serial se fusionan dando
+        prioridad a la más reciente y rellenando campos faltantes.
+        """
+        try:
+            results = self.influx.query(
+                f'from(bucket: "{self.influx.bucket}")\n'
+                "  |> range(start: -168h)\n"
+                '  |> filter(fn: (r) => r["_measurement"] == "wisp_clients")\n'
+                "  |> last()\n"
+                '  |> yield(name: "catalog")\n'
+            ) or []
+        except Exception as e:
+            logger.warning(f"Catálogo WISP: lectura falló ({e}); solo fuente viva")
+            return {}
+        ts_by_key: Dict[str, float] = {}
+        field_ts: Dict[str, Dict[str, float]] = {}
+        rows: Dict[str, Dict] = {}
+        for r in results:
+            tags = {k: v for k, v in r.items()
+                    if k not in ("measurement", "field", "value", "time")}
+            key = "|".join(f"{k}={v}" for k, v in sorted(tags.items()))
+            ts = _ts_seconds(r.get("time"))
+            ts_by_key[key] = max(ts_by_key.get(key, 0.0), ts)
+            row = rows.setdefault(key, dict(tags))
+            fname = str(r.get("field", ""))
+            if ts >= field_ts.setdefault(key, {}).get(fname, -1.0):
+                row[fname] = r.get("value")
+                field_ts[key][fname] = ts
+
+        catalog: Dict[str, dict] = {}
+        for key, row in rows.items():
+            serial = str(row.get("serial_onu") or "").strip().upper()
+            doc = str(row.get("documento") or "").strip()
+            user = str(row.get("usuario_pppoe") or "").strip().lower()
+            if not serial and not doc and not user:
+                continue
+            client = dict(row)
+            nap = str(client.pop("nap", "") or "")
+            if nap and not client.get("nap_nombre"):
+                client["nap_nombre"] = nap
+            client["_ts"] = ts_by_key.get(key, 0.0)
+            client["_from_catalog"] = True
+            map_key = (f"s:{serial}" if serial
+                       else f"d:{doc}" if doc else f"u:{user}")
+            prev = catalog.get(map_key)
+            if prev is None:
+                catalog[map_key] = client
+                continue
+            newer = client if client["_ts"] >= prev["_ts"] else prev
+            older = prev if newer is client else client
+            for k, v in older.items():
+                if k in ("_ts", "_from_catalog"):
+                    continue
+                if not newer.get(k) and v:
+                    newer[k] = v
+            newer["_ts"] = max(prev["_ts"], client["_ts"])
+            newer["_from_catalog"] = True
+            catalog[map_key] = newer
+        return catalog
+
+    def _load_state(self) -> Dict:
+        """Fichero de estado completo (serial + documento + saved_at)."""
         path = self.config.state_file
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
             if isinstance(data, dict):
-                return data.get("wisp_serial_lookups", {})
+                return data
         except (FileNotFoundError, ValueError):
             pass
         return {}
 
-    def _save_lookup_state(self, state: Dict) -> None:
+    def _save_state(self, state: Dict) -> None:
         path = self.config.state_file
         try:
+            state["saved_at"] = time.time()
             with open(path, "w", encoding="utf-8") as fh:
-                json.dump({"wisp_serial_lookups": state,
-                           "saved_at": time.time()},
-                          fh, ensure_ascii=False, indent=2)
+                json.dump(state, fh, ensure_ascii=False, indent=2)
         except OSError as e:
             logger.warning(f"No se pudo guardar estado WISP en {path}: {e}")
 
@@ -520,6 +855,11 @@ class ClientEnricher:
     def _persist_catalog(self, clients: List[dict]) -> None:
         points = []
         for c in clients:
+            # Lo re-sembrado desde Influx no se re-escribe: su `_ts` debe
+            # reflejar el último refresh real (si no, nunca vencería y la
+            # cadena por documento nunca re-consultaría a WISP).
+            if c.get("_from_catalog"):
+                continue
             doc, serial, user = _tag(c, "documento"), _tag(c, "serial_onu"), _tag(c, "usuario_pppoe")
             if not doc and not serial and not user:
                 continue
@@ -553,7 +893,8 @@ class ClientEnricher:
                 },
             ))
         n = self.influx.write_points(points) if points else 0
-        logger.info(f"Catálogo WISP: {n}/{len(points)} puntos escritos")
+        if points:
+            logger.info(f"Catálogo WISP: {n}/{len(points)} puntos escritos")
 
     def _persist_matched(self, matched: List[dict]) -> None:
         points = []

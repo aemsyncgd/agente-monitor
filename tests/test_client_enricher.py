@@ -1,5 +1,6 @@
 # tests/test_client_enricher.py
 import json
+import time
 
 from src.client_enricher import (
     enrich_clients,
@@ -480,3 +481,242 @@ def test_run_emite_complemento_olt_only_con_wisp_parcial():
     base = [p.tags.get("serial_onu") for p in influx2.written
             if p.measurement == "clientes_enriquecidos"]
     assert set(base) == {"OEMT1AAAAAAA", "OEMT2BBBBBBB"}
+
+# ---------------------------------------------------------------------------
+# Cadena principal: OLT -> MAC -> PPPoE -> DNI -> WISP por documento
+# ---------------------------------------------------------------------------
+
+class _WispCfgDoc(_WispCfg):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.document_endpoint = kw.get(
+            "document_endpoint", "/cliente?documento={documento}")
+        self.error_retry_hours = kw.get("error_retry_hours", 1)
+
+
+class _FakeWispDoc(_FakeWisp):
+    """WispClient de prueba: responde por documento y registra llamadas."""
+
+    def __init__(self, by_doc=None, ok=True):
+        super().__init__([])
+        self.by_doc = by_doc or {}
+        self.doc_calls = []
+        self.ok = ok
+        self.config = _WispCfgDoc(
+            document_endpoint="/cliente?documento={documento}",
+            serial_endpoint="/servicio?onu={serial}",
+            cache_hours=24, unknown_retry_hours=168, error_retry_hours=1,
+            max_lookups_per_run=400)
+
+    def fetch_by_document_ex(self, dni, force=False):
+        self.doc_calls.append(dni)
+        return self.by_doc.get(dni), self.ok
+
+    def fetch_by_serial_ex(self, serial, force=False):
+        return None, True
+
+
+def _olt_mac(serial, mac):
+    return {"onu_serial": serial, "mac": mac, "olt_name": "OLT-NAR-2",
+            "olt": "OLT-NAR-2", "nodo": "NARANJILLOS", "pon_port": "GPON0/2",
+            "onu_index": "2_15", "estado_onu": 3}
+
+
+def test_dni_from_pppoe_formatos():
+    from src.client_enricher import _dni_from_pppoe
+    assert _dni_from_pppoe("VN12345678-1") == "12345678"
+    assert _dni_from_pppoe("a9876543b") == "9876543"
+    assert _dni_from_pppoe("aronp") == ""
+    assert _dni_from_pppoe("") == ""
+
+
+def test_doc_chain_encuentra_por_mac_pppoe_y_fuerza_serial(tmp_path):
+    mac = "aa:bb:cc:dd:ee:10"
+    serial = "SER-DOC-1"
+    wisp = _FakeWispDoc({"12345678": {
+        "documento": "12345678", "serial_onu": "OTRO-SERIAL",
+        "usuario_pppoe": "vn12345678", "nombre": "Maria Lopez",
+        "nap_nombre": "NAP-9", "zona": "NARANJILLOS"}})
+    cfg = EnrichmentConfig(enabled=True, lookback_hours=168,
+                           state_file=str(tmp_path / "state.json"))
+    enr = ClientEnricher(_FakeInflux({}), wisp, cfg)
+    olt_rows = [_olt_mac(serial, mac)]
+    pppoe_rows = [_pppoe("VN12345678-1", "AA:BB:CC:DD:EE:10")]
+    stats = EnrichStats()
+    clients, stats = enr._lookup_by_document([], olt_rows, pppoe_rows, stats)
+    assert wisp.doc_calls == ["12345678"]
+    assert stats.doc_lookups == 1 and stats.doc_found == 1
+    assert len(clients) == 1
+    assert clients[0]["serial_onu"] == serial  # la OLT manda
+    assert clients[0]["nombre"] == "Maria Lopez"
+    # Segundo ciclo: estado found fresco -> sin llamadas.
+    clients2, stats2 = enr._lookup_by_document(
+        [], olt_rows, pppoe_rows, EnrichStats())
+    assert wisp.doc_calls == ["12345678"]
+    assert stats2.doc_lookups == 0
+
+
+def test_doc_chain_no_encontrado_se_recuerda(tmp_path):
+    serial = "SER-DOC-2"
+    wisp = _FakeWispDoc({})  # 200 sin cliente -> definitivo
+    cfg = EnrichmentConfig(enabled=True, lookback_hours=168,
+                           state_file=str(tmp_path / "state.json"))
+    enr = ClientEnricher(_FakeInflux({}), wisp, cfg)
+    olt_rows = [_olt_mac(serial, "aa:bb:cc:dd:ee:20")]
+    pppoe_rows = [_pppoe("VN22223333-2", "AA:BB:CC:DD:EE:20")]
+    _, stats = enr._lookup_by_document([], olt_rows, pppoe_rows, EnrichStats())
+    assert stats.doc_lookups == 1 and stats.doc_found == 0
+    _, stats2 = enr._lookup_by_document([], olt_rows, pppoe_rows, EnrichStats())
+    assert stats2.doc_lookups == 0  # notfound vigente (unknown_retry_hours)
+    # Envejecido -> vuelve a intentar.
+    state = json.loads((tmp_path / "state.json").read_text())
+    state["wisp_doc_lookups"][serial]["ts"] -= 200 * 3600
+    (tmp_path / "state.json").write_text(json.dumps(state))
+    _, stats3 = enr._lookup_by_document([], olt_rows, pppoe_rows, EnrichStats())
+    assert stats3.doc_lookups == 1
+
+
+def test_doc_chain_error_transitorio_reintenta_pronto(tmp_path):
+    serial = "SER-DOC-3"
+    wisp = _FakeWispDoc({"33334444": {"documento": "33334444"}},
+                        ok=False)  # 5xx/red -> err, no "no encontrado"
+    cfg = EnrichmentConfig(enabled=True, lookback_hours=168,
+                           state_file=str(tmp_path / "state.json"))
+    enr = ClientEnricher(_FakeInflux({}), wisp, cfg)
+    olt_rows = [_olt_mac(serial, "aa:bb:cc:dd:ee:30")]
+    pppoe_rows = [_pppoe("VN33334444-3", "AA:BB:CC:DD:EE:30")]
+    _, stats = enr._lookup_by_document([], olt_rows, pppoe_rows, EnrichStats())
+    assert stats.doc_lookups == 1 and stats.doc_found == 0
+    state = json.loads((tmp_path / "state.json").read_text())
+    assert state["wisp_doc_lookups"][serial].get("err") is True
+    # Dentro de error_retry_hours (1h): no re-consulta.
+    _, stats2 = enr._lookup_by_document([], olt_rows, pppoe_rows, EnrichStats())
+    assert stats2.doc_lookups == 0
+    # Pasada 1h: reintenta.
+    state = json.loads((tmp_path / "state.json").read_text())
+    state["wisp_doc_lookups"][serial]["ts"] -= 2 * 3600
+    (tmp_path / "state.json").write_text(json.dumps(state))
+    wisp.ok = True
+    _, stats3 = enr._lookup_by_document([], olt_rows, pppoe_rows, EnrichStats())
+    assert stats3.doc_lookups == 1
+    assert stats3.doc_found == 1
+
+
+def test_doc_chain_siembra_catalogo_fresco_sin_llamada(tmp_path):
+    serial = "SER-DOC-4"
+    wisp = _FakeWispDoc({"44445555": {"documento": "44445555"}})
+    cfg = EnrichmentConfig(enabled=True, lookback_hours=168,
+                           state_file=str(tmp_path / "state.json"))
+    enr = ClientEnricher(_FakeInflux({}), wisp, cfg)
+    clients = [{"documento": "44445555", "serial_onu": serial,
+                "usuario_pppoe": "vn44445555", "nombre": "Test",
+                "_ts": time.time() - 3600, "_from_catalog": True}]
+    olt_rows = [_olt_mac(serial, "aa:bb:cc:dd:ee:40")]
+    clients2, stats = enr._lookup_by_document(clients, olt_rows, [],
+                                              EnrichStats())
+    assert wisp.doc_calls == []
+    assert stats.doc_lookups == 0
+    state = json.loads((tmp_path / "state.json").read_text())
+    assert state["wisp_doc_lookups"][serial]["via"] == "catalogo"
+
+
+def test_doc_chain_refresca_catalogo_vencido(tmp_path):
+    serial = "SER-DOC-5"
+    wisp = _FakeWispDoc({"55556666": {
+        "documento": "55556666", "serial_onu": serial,
+        "usuario_pppoe": "vn55556666", "nombre": "Refrescado"}})
+    cfg = EnrichmentConfig(enabled=True, lookback_hours=168,
+                           state_file=str(tmp_path / "state.json"))
+    enr = ClientEnricher(_FakeInflux({}), wisp, cfg)
+    clients = [{"documento": "55556666", "serial_onu": serial,
+                "usuario_pppoe": "vn55556666", "nombre": "Viejo",
+                "_ts": time.time() - 48 * 3600, "_from_catalog": True}]
+    olt_rows = [_olt_mac(serial, "aa:bb:cc:dd:ee:50")]
+    clients2, stats = enr._lookup_by_document(clients, olt_rows, [],
+                                              EnrichStats())
+    assert wisp.doc_calls == ["55556666"]
+    assert stats.doc_found == 1
+    assert clients2[0]["nombre"] == "Refrescado"
+    assert clients2[0]["serial_onu"] == serial
+
+
+def test_doc_chain_usa_usuario_historico_cuando_falta_rbnor(tmp_path):
+    serial = "SER-DOC-6"
+    wisp = _FakeWispDoc({"66667777": {"documento": "66667777"}})
+    cfg = EnrichmentConfig(enabled=True, lookback_hours=168,
+                           state_file=str(tmp_path / "state.json"))
+    hist = [{"measurement": "clientes_enriquecidos", "field": "nombre",
+             "value": "Hist", "time": 1.0, "serial_onu": serial,
+             "usuario_pppoe": "VN66667777-6", "documento": "66667777"}]
+    enr = ClientEnricher(_FakeInflux({"clientes_enriquecidos": hist}),
+                         wisp, cfg)
+    olt_rows = [_olt_mac(serial, "aa:bb:cc:dd:ee:60")]  # sin MAC en RB
+    clients, stats = enr._lookup_by_document([], olt_rows, [],
+                                             EnrichStats())
+    assert wisp.doc_calls == ["66667777"]
+    assert stats.doc_found == 1
+    assert clients[0]["usuario_pppoe"] == "vn66667777-6"
+
+
+# ---------------------------------------------------------------------------
+# Re-sembrado del catálogo desde wisp_clients + fusión con fuente viva
+# ---------------------------------------------------------------------------
+
+def test_merge_catalog_live_fuente_viva_gana_y_quita_flag():
+    from src.client_enricher import _merge_catalog_live
+    catalog = {"s:SER-A": {"documento": "1", "serial_onu": "SER-A",
+                           "nombre": "Catalogo", "nap_nombre": "NAP-1",
+                           "_ts": 100.0, "_from_catalog": True}}
+    live = [{"documento": "1", "serial_onu": "SER-A", "nombre": "Vivo",
+             "direccion": "Av. Viva"}]
+    out = _merge_catalog_live(catalog, live)
+    assert len(out) == 1
+    assert out[0]["nombre"] == "Vivo"          # la viva gana
+    assert out[0]["nap_nombre"] == "NAP-1"     # lo que falta se conserva
+    assert "_from_catalog" not in out[0]       # se re-persiste
+    assert out[0]["_ts"] > 100.0
+
+
+def test_merge_catalog_live_entrada_nueva_se_agrega():
+    from src.client_enricher import _merge_catalog_live
+    out = _merge_catalog_live({}, [{"documento": "9", "serial_onu": "SER-B"}])
+    assert len(out) == 1
+    assert "_from_catalog" not in out[0]
+
+
+def test_load_wisp_catalog_aliasa_nap_y_fusiona_por_serial():
+    rows = [
+        {"measurement": "wisp_clients", "field": "nombre", "value": "Viejo",
+         "time": 1.0, "serial_onu": "SER-C", "documento": "3",
+         "usuario_pppoe": "u3", "nap": "NAP-3"},
+        {"measurement": "wisp_clients", "field": "direccion", "value": "Calle 1",
+         "time": 1.0, "serial_onu": "SER-C", "documento": "3",
+         "usuario_pppoe": "u3", "nap": "NAP-3"},
+        {"measurement": "wisp_clients", "field": "nombre", "value": "Nuevo",
+         "time": 2.0, "serial_onu": "SER-C", "documento": "3",
+         "usuario_pppoe": "u3", "nap": "NAP-3"},
+    ]
+    enr = ClientEnricher(_FakeInflux({"wisp_clients": rows}), None,
+                         EnrichmentConfig(enabled=True, lookback_hours=168))
+    catalog = enr._load_wisp_catalog()
+    assert len(catalog) == 1
+    client = next(iter(catalog.values()))
+    assert client["nombre"] == "Nuevo"       # fila más reciente gana
+    assert client["direccion"] == "Calle 1"  # campos faltantes se rellenan
+    assert client["nap_nombre"] == "NAP-3"   # alias nap -> nap_nombre
+    assert client["_ts"] == 2.0
+    assert client["_from_catalog"] is True
+
+
+def test_persist_catalog_no_reescribe_filas_del_catalogo():
+    from src.client_enricher import MetricPoint  # noqa: F401
+    influx = _FakeInflux({})
+    enr = ClientEnricher(influx, None,
+                         EnrichmentConfig(enabled=True, lookback_hours=168))
+    enr._persist_catalog([
+        {"documento": "1", "serial_onu": "S1", "_from_catalog": True},
+        {"documento": "2", "serial_onu": "S2"},
+    ])
+    escritos = [p for p in influx.written
+                if p.measurement == "wisp_clients"]
+    assert [p.tags["serial_onu"] for p in escritos] == ["S2"]

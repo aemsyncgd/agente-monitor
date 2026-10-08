@@ -153,6 +153,7 @@ wisp:
   min_interval_ms: 250
   max_lookups_per_run: 400
   unknown_retry_hours: 168
+  error_retry_hours: 1
 enrichment:
   enabled: true
   interval_minutes: 15

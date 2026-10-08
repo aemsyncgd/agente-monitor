@@ -444,6 +444,7 @@ class WISPConfig:
     min_interval_ms: int = 250  # caución: espaciado mínimo entre consultas HTTP
     max_lookups_per_run: int = 400  # tope de seriales consultados por ciclo
     unknown_retry_hours: int = 168  # reconsultar seriales que WISP no conoce
+    error_retry_hours: int = 1  # reconsultar tras error de red/5xx (transitorio)
 
 
 # === Configuración de Enriquecimiento de Clientes ===
@@ -857,6 +858,7 @@ def load_config_ia(path: str) -> ConfigIA:
             min_interval_ms=w.get("min_interval_ms", 250),
             max_lookups_per_run=w.get("max_lookups_per_run", 400),
             unknown_retry_hours=w.get("unknown_retry_hours", 168),
+            error_retry_hours=w.get("error_retry_hours", 1),
         )
 
     if "enrichment" in raw:
