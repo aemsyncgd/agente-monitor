@@ -16,9 +16,51 @@ logger = logging.getLogger(__name__)
 _RATE_CACHE: Dict[Tuple[str, str], Tuple[float, int, int]] = {}
 _RATE_MAX_DELTA = 3600.0
 
+# Rotacion del barrido de potencia optica G2B (VSOL V1600G2B).
+# El G2B solo responde a GET simple sobre la tabla optica, asi que el barrido
+# tarda ~0.55s por ONU y no cabe completo en el presupuesto de una pasada: se
+# pide una ventana por pasada y se rota el punto de partida para que todas las
+# ONUs se lean a lo largo de las siguientes.
+#
+# El offset debe sobrevivir al recreado de collectors que hace main.py en cada
+# recarga de config (cada 300s, cuando un ciclo dura 430-560s). Si viviera en
+# la instancia volveria a 0 siempre y el barrido repreguntaria para siempre las
+# mismas ONUs iniciales: por eso vive a nivel de modulo, igual que _RATE_CACHE.
+# Clave: hostname de la OLT.
+_G2B_RXTX_OFFSET: Dict[str, int] = {}
+
+
+def _g2b_offset(hostname: str) -> int:
+    """Punto de partida de la ventana actual para esa OLT."""
+    return _G2B_RXTX_OFFSET.get(hostname, 0)
+
+
+def _g2b_commit(hostname: str, covered: int) -> int:
+    """Avanza la ventana por las ONUs realmente recorridas en la pasada.
+
+    Avanzar por lo *recorrido* (y no por un salto fijo) es lo que garantiza
+    cobertura contigua: con un salto fijo mayor que la ventana, algunas ONUs
+    quedan entremedias y nunca se leen.
+    """
+    nxt = (_G2B_RXTX_OFFSET.get(hostname, 0) + max(covered, 0)) % 1_000_000
+    _G2B_RXTX_OFFSET[hostname] = nxt
+    return nxt
+
+
+def _g2b_ordered(indices: List[str], offset: int) -> List[str]:
+    """Reordena las indices para arrancar en `offset`, conservando el conjunto."""
+    if not indices:
+        return []
+    off = offset % len(indices)
+    return indices[off:] + indices[:off]
+
 # ifName de ONU en la OLT (con o sin descripcion): 'GPON05ONU13',
 # 'GPON05ONU13 MARIA_PILAR_ARIAS' o subinterfaz 'GPON05ONU13.1'.
 MAC_IFACE_RE = re.compile(r"^GPON0*(\d+)ONU0*(\d+)(?:[.\s].*)?$", re.IGNORECASE)
+# Formato dot1q de VSOL V1600G2B (y similares): 'GPON 0/11:035' donde
+# 0 = slot, 11 = puerto PON, 35 = indice ONU. Sin literal 'ONU'.
+MAC_IFACE_DOT1Q_RE = re.compile(
+    r"^GPON\s+\d+/(\d+):(\d+)(?:[.\s].*)?$", re.IGNORECASE)
 GE_IFACE_RE = re.compile(r"^GE\d+/\d+$", re.IGNORECASE)
 # Puerto de la tabla FDB privada VSOL: 'PON5:ONU16' (tambien 'GE3', 'CPU').
 VSOL_PORT_RE = re.compile(r"^PON(\d+):ONU(\d+)$", re.IGNORECASE)
@@ -36,7 +78,7 @@ def normalize_mac(raw: str) -> Optional[str]:
 
 def classify_fdb_interface(name: str) -> str:
     """Clasifica el ifName aprendido en FDB: 'onu' | 'ge' | 'otro'."""
-    if MAC_IFACE_RE.match(name):
+    if MAC_IFACE_RE.match(name) or MAC_IFACE_DOT1Q_RE.match(name):
         return "onu"
     if GE_IFACE_RE.match(name):
         return "ge"
@@ -59,8 +101,14 @@ def classify_interface_name(name: str) -> Optional[str]:
 
 
 def parse_onu_iface(name: str) -> Optional[Tuple[int, int]]:
-    """'GPON05ONU17' -> (5, 17); soporta sufijo '.N' de subinterfaz."""
+    """'GPON05ONU17' -> (5, 17); 'GPON 0/11:035' -> (11, 35).
+
+    Soporta sufijo '.N' de subinterfaz en ambos formatos.
+    """
     m = MAC_IFACE_RE.match(name)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = MAC_IFACE_DOT1Q_RE.match(name)
     if m:
         return int(m.group(1)), int(m.group(2))
     return None
@@ -328,7 +376,6 @@ class OltCollector(BaseCollector):
         self.timeout = timeout
         self._batch_size = 8
         self._g2b_mode = False
-        self._g2b_rxtx_offset = 0
         self.mac_walk_delay = 3  # segundos entre walks de FDB (no saturar OLT)
         # Dedupe de onu_mac/onu_location: estas mediciones describen el estado
         # FDB (learned=1) que el dashboard solo consulta con last() por MAC.
@@ -1216,59 +1263,93 @@ class OltCollector(BaseCollector):
 
         El agente SNMP del G2B es frágil: una ráfaga de gets (16 en paralelo
         cada 0.5s, el patrón de G1/G0B) lo deja sin responder durante muchos
-        minutos, por eso solo el primer PON llegaba a escribirse con power y el
-        health-check de pasadas siguientes fallaba. Aquí se pide de a pocos y
-        con pausa, arrancando cada pasada en un offset distinto: en ~4-5 pasadas
-        los 16 PONs acumulan Rx/Tx (la ventana de 45 min del modal los muestra).
+        minutos. Peor aún, la tabla óptica no responde a GETBULK en absoluto
+        (verificado en SISAL: `snmpbulkwalk` y `snmpbulkget` dan timeout), así
+        que no hay atajo: hay que pedir ONU por ONU.
+
+        Por eso el barrido usa GET sobre un SnmpEngine persistente en vez de un
+        proceso `snmpget` por ONU. Medido en SISAL-1 con ~660 ONUs online:
+
+            snmpget por proceso  ~0.7 ONUs/s  (y resultados parciales)
+            pysnmp GET, 2 en vuelo ~1.8 ONUs/s  (80/80 y 60/60 sin fallos)
+
+        El presupuesto de 200s solo cubria ~140 ONUs, muy por debajo de las
+        ~660 de SISAL, y la ventana de 45 min del modal terminaba mostrando
+        "—" en tres de cada cuatro ONUs. Ahora se estira a 600s (cabe el barrido
+        completo) y si aun asi se corta, la rotacion continua desde donde quedo.
+
+        Solo se lanza una request por ONU en vuelo a la vez más una: medido en
+        produccion, 4 en vuelo hace perder ~17% de las respuestas sin ganar
+        throughput.
         """
         rxtx: Dict[str, Dict] = {}
         if not indices:
             return rxtx
 
-        offset = self._g2b_rxtx_offset % len(indices)
-        self._g2b_rxtx_offset = (self._g2b_rxtx_offset + 280) % 1000000
-        ordered = indices[offset:] + indices[:offset]
+        hostname = self.config.hostname
+        offset = _g2b_offset(hostname) % len(indices)
+        ordered = _g2b_ordered(indices, offset)
 
-        budget = 200.0
-        batch_size = 2
-        inter_batch_delay = 1.0
+        try:
+            from pysnmp.hlapi.v3arch.asyncio import (
+                SnmpEngine, CommunityData, UdpTransportTarget,
+                ContextData, ObjectType, ObjectIdentity, get_cmd
+            )
+        except ImportError:
+            logger.error(f"{hostname}: pysnmp no disponible, sin barrido optico G2B")
+            return rxtx
+
+        budget = 600.0
+        in_flight = 2
+        inter_batch_delay = 0.1
         start = time.time()
 
-        async def get_single(idx_dot: str):
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "snmpget", "-v2c", "-c", self.config.community,
-                    "-Ovq", "-t", "2", "-r", "0",
-                    self.config.ip,
-                    f"{self.OID_ONU_RX}.{idx_dot}",
-                    f"{self.OID_ONU_TX}.{idx_dot}",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.DEVNULL
-                )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=4)
-                lines = stdout.decode("utf-8", errors="ignore").strip().split("\n")
-                rx_val = self._parse_float(lines[0]) if lines else None
-                tx_val = self._parse_float(lines[1]) if len(lines) >= 2 else None
-                if rx_val is not None or tx_val is not None:
-                    rxtx[idx_dot] = {"rx": rx_val, "tx": tx_val}
-            except Exception:
-                pass
+        engine = SnmpEngine()
+        processed = 0
+        try:
+            transport = await UdpTransportTarget.create(
+                (self.config.ip, 161), timeout=2, retries=0
+            )
+            community = CommunityData(self.config.community)
+            context = ContextData()
 
-        for i in range(0, len(ordered), batch_size):
-            if time.time() - start > budget:
-                logger.warning(
-                    f"{self.config.hostname}: fase power G2B superó presupuesto "
-                    f"({int(budget)}s) con {len(rxtx)}/{len(indices)} ONUs"
-                )
-                break
-            batch = ordered[i:i + batch_size]
-            await asyncio.gather(*[get_single(idx) for idx in batch])
-            await asyncio.sleep(inter_batch_delay)
+            async def get_single(idx_dot: str):
+                try:
+                    error_indication, error_status, _, var_binds = await get_cmd(
+                        engine, community, transport, context,
+                        ObjectType(ObjectIdentity(f"{self.OID_ONU_RX}.{idx_dot}")),
+                        ObjectType(ObjectIdentity(f"{self.OID_ONU_TX}.{idx_dot}")),
+                    )
+                    if error_indication or error_status or not var_binds:
+                        return
+                    rx_val = self._parse_float(var_binds[0][1])
+                    tx_val = self._parse_float(var_binds[1][1]) if len(var_binds) >= 2 else None
+                    if rx_val is not None or tx_val is not None:
+                        rxtx[idx_dot] = {"rx": rx_val, "tx": tx_val}
+                except Exception:
+                    pass
 
+            for i in range(0, len(ordered), in_flight):
+                if time.time() - start > budget:
+                    logger.warning(
+                        f"{hostname}: fase power G2B superó presupuesto "
+                        f"({int(budget)}s) con {len(rxtx)}/{len(indices)} ONUs"
+                    )
+                    break
+                batch = ordered[i:i + in_flight]
+                await asyncio.gather(*[get_single(idx) for idx in batch])
+                processed += len(batch)
+                await asyncio.sleep(inter_batch_delay)
+        finally:
+            engine.close_dispatcher()
+            _g2b_commit(hostname, processed)
+
+        elapsed = time.time() - start
         if rxtx:
             logger.info(
-                f"{self.config.hostname}: G2B power {len(rxtx)}/{len(indices)} "
-                f"ONUs en {time.time()-start:.0f}s (rotación {offset})"
+                f"{hostname}: G2B power {len(rxtx)}/{len(indices)} "
+                f"ONUs en {elapsed:.0f}s (rotación {offset}, "
+                f"siguiente {_g2b_offset(hostname)})"
             )
         return rxtx
     

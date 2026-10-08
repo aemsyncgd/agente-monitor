@@ -108,17 +108,27 @@ def test_classify_fdb_interface():
     assert classify_fdb_interface("GPON05ONU17") == "onu"
     assert classify_fdb_interface("GPON05ONU17.1") == "onu"
     assert classify_fdb_interface("GPON05ONU1") == "onu"
+    # V1600G2B dot1q: 'GPON 0/11:035' (espacio, slash, colon, sin 'ONU')
+    assert classify_fdb_interface("GPON 0/11:035") == "onu"
+    assert classify_fdb_interface("GPON 0/9:041") == "onu"
+    assert classify_fdb_interface("GPON 0/7:13") == "onu"
     assert classify_fdb_interface("GE0/1") == "ge"
     assert classify_fdb_interface("GE0/8") == "ge"
     assert classify_fdb_interface("VLAN274") == "otro"
     assert classify_fdb_interface("GPON0/1") == "otro"
     assert classify_fdb_interface("trunk1") == "otro"
+    assert classify_fdb_interface("PON") == "otro"
+    assert classify_fdb_interface("GE8") == "otro"
 
 
 def test_parse_onu_iface():
     assert parse_onu_iface("GPON05ONU17") == (5, 17)
     assert parse_onu_iface("GPON05ONU17.1") == (5, 17)
+    assert parse_onu_iface("GPON 0/11:035") == (11, 35)
+    assert parse_onu_iface("GPON 0/9:041") == (9, 41)
+    assert parse_onu_iface("GPON 0/7:13") == (7, 13)
     assert parse_onu_iface("GE0/1") is None
+    assert parse_onu_iface("PON") is None
 
 
 def test_build_mac_metrics_onu_emits_both_measurements():
@@ -152,6 +162,40 @@ def test_build_mac_metrics_onu_emits_both_measurements():
     assert l["tags"]["mac"] == "00:EB:D8:17:E9:91"
     assert l["fields"]["onu_index"] == "5_17"
     assert l["fields"]["pon_port"] == "GPON0/5"
+
+
+def test_build_mac_metrics_v1600g2b_dot1q_format():
+    """V1600G2B FDB dot1q: ifName 'GPON 0/11:035' debe parsear como ONU."""
+    fdb_macs = {"6.1.2.3.4.5.6": "AA BB CC DD EE FF"}
+    fdb_ports = {"6.1.2.3.4.5.6": "42"}
+    if_desc = {"42": "GPON 0/11:035"}
+    onu_status = {"11.35": "3"}
+    onu_serial = {"11.35": "ZICGce31466e"}
+    onu_model = {"11.35": "V222"}
+
+    metrics = build_mac_metrics(
+        fdb_macs, fdb_ports, if_desc,
+        olt_name="OLT-SISAL-2", olt_ip="172.16.74.4", nodo="SISAL",
+        onu_status=onu_status, onu_serial=onu_serial, onu_model=onu_model,
+    )
+    onu_mac = [m for m in metrics if m["measurement"] == "onu_mac"]
+    onu_loc = [m for m in metrics if m["measurement"] == "onu_location"]
+    assert len(onu_mac) == 1 and len(onu_loc) == 1
+
+    m = onu_mac[0]
+    assert m["tags"]["mac"] == "AA:BB:CC:DD:EE:FF"
+    assert m["tags"]["interface_name"] == "GPON 0/11:035"
+    assert m["tags"]["interface_type"] == "onu"
+    assert m["tags"]["location"] == "GPON11_35"
+    assert m["fields"]["onu_serial"] == "ZICGce31466e"
+    assert m["fields"]["onu_model"] == "V222"
+    assert m["fields"]["estado_onu"] == 3
+
+    l = onu_loc[0]
+    assert l["tags"]["location"] == "GPON11_35"
+    assert l["tags"]["mac"] == "AA:BB:CC:DD:EE:FF"
+    assert l["fields"]["onu_index"] == "11_35"
+    assert l["fields"]["pon_port"] == "GPON0/11"
 
 
 def test_build_mac_metrics_ge_does_not_emit_onu_location():

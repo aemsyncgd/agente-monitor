@@ -31,6 +31,7 @@ _HISTORY_DAYS = 30
 _ENRICHED_TEXT_FIELDS = (
     "nombre", "direccion", "telefono", "email", "ip_servicio",
     "plan", "pppoe_status", "tecnologia", "tipo_documento", "puerto_pon",
+    "clave_pppoe",
 )
 
 
@@ -990,6 +991,7 @@ class ClientSearchService:
             "ip_servicio": fields.get("ip_servicio") or "",
             "plan": fields.get("plan") or "",
             "pppoe_status": fields.get("pppoe_status") or "",
+            "clave_pppoe": fields.get("clave_pppoe") or "",
             "ubicacion_descuadrada": row.get("ubicacion_descuadrada") == "true",
         }
         if ficha["estado_onu"] is None:

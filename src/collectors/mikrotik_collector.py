@@ -924,6 +924,7 @@ class MikroTikCollector(BaseCollector):
                     "remote_address": str(active.get("address", "") or "").strip(),
                     "service": str(secret.get("service", "pppoe") or "pppoe").strip(),
                     "disabled": 1 if str(secret.get("disabled", "false")).lower() == "true" else 0,
+                    "clave_pppoe": str(secret.get("password", "") or "").strip(),
                 },
             })
 

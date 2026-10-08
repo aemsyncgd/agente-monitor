@@ -269,6 +269,30 @@ def test_viewer_oculta_documento_telefono(monkeypatch):
     assert admin_out["telefono"] == "5551234"
 
 
+def test_admin_ve_pppoe_completo_y_clave():
+    row = dict(_ROW)
+    row["clave_pppoe"] = "mipass123"
+    out = clientes_route._apply_masking(row, "admin")
+    assert out["usuario_pppoe"] == "ab123456cd"
+    assert out["clave_pppoe"] == "mipass123"
+
+
+def test_viewer_ve_pppoe_enmascarado_sin_clave():
+    row = dict(_ROW)
+    row["clave_pppoe"] = "mipass123"
+    out = clientes_route._apply_masking(row, "viewer")
+    assert out["usuario_pppoe"] == "ab******cd"
+    assert out["clave_pppoe"] == ""
+
+
+def test_operator_ve_pppoe_enmascarado_sin_clave():
+    row = dict(_ROW)
+    row["clave_pppoe"] = "mipass123"
+    out = clientes_route._apply_masking(row, "operator")
+    assert out["usuario_pppoe"] == "ab******cd"
+    assert out["clave_pppoe"] == ""
+
+
 # === Fase 1.5: endpoints vitales (WISP+Influx vía ClientSearchService) ===
 
 _FICHA_VITAL = {

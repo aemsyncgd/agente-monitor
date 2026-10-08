@@ -60,7 +60,12 @@ def _mask_pppoe(v) -> str:
 
 def _apply_masking(row: dict, role: str) -> dict:
     out = dict(row)
-    out["usuario_pppoe"] = _mask_pppoe(row.get("usuario_pppoe"))
+    # PPPoE completo solo para admin; viewer lo ve enmascarado.
+    if role != Role.ADMIN:
+        out["usuario_pppoe"] = _mask_pppoe(row.get("usuario_pppoe"))
+    # Clave PPPoE solo se expone a admin (vacio para otros roles).
+    if role != Role.ADMIN:
+        out["clave_pppoe"] = ""
     if role == Role.VIEWER:
         out["documento"] = _mask(row.get("documento"))
         out["telefono"] = _mask(row.get("telefono"))
@@ -72,6 +77,7 @@ def _apply_masking(row: dict, role: str) -> dict:
 class ClienteLite(BaseModel):
     documento: str
     usuario_pppoe: str
+    clave_pppoe: str = ""
     serial_onu: str
     mac: str
     nombre: str
@@ -133,6 +139,7 @@ def _to_lite(row: dict) -> ClienteLite:
     return ClienteLite(
         documento=str(row.get("documento") or ""),
         usuario_pppoe=str(row.get("usuario_pppoe") or ""),
+        clave_pppoe=str(row.get("clave_pppoe") or ""),
         serial_onu=str(row.get("serial_onu") or ""),
         mac=str(row.get("mac") or ""),
         nombre=str(row.get("nombre") or ""),

@@ -812,7 +812,7 @@
                                                     <td class="px-4 py-2 text-xs font-mono font-semibold text-surface-200">{{ g.pon_port }}</td>
                                                     <td class="px-4 py-2 text-xs font-mono text-surface-400">—</td>
                                                     <td class="px-4 py-2 text-xs">
-                                                        <span :class="g.ponIface && g.ponIface.ifOperStatus === 1 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'" class="px-2 py-0.5 rounded-full font-medium">{{ g.ponIface && g.ponIface.ifOperStatus === 1 ? 'Up' : 'Down' }}</span>
+                                                        <span :class="ponUp(g) ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'" class="px-2 py-0.5 rounded-full font-medium">{{ ponUp(g) ? 'Up' : 'Down' }}</span>
                                                     </td>
                                                     <td class="px-4 py-2 text-xs text-right">
                                                         <span class="text-amber-400 font-semibold">{{ g.online }}</span><span class="text-surface-500"> / {{ g.onus.length }}</span>
@@ -1385,6 +1385,16 @@
                                     <div>
                                         <label class="block text-xs font-semibold text-surface-400 mb-1">PPPoE</label>
                                         <div class="text-surface-300 font-mono text-xs">{{ clientDetail.usuario_pppoe || '—' }}</div>
+                                    </div>
+                                    <div v-if="clientDetail.clave_pppoe !== undefined">
+                                        <label class="block text-xs font-semibold text-surface-400 mb-1">Clave PPPoE</label>
+                                        <div class="flex items-center gap-1">
+                                            <div class="text-surface-300 font-mono text-xs">{{ showPppoePass ? clientDetail.clave_pppoe : '••••••••' }}</div>
+                                            <button @click="showPppoePass = !showPppoePass" class="text-surface-500 hover:text-surface-300 p-0.5" :title="showPppoePass ? 'Ocultar' : 'Mostrar'">
+                                                <svg v-if="!showPppoePass" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                                <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                                            </button>
+                                        </div>
                                     </div>
                                     <div>
                                         <label class="block text-xs font-semibold text-surface-400 mb-1">IP de servicio</label>
@@ -2909,6 +2919,7 @@ createApp({
         const clientSearch = ref('');
         const clientResults = ref([]);
         const clientDetail = ref(null);
+        const showPppoePass = ref(false);
         const showClientDetailModal = ref(false);
         const clientSearchLoading = ref(false);
         const clientSearchError = ref('');
@@ -3323,6 +3334,17 @@ createApp({
                 return { ...g, ponIface, rx_bps: rx, tx_bps: tx, online };
             });
         });
+
+        // Estado del PON: Up si la interfaz lo reporta operativa; y, cuando no
+        // hay registro de interfaz, si al menos una ONU del PON esta conectada
+        // (un PON con clientes no puede estar Down).
+        function ponUp(g) {
+            const st = g && g.ponIface ? g.ponIface.ifOperStatus : null;
+            if (st !== null && st !== undefined && st !== '') {
+                return Number(st) === 1;
+            }
+            return !!(g && Number(g.online) > 0);
+        }
 
         function togglePon(port) {
             expandedPons[port] = !expandedPons[port];
@@ -4120,6 +4142,7 @@ createApp({
             if (!c) return;
             showClientDetailModal.value = true;
             clientDetailLoading.value = true;
+            showPppoePass.value = false;
             // Se pinta al instante lo que ya trajo la búsqueda y se enriquece
             // en segundo plano: la ficha no parpadea mientras llega el detalle.
             clientDetail.value = Object.assign({}, c, {
@@ -5337,7 +5360,7 @@ createApp({
             oltMetrics, oltInterfaces, oltPower, oltLoading, oltLastUpdated, oltDetailLoading,
             selectedOlt, oltSearch, expandedPons,
             selectedOltOnus, selectedOltGeInterfaces, selectedOltPonInterfaces, ponGroups,
-            togglePon, isPonExpanded, expandAllPons, collapseAllPons,
+            togglePon, isPonExpanded, expandAllPons, collapseAllPons, ponUp,
             oltDeviceTraffic, oltNodo,
             openOltDetail, closeOltDetail, fetchOltMetrics,
             // Trafico de interfaz (modal apilado)
@@ -5356,7 +5379,7 @@ createApp({
             nodeForm, mikrotikForm, oltForm, toast,
             // Agent state
             agentStatus, agentInstructions, clientSearch, clientResults, clientStats, instructionsExpanded,
-            clientDetail, showClientDetailModal, clientSearchLoading, clientSearchError,
+            clientDetail, showClientDetailModal, showPppoePass, clientSearchLoading, clientSearchError,
             clientSearchTruncated, clientSearchSummary, clientDetailLoading,
                         onuChipLabel, onuChipClass,
             llmConfigSectionExpanded, instructionsSectionExpanded,

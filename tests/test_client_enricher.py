@@ -461,11 +461,13 @@ def test_run_pppoe_y_dhcp_consultan_solo_por_campos():
     enr.run()
     pppoe = [f for f in influx.fluxes if '== "routeros_pppoe"' in f]
     dhcp = [f for f in influx.fluxes if '== "routeros_dhcp"' in f]
-    assert len(pppoe) == 2
+    assert len(pppoe) == 3  # mac_address, status, clave_pppoe
     assert len(dhcp) == 1
     for f in pppoe + dhcp:
         assert "|> last()" in f
         assert '_field"] ==' in f
+    # La consulta de clave_pppoe debe existir para exponer la password
+    assert any('_field"] == "clave_pppoe"' in f for f in pppoe)
 
 
 def test_run_emite_complemento_olt_only_con_wisp_parcial():

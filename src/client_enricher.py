@@ -323,6 +323,7 @@ def _build_matched(client: dict, onu: dict, pppoe: Optional[dict],
         "codigo_cliente": _field(client, "codigo_cliente"),
         "estado_servicio": _field(client, "estado"),
         "pppoe_status": _tag(pppoe, "status") if pppoe else "",
+        "clave_pppoe": _field(pppoe, "clave_pppoe") if pppoe else "",
     }
 
 
@@ -458,7 +459,7 @@ class ClientEnricher:
         olt_rows = _merge_olt_rows(olt_location, olt_optic)
         pppoe_rows = self._load_rows(
             self.pppoe_measurement, "pppoe",
-            fields=["mac_address", "status"])
+            fields=["mac_address", "status", "clave_pppoe"])
         dhcp_rows = self._load_rows(
             self.dhcp_measurement, "dhcp",
             fields=["mac_address"])
@@ -964,6 +965,7 @@ class ClientEnricher:
                 "codigo_cliente": m.get("codigo_cliente", ""),
                 "coincidencia": m.get("coincidencia", ""),
                 "pppoe_status": m.get("pppoe_status", ""),
+                "clave_pppoe": m.get("clave_pppoe", ""),
             }
             # estado_onu DEBE escribirse como entero: la serie existente en
             # InfluxDB es `integer`; escribirlo como string provoca
