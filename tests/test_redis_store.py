@@ -198,3 +198,24 @@ def test_search_and_por_tokens_no_contiguos(store):
     assert store.search("PEREZ JUAN") == ["77"]
     assert store.search("perez juan") == ["77"]
     assert store.search("PEREZ GOMEZ") == []
+
+
+def test_collapse_no_resucita_mac_de_variante_vieja(store):
+    """La MAC de una variante mas vieja no rellena la ficha ganadora.
+
+    Escenario real: la serie con la MAC de infraestructura (40:ae:...)
+    escrita antes del fix convive 168h con la serie nueva sin MAC; el
+    colapso no debe devolver la MAC vieja.
+    """
+    infra = "40:ae:30:5e:d1:56"
+    vieja = dict(_row("88", serial_onu="GPON00D450A0", mac=infra,
+                      nombre="Elieser"))
+    vieja["_ts"] = 1000.0
+    nueva = dict(_row("88", serial_onu="GPON00D450A0", mac="",
+                      nombre="Elieser"))
+    nueva["_ts"] = 2000.0
+    n = store.rebuild([vieja, nueva])
+    assert n == 1
+    ficha = store.get_ficha("88")
+    assert ficha["mac"] == ""
+    assert store.by_mac(infra) == []

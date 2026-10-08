@@ -579,6 +579,15 @@ from(bucket: "{INFLUX_BUCKET}")
         if fname and rec.get("value") is not None and ts >= row["_fts"].get(fname, -1.0):
             row[fname] = rec.get("value")
             row["_fts"][fname] = ts
+        if ts > row["_ts"]:
+            # Serie mas nueva: su tagset reemplaza al anterior. Sin esto,
+            # un tag de una variante vieja (p. ej. la MAC de
+            # infraestructura) sobrevivia si la serie nueva no lo traia.
+            stale = [k for k in row
+                     if k not in ("_ts", "_fts") and k not in rec]
+            for k in stale:
+                row.pop(k, None)
+            row["_ts"] = ts
         if ts >= row["_ts"]:
             # Un null de tag (serie sin esa columna) nunca debe tapar un
             # valor real de otra variante de serie del mismo cliente.

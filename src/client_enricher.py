@@ -166,12 +166,31 @@ def _merge_olt_rows(location_rows: List[dict],
     return no_serial + list(by_serial.values())
 
 
+def _shared_macs(olt_rows: List[dict], min_serials: int = 3) -> set:
+    """MACs FDB presentes en >= min_serials seriales distintas.
+
+    Una MAC de CPE unico solo puede aparecer bajo un ONU. Si aparece en
+    varios seriales (p. ej. 40:AE:30:5E:D1:56 en 22) es MAC de
+    infraestructura (RB/uplink/bridge) aprendida en GE* o con flap de
+    FDB: no se usa para cruce ni se publica como MAC del cliente.
+    """
+    mac_serials: Dict[str, set] = {}
+    for row in olt_rows:
+        mac = _norm_mac(_tag(row, "mac"))
+        serial = _field(row, "onu_serial").upper()
+        if mac and serial:
+            mac_serials.setdefault(mac, set()).add(serial)
+    return {m for m, serials in mac_serials.items() if len(serials) >= min_serials}
+
+
 def _build_olt_only_rows(olt_rows: List[dict],
-                         exclude_serials: Optional[set] = None) -> List[dict]:
+                         exclude_serials: Optional[set] = None,
+                         shared_macs: Optional[set] = None) -> List[dict]:
     """Construye filas OLT-only (sin cliente WISP) para un ONU determinado.
     Se descartan filas sin serial o que ya fueron matcheadas por WISP.
     """
     exclude = exclude_serials or set()
+    shared = shared_macs if shared_macs is not None else _shared_macs(olt_rows)
     out: List[dict] = []
     for row in olt_rows:
         serial = _field(row, "onu_serial").upper()
@@ -179,6 +198,7 @@ def _build_olt_only_rows(olt_rows: List[dict],
             continue
         out.append(_build_matched(
             {}, row, None, coincidencia="olt_only", descuadrado=False,
+            shared_macs=shared,
         ))
     return out
 
@@ -192,6 +212,7 @@ def enrich_clients(wisp_clients: List[dict],
                    pppoe_rows: List[dict],
                    dhcp_rows: List[dict]) -> (List[dict], List[dict]):
     """Devuelve (enriquecidos, pendientes). No toca red ni disco."""
+    shared = _shared_macs(olt_rows)
     olt_by_serial: Dict[str, dict] = {}
     olt_by_mac: Dict[str, dict] = {}
     for row in olt_rows:
@@ -199,7 +220,7 @@ def enrich_clients(wisp_clients: List[dict],
         if serial:
             olt_by_serial.setdefault(serial, row)
         mac = _norm_mac(_tag(row, "mac"))
-        if mac:
+        if mac and mac not in shared:
             olt_by_mac.setdefault(mac, row)
 
     pppoe_by_user: Dict[str, dict] = {}
@@ -243,7 +264,8 @@ def enrich_clients(wisp_clients: List[dict],
             descuadrado = (bool(serial) and bool(onu_serial) and serial != onu_serial)
             matched.append(_build_matched(client, onu, pppoe,
                                           coincidencia=coincidencia,
-                                          descuadrado=descuadrado))
+                                          descuadrado=descuadrado,
+                                          shared_macs=shared))
         else:
             if serial or mac:
                 causa = "sin_olt"       # serial/MAC conocido pero no aparece en la OLT
@@ -257,8 +279,17 @@ def enrich_clients(wisp_clients: List[dict],
 
 
 def _build_matched(client: dict, onu: dict, pppoe: Optional[dict],
-                   coincidencia: str, descuadrado: bool) -> dict:
-    mac = _norm_mac(onu.get("mac") or (pppoe or {}).get("mac"))
+                   coincidencia: str, descuadrado: bool,
+                   shared_macs: Optional[set] = None) -> dict:
+    # La MAC de sesión PPPoE (caller-id desde la RB) es la del CPE real;
+    # la FDB de la OLT puede ser un MAC de infraestructura. Solo se usa
+    # la de la OLT si no existe la PPPoE y no es compartida.
+    shared = shared_macs or set()
+    pppoe_mac = _norm_mac((pppoe or {}).get("mac"))
+    onu_mac = _norm_mac(onu.get("mac"))
+    if onu_mac in shared:
+        onu_mac = ""
+    mac = pppoe_mac or onu_mac
     return {
         "documento": _tag(client, "documento"),
         "usuario_pppoe": _tag(client, "usuario_pppoe").lower(),
@@ -664,6 +695,7 @@ class ClientEnricher:
             serial = _field(row, "onu_serial").upper()
             if serial:
                 olt_by_serial.setdefault(serial, row)
+        shared = _shared_macs(olt_rows)
 
         targets: List[str] = []
         for serial in olt_by_serial:
@@ -704,7 +736,9 @@ class ClientEnricher:
                 break
             olt_row = olt_by_serial.get(serial) or {}
             mac = _norm_mac(_tag(olt_row, "mac"))
-            user = pppoe_by_mac.get(mac, "")
+            # Una MAC compartida (infraestructura) no identifica al CPE:
+            # resolver el PPPoE por ella devolvería un usuario erróneo.
+            user = pppoe_by_mac.get(mac, "") if mac not in shared else ""
             if not user:
                 user = enriched_user.get(serial, "")
             if not user and serial in idx:

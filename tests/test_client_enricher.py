@@ -720,3 +720,56 @@ def test_persist_catalog_no_reescribe_filas_del_catalogo():
     escritos = [p for p in influx.written
                 if p.measurement == "wisp_clients"]
     assert [p.tags["serial_onu"] for p in escritos] == ["S2"]
+
+
+def test_mac_compartida_no_se_publica_ni_cruza():
+    # MAC de infraestructura vista en >=3 seriales (caso real: la RB en GE3
+    # de las 3 OLT PRADO, aprendida en 22 ONU): no es del CPE.
+    infra = "40:ae:30:5e:d1:56"
+    olt = [
+        _olt(infra, "SER-A"), _olt(infra, "SER-B"), _olt(infra, "SER-C"),
+        _olt("aa:bb:cc:dd:ee:01", "SER-001"),
+    ]
+    # Match por serial con la MAC compartida: la ficha queda sin MAC.
+    wisp = [_wisp("DOC1", serial="SER-A", usuario="elieserp", nombre="E")]
+    matched, _ = enrich_clients(wisp, olt, [], [])
+    assert len(matched) == 1
+    assert matched[0]["mac"] == ""
+    # Match solo por MAC compartida: no debe cruzar (pendiente sin_olt).
+    wisp2 = [_wisp("DOC2", usuario="otrouser", nombre="O", mac=infra)]
+    matched2, pending2 = enrich_clients(wisp2, olt, [], [])
+    assert matched2 == []
+    assert pending2[0]["causa"] == "sin_olt"
+
+
+def test_mac_preferencia_pppoe_sobre_fdb_olt():
+    # La MAC caller-id de la RB es la del CPE; la FDB de la OLT puede ser
+    # otra (bridge/ONT). Con ambas distintas y no compartidas, gana PPPoE.
+    wisp = [_wisp("DOC3", serial="SER-003", usuario="elieserp")]
+    olt = [_olt("aa:bb:cc:dd:ee:03", "SER-003")]
+    pppoe = [_pppoe("ELIESERP", "6c:68:a4:d4:50:a9")]
+    matched, _ = enrich_clients(wisp, olt, pppoe, [])
+    assert len(matched) == 1
+    assert matched[0]["mac"] == "6c:68:a4:d4:50:a9"
+
+
+def test_mac_fdb_unicada_se_conserva_sin_pppoe():
+    # Sin PPPoE activo, la MAC FDB unica de la ONU si se publica.
+    wisp = [_wisp("DOC4", serial="SER-004")]
+    olt = [_olt("aa:bb:cc:dd:ee:04", "SER-004")]
+    matched, _ = enrich_clients(wisp, olt, [], [])
+    assert matched[0]["mac"] == "aa:bb:cc:dd:ee:04"
+
+
+def test_mac_compartida_en_olt_only_tampoco_se_publica():
+    infra = "40:ae:30:5e:d1:56"
+    olt = [_olt(infra, "SER-A"), _olt(infra, "SER-B"),
+           _olt(infra, "SER-C"), _olt("aa:bb:cc:dd:ee:05", "SER-005")]
+    out = _build_olt_only_rows(olt)
+    by_serial = {_field_row(r): r for r in out}
+    assert by_serial["SER-A"]["mac"] == ""
+    assert by_serial["SER-005"]["mac"] == "aa:bb:cc:dd:ee:05"
+
+
+def _field_row(row):
+    return (row.get("serial_onu") or "").upper()

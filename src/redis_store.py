@@ -58,10 +58,19 @@ def _collapse_variants(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         variants.sort(key=lambda r: (
             bool(str(r.get("nombre") or "").strip()),
             bool(str(r.get("documento") or "").strip()),
+            float(r.get("_ts") or 0.0),
         ), reverse=True)
         base = dict(variants[0])
         for extra in variants[1:]:
+            extra_ts = float(extra.get("_ts") or 0.0)
             for k, v in extra.items():
+                if k.startswith("_"):
+                    continue
+                # La MAC es identidad critica: nunca se rellena desde una
+                # variante mas vieja (la MAC de infraestructura de un ciclo
+                # previo resucitaria en la ficha fresca).
+                if k == "mac" and extra_ts < float(base.get("_ts") or 0.0):
+                    continue
                 if base.get(k) in (None, "") and v not in (None, ""):
                     base[k] = v
         out.append(base)
@@ -111,6 +120,7 @@ class ClientStore:
             if not doc:
                 continue
             ficha = dict(row)
+            ficha.pop("_ts", None)
             ficha["documento"] = doc
             ficha["estado_onu"] = _as_int(ficha.get("estado_onu"))
             pipe.set(self._PREFIX_CLI + doc, json.dumps(ficha, ensure_ascii=False, default=str))
@@ -345,6 +355,7 @@ def _merge_snapshot_rows(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         row = rows.setdefault(key, dict(tags))
         row[r.get("field", "")] = r.get("value")
         order[key] = ts_key
+        row["_ts"] = ts_key
     return list(rows.values())
 
 
