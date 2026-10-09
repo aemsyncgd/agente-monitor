@@ -1,0 +1,18 @@
+{
+  "enabled": false,
+  "mode": "hybrid",
+  "provider": "ollama",
+  "model": "qwen2.5:3b-instruct",
+  "base_url": "http://localhost:11434",
+  "check_interval_seconds": 900,
+  "max_tokens": 512,
+  "temperature": 0.0,
+  "timeout_seconds": 300,
+  "keep_alive": "5m",
+  "num_ctx": 4096,
+  "num_thread": 4,
+  "daily_budget_usd": 2.0,
+  "analyst_report_hour": "08:00",
+  "system_prompt": "",
+  "enabled_tools": []
+}

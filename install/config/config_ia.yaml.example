@@ -1,0 +1,196 @@
+influxdb:
+  url: http://localhost:8086
+  token: ${INFLUXDB_TOKEN}
+  org: vidanet
+  bucket: monitoreo
+collectors:
+  interval_seconds: 900
+  olt_timeout: 90
+  olt_rest_seconds: 60
+  # Arranque desfasado del primer ciclo OLT (~:01:30) para no coincidir con
+  # los jobs del scheduler en la hora redonda tras un reboot.
+  start_offset_seconds: 90
+  nodes_config_path: config/nodes.yaml
+  olt_config_path: config/olts.conf
+  traffic_sampler:
+    enabled: true
+    interval_seconds: 300
+    walk_delay_seconds: 3
+live_refresh_seconds: 5
+ping:
+  enabled: true
+  targets_path: config/ping_targets.yaml
+  interval_seconds: 60
+  alert_down_seconds: 120
+  alert_on_recovery: true
+  status_window_minutes: 3
+  high_latency_threshold_ms: 10.0
+ai:
+  enabled: true
+  model_path: models/optical_autoencoder.pt
+  training:
+    input_size: 1
+    hidden_size: 32
+    num_layers: 2
+    dropout: 0.2
+    learning_rate: 0.001
+    batch_size: 16
+    epochs: 30
+    window_size: 1440
+    validation_split: 0.2
+    early_stopping_patience: 5
+  retrain_hours: 24
+  min_samples: 500
+agent:
+  enabled: true
+  check_interval_seconds: 60
+  instructions_path: config/instructions.json
+  model_lightweight: true
+llm:
+  enabled: true
+  mode: hybrid
+  provider: ollama
+  model: qwen2.5:3b-instruct
+  base_url: http://localhost:11434
+  api_key_env: OPENROUTER_API_KEY
+  check_interval_seconds: 900
+  max_tokens: 512
+  temperature: 0.0
+  timeout_seconds: 20
+  keep_alive: 5m
+  num_ctx: 2048
+  num_thread: 4
+  daily_budget_usd: 2.0
+  analyst_report_hour: 08:00
+  system_prompt: ''
+  log_file: logs/llm_agent.log
+  events_file: logs/llm_events.json
+  state_file: logs/llm_state.json
+  runtime_config_file: config/llm_config.json
+api:
+  host: 0.0.0.0
+  port: 8000
+  debug: false
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}
+  cooldown_minutes: 15
+  enabled: true
+  state_file: data/alert_state.json
+zabbix:
+  enabled: false
+  server: 127.0.0.1
+  port: 10051
+redis:
+  url: redis://localhost:6379/0
+  max_connections: 10
+  socket_timeout: 5
+  decode_responses: true
+event_bus:
+  enabled: true
+  stream: wisp:events
+  consumer_group: wisp-agent
+  consumer_name: agent-1
+  max_retries: 3
+  retry_backoff_seconds: 1.0
+  dlq_stream: wisp:events:dlq
+  legacy_direct_write: false
+rag:
+  enabled: true
+  collection_name: wisp_knowledge
+  persist_directory: data/chromadb
+  embedding_model: all-MiniLM-L6-v2
+  chunk_size: 500
+  chunk_overlap: 50
+  reindex_interval_hours: 168
+  docs_directory: docs/
+agent_loop:
+  enabled: false
+  heartbeat_interval_seconds: 30
+  max_llm_failures: 5
+  degraded_mode_enabled: true
+  event_timeout_seconds: 300
+  stats_retention_hours: 168
+correlator:
+  enabled: true
+  cascade_window_seconds: 300
+  cascade_min_nodes: 2
+  mass_threshold: 3
+  recurrence_window_hours: 24
+  recurrence_min_count: 3
+  degradation_window_hours: 6
+policy:
+  enabled: true
+  work_hours_start: 8
+  work_hours_end: 18
+  work_days:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  max_alerts_per_hour_per_zone: 5
+  critical_always_immediate: true
+  quiet_hours_summary_interval_minutes: 240
+scheduler:
+  enabled: true
+  daily_report_hour: 06:00
+  weekly_report_day: monday
+  weekly_report_hour: 07:00
+  monthly_report_day: 1
+  monthly_report_hour: 08:00
+  health_check_interval_minutes: 5
+  rag_reindex_interval_hours: 168
+  memory_cleanup_interval_hours: 24
+wisp:
+  enabled: true
+  base_url: https://czwisp.com
+  api_key_env: WISP_API_KEY
+  list_endpoint: ''
+  document_endpoint: /api/webhooks/cliente/{slug}/cliente?documento={documento}
+  serial_endpoint: /api/webhooks/cliente/{slug}/servicio?onu={serial}
+  page_size: 100
+  timeout_seconds: 30
+  documents_csv: data/wisp_documentos.csv
+  cache_hours: 24
+  min_interval_ms: 250
+  max_lookups_per_run: 400
+  unknown_retry_hours: 168
+  error_retry_hours: 1
+enrichment:
+  enabled: true
+  interval_minutes: 15
+  # 168h materializa ~10.7M filas de onu_location en Python cada ciclo
+  # (pico 7GB -> OOM-kill del scheduler). Con 6h se cubre el ultimo estado
+  # (ciclo OLT ~469s) y el respaldo óptico sigue tapando huecos.
+  lookback_hours: 6
+  state_file: data/enrichment_state.json
+fault_detection:
+  enabled: true
+  # 15 min (no 10): p90 real de duracion ~40 min hace inviable 10 min; los
+  # cortes de fibra duran horas, el tick solo marca cada cuánto se re-intenta.
+  interval_minutes: 15
+  threshold_clients_los: 3
+  broadcast_down_ratio: 0.6
+  onu_lookback_minutes: 360
+  status_down_values: [1, 4, 6]
+  status_online_value: 3
+  refresh_after_grouping: true
+  refresh_timeout_seconds: 30
+  # Techo de OLTs refrescadas por corrida (refresh SNMP secuencial 60-90s
+  # c/u). Rotando entre corridas todas las OLTs candidatas se cubren en
+  # ≤3 ticks sin desbordar la ventana.
+  max_olts_refresh: 3
+  state_file: data/fault_state.json
+audit:
+  enabled: true
+  log_file: logs/audit.jsonl
+  retention_days: 90
+actions:
+  approval_timeout_seconds: 300
+  max_concurrent_actions: 3
+logging:
+  level: INFO
+  file: logs/monitor_ia.log
+  max_size_mb: 10
+  backup_count: 3

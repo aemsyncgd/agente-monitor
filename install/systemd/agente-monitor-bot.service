@@ -1,0 +1,22 @@
+[Unit]
+Description=Agente Monitor - Bot Telegram interactivo (Phases 4-6)
+Documentation=file://@PROJECT_DIR@/README_AGENT.md
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_DIR@
+Environment=CONFIG_PATH=config/config_ia.yaml
+EnvironmentFile=@PROJECT_DIR@/.env.ia
+ExecStart=@PROJECT_DIR@/venv/bin/python3 -m src.telegram_bot
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Logs
+StandardOutput=append:@PROJECT_DIR@/logs/bot.log
+StandardError=append:@PROJECT_DIR@/logs/bot-error.log
+
+[Install]
+WantedBy=default.target

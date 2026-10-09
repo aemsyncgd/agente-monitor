@@ -115,8 +115,12 @@ def parse_onu_iface(name: str) -> Optional[Tuple[int, int]]:
 
 
 def parse_vsol_port(port: str) -> Optional[Tuple[int, int]]:
-    """'PON5:ONU16' -> (5, 16). Devuelve None para 'GE3', 'CPU', etc."""
-    m = VSOL_PORT_RE.match(str(port).strip().strip('"'))
+    """'PON5:ONU16' o 'GPON 0/9:069' -> (5, 16). None para 'GE3', 'CPU', etc."""
+    raw = str(port).strip().strip('"')
+    m = VSOL_PORT_RE.match(raw)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = MAC_IFACE_DOT1Q_RE.match(raw)
     if m:
         return int(m.group(1)), int(m.group(2))
     return None
