@@ -13,7 +13,8 @@
                     colors: {
                         surface: {
                             950: '#090d16', 900: '#0f172a', 800: '#1e293b',
-                            700: '#334155', 600: '#475569', 400: '#94a3b8', 200: '#e2e8f0'
+                            700: '#334155', 600: '#475569', 500: '#7c8ba1',
+                            400: '#94a3b8', 200: '#e2e8f0', 100: '#f1f5f9'
                         },
                         brand: { 500: '#06b6d4', 400: '#22d3ee', 300: '#67e8f9' }
                     }
@@ -55,15 +56,15 @@
                         <div class="flex items-center gap-3 bg-surface-950/80 px-4 py-2 rounded-xl border border-surface-800">
                             <div class="text-center pr-3 border-r border-surface-800">
                                 <div class="text-xs font-semibold text-surface-400 uppercase">Nodos</div>
-                                <div class="text-xl font-black font-mono text-emerald-400">{{ nodes.length }}</div>
+                                <div class="text-xl font-black font-mono" :class="loading ? 'text-surface-400' : 'text-emerald-400'">{{ loading ? '--' : nodes.length }}</div>
                             </div>
                             <div class="text-center pr-3 border-r border-surface-800">
                                 <div class="text-xs font-semibold text-surface-400 uppercase">OLTs online</div>
-                                <div class="text-xl font-black font-mono text-brand-400">{{ onlineOltCount }} / {{ totalOltCount }}</div>
+                                <div class="text-xl font-black font-mono" :class="loading ? 'text-surface-400' : 'text-brand-400'">{{ loading ? '--' : onlineOltCount + ' / ' + totalOltCount }}</div>
                             </div>
                             <div class="text-center pl-1">
                                 <div class="text-xs font-semibold text-surface-400 uppercase">ONUs online</div>
-                                <div class="text-xl font-black font-mono text-white">{{ onlineOnuCount }} / {{ totalOnuCount }}</div>
+                                <div class="text-xl font-black font-mono" :class="loading ? 'text-surface-400' : 'text-white'">{{ loading ? '--' : onlineOnuCount + ' / ' + totalOnuCount }}</div>
                             </div>
                         </div>
 
@@ -80,7 +81,13 @@
                 </header>
 
                 <!-- ROW POR NODO -->
-                <div class="absolute left-[14px] right-[14px] top-[96px] bottom-[64px] flex flex-col gap-[10px]">
+                <div class="absolute left-[14px] right-[14px] top-[96px] flex flex-col gap-[10px]"
+                     :class="errorMsg ? 'bottom-[126px]' : 'bottom-[64px]'">
+                    <div v-if="!loading && nodes.length === 0"
+                         class="flex-1 flex flex-col items-center justify-center gap-2 rounded-xl border border-red-500/40 bg-red-500/10">
+                        <span class="text-3xl font-black text-red-300 tracking-widest">SIN DATOS</span>
+                        <span class="text-sm text-surface-400">No se pudieron cargar las métricas de las OLTs</span>
+                    </div>
                     <div v-for="(node, ni) in nodes" :key="node.name"
                          class="flex-1 flex gap-[10px] min-h-0">
                         <!-- Etiqueta de nodo -->
@@ -209,6 +216,12 @@
                         <span class="shrink-0 px-3 text-[11px] font-mono text-surface-400">{{ tickerEvents.length }} eventos</span>
                     </div>
                 </div>
+                <!-- BANNER DE ERROR / 401 -->
+                <div v-if="errorMsg" class="absolute bottom-[70px] left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 bg-red-500/20 border border-red-500/50 text-red-200 px-5 py-2.5 rounded-xl text-sm font-bold shadow-2xl max-w-[1500px]">
+                    <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span>{{ errorMsg }}</span>
+                    <button v-if="authBlocked" @click="connectWithKey" class="shrink-0 px-3 py-1 rounded-lg bg-red-500/30 border border-red-400/50 hover:bg-red-500/50 text-red-100 text-xs font-black uppercase tracking-wider">Conectar</button>
+                </div>
             </div>
         </div>
     </div>
@@ -242,19 +255,24 @@
             });
             return apiPromptLock;
         }
-        async function apiFetch(url, opts = {}, authRetried = false) {
+        async function apiFetch(url, opts = {}) {
             let key = getApiKey();
-            if (!key && !authRetried) key = await promptForKey();
+            // No prompt up-front: try first and only ask for the key on 401.
+            // The TV dashboard endpoints are authorized without a key for
+            // the configured no-auth IP; everything else still 401s.
             const headers = { ...(opts.headers || {}), 'Content-Type': 'application/json' };
             if (key) headers['X-API-Key'] = key;
             opts.headers = headers;
             const res = await fetch(url, opts);
             if (res.status === 401) {
-                if (authRetried) throw new Error('API Key inválida');
+                // The stored key was rejected (or this network is not on the TV
+                // allow-list). Do NOT open a blocking prompt here: on a TV
+                // there is nobody to type a key, and a blocked prompt would
+                // freeze the whole refresh cycle.
                 clearApiKey();
-                key = await promptForKey(true);
-                if (!key) throw new Error('Autenticación requerida');
-                return apiFetch(url, opts, true);
+                const err = new Error('HTTP 401 — origen no autorizado');
+                err.status = 401;
+                throw err;
             }
             return res;
         }
@@ -274,6 +292,8 @@
                 const opticalRows = ref([]);
                 const anomalies = ref([]);
                 const errorMsg = ref('');
+                const authBlocked = ref(false);
+                const loading = ref(true);
                 const stageScale = ref(1);
                 const sparks = ref({});
 
@@ -440,6 +460,14 @@
                 }
 
                 async function fetchAll() {
+                    const failures = [];
+                    let authFail = false;
+                    const note = (label, r) => {
+                        if (r.status !== 'rejected') return;
+                        const msg = (r.reason && r.reason.message) ? r.reason.message : String(r.reason);
+                        failures.push(label + ' → ' + msg);
+                        if (r.reason && r.reason.status === 401) authFail = true;
+                    };
                     try {
                         const [dev, mets, ifaces, optic, anom] = await Promise.allSettled([
                             getJson('/api/devices/all'),
@@ -448,17 +476,37 @@
                             getJson('/api/v1/metrics/optical'),
                             getJson('/api/v1/anomalies/recent')
                         ]);
+                        note('devices', dev); note('métricas OLT', mets); note('interfaces OLT', ifaces);
+                        note('óptica', optic); note('anomalías', anom);
                         if (dev.status === 'fulfilled') devices.value = dev.value;
                         if (mets.status === 'fulfilled') oltMetrics.value = Array.isArray(mets.value) ? mets.value : [];
                         if (ifaces.status === 'fulfilled') oltIfaces.value = Array.isArray(ifaces.value) ? ifaces.value : [];
                         if (optic.status === 'fulfilled') opticalRows.value = Array.isArray(optic.value) ? optic.value : [];
                         if (anom.status === 'fulfilled') anomalies.value = Array.isArray(anom.value) ? anom.value : [];
                         recordSparks();
-                        errorMsg.value = '';
+                        loading.value = false;
+                        authBlocked.value = authFail;
+                        if (authFail) {
+                            errorMsg.value = 'Acceso no autorizado (HTTP 401) desde esta red. '
+                                + 'El dashboard necesita una API Key o una IP habilitada para acceso sin clave.';
+                        } else if (failures.length) {
+                            errorMsg.value = 'Error de datos: ' + failures.join('   ·   ');
+                        } else {
+                            errorMsg.value = '';
+                        }
                     } catch (e) {
+                        loading.value = false;
                         errorMsg.value = 'Error de datos: ' + e.message;
                         console.error(e);
                     }
+                }
+
+                // Explicit, user-triggered API key entry (button in the banner).
+                // Never automatic: a modal prompt on a TV would block the
+                // refresh loop forever.
+                async function connectWithKey() {
+                    const key = await promptForKey(true);
+                    if (key) await fetchAll();
                 }
 
                 onMounted(() => {
@@ -475,7 +523,8 @@
 
                 return {
                     currentTime, currentDate, nodes, onlineOltCount, totalOltCount,
-                    onlineOnuCount, totalOnuCount, tickerEvents, errorMsg, stageStyle,
+                    onlineOnuCount, totalOnuCount, tickerEvents, errorMsg, authBlocked,
+                    loading, connectWithKey, stageStyle,
                     fmt, fmtTemp, fmtBps, fmtUptime, bar, barClass, pctClass, tempClass, sparkPoints
                 };
             }

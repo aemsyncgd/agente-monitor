@@ -10,8 +10,13 @@ Environment variables:
     API_KEY_OPERATOR - Operator API key (optional, read + config write)
     API_KEY_VIEWER   - Viewer API key (optional, read-only)
     ALLOWED_ORIGINS  - Comma-separated CORS origins (default: same-origin)
+    TV_NOAUTH_IPS    - Comma-separated IPs/CIDRs that may read the TV dashboard
+                       endpoints (/backbone, /olts) WITHOUT an API key.
+                       Default: empty = disabled. e.g. "10.0.4.6"
+    TV_NOAUTH_ROLE   - Role granted to TV_NOAUTH_IPS without a key (default: viewer)
 """
 import os
+import ipaddress
 import time
 import logging
 from typing import Optional, Set
@@ -33,6 +38,66 @@ ALLOWED_ORIGINS = [
     for o in os.environ.get("ALLOWED_ORIGINS", "").split(",")
     if o.strip()
 ]
+
+# ── TV dashboards: no-auth access ─────────────────────────────────────────────
+# Addresses allowed to read the endpoints consumed by the /backbone and /olts
+# TV dashboards without an API key. Accepts a single IP or a CIDR range.
+# Empty = feature disabled (default, safe).
+TV_NOAUTH_IPS = os.environ.get("TV_NOAUTH_IPS", "")
+TV_NOAUTH_ROLE = os.environ.get("TV_NOAUTH_ROLE", "viewer")
+
+_VALID_ROLES = {"admin", "operator", "viewer"}
+
+# Read-only endpoints consumed by the TV dashboards (/backbone and /olts).
+# A no-auth address may ONLY reach these paths (GET/HEAD); everything else in
+# /api/* keeps requiring an API key.
+TV_API_PREFIXES: tuple = (
+    "/api/devices/all",              # /backbone + /olts: device inventory
+    "/api/ping/status",              # /backbone: ping status
+    "/api/v1/metrics/mikrotik",      # /backbone: MikroTik metrics + subpaths
+    "/api/v1/metrics/olt",           # /olts: OLT metrics (+ /interfaces)
+    "/api/v1/metrics/optical",       # /olts: optical power
+    "/api/v1/anomalies/recent",      # /olts: recent anomalies
+)
+
+
+def _parse_ip_list(raw: str) -> list:
+    """Parse a comma-separated list of IPs/CIDRs. Invalid entries are ignored."""
+    networks: list = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(token, strict=False))
+        except ValueError:
+            logger.warning("TV_NOAUTH_IPS: entrada inválida ignorada: %r", token)
+    return networks
+
+
+TV_NOAUTH_NETWORKS = _parse_ip_list(TV_NOAUTH_IPS)
+
+
+def is_tv_noauth_ip(ip: str) -> bool:
+    """True if `ip` belongs to any configured TV no-auth network."""
+    if not ip or not TV_NOAUTH_NETWORKS:
+        return False
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in TV_NOAUTH_NETWORKS)
+
+
+def is_tv_endpoint(path: str) -> bool:
+    """True if `path` is one of the read-only endpoints used by the TV dashboards."""
+    return any(path == p or path.startswith(p + "/") for p in TV_API_PREFIXES)
+
+
+def tv_noauth_role() -> str:
+    """Role to grant a TV no-auth address, validated against known roles."""
+    return TV_NOAUTH_ROLE if TV_NOAUTH_ROLE in _VALID_ROLES else "viewer"
+
 
 # Paths that NEVER require authentication
 PUBLIC_PATHS: Set[str] = {
@@ -128,6 +193,22 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return response
 
         # If auth is configured but no key provided
+        if role == Role.NONE:
+            # TV dashboards (/backbone, /olts): read-only endpoints may be
+            # reached without a key from the configured no-auth IPs. This does
+            # NOT open the rest of /api/* and only applies to GET/HEAD.
+            client_ip = request.client.host if request.client else ""
+            if (
+                request.method in ("GET", "HEAD")
+                and is_tv_endpoint(path)
+                and is_tv_noauth_ip(client_ip)
+            ):
+                role = tv_noauth_role()
+                logger.info(
+                    "Acceso TV sin API key: IP %s (rol=%s) -> %s %s",
+                    client_ip, role, request.method, path,
+                )
+
         if role == Role.NONE:
             return JSONResponse(
                 status_code=401,

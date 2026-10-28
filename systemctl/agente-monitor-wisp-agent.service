@@ -1,0 +1,24 @@
+[Unit]
+Description=Agente Monitor - Agente WISP 24/7 (Phases 4-6)
+Documentation=file:///home/monitor/agente-monitor/README_AGENT.md
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/monitor/agente-monitor
+Environment=CONFIG_PATH=config/config_ia.yaml
+Environment=NODES_PATH=config/nodes.yaml
+Environment=CSV_PATH=/home/monitor/agente-monitor/grid_servicios.csv
+EnvironmentFile=/home/monitor/agente-monitor/.env.ia
+ExecStart=/home/monitor/agente-monitor/venv/bin/python3 -m src.ai.agent_loop
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Logs
+StandardOutput=append:/home/monitor/agente-monitor/logs/wisp-agent.log
+StandardError=append:/home/monitor/agente-monitor/logs/wisp-agent-error.log
+
+[Install]
+WantedBy=default.target

@@ -17,6 +17,7 @@ from ...storage.influx_client import InfluxClient
 from ...collectors.influx_writer import CollectorInfluxWriter
 from ...collectors.mikrotik_collector import MikroTikCollector, MikroTikConfig
 from ...collectors.olt_collector import OltCollector, OltConfig
+from ...icmp import icmp_ping
 from ..influx_helper import get_active_device_ips, run_influx
 
 
@@ -68,40 +69,15 @@ class DeviceTestResponse(BaseModel):
 
 # === Endpoint de Test / Diagnóstico de Conexión ===
 
-@router.post("/test", response_model=DeviceTestResponse)
-async def test_device_connection(req: DeviceTestRequest):
-    """Realiza una prueba en vivo de conectividad ICMP (Ping) y consulta SNMP contra un dispositivo."""
-    import subprocess
+async def _snmp_probe(ip: str, community: str):
+    """
+    Consulta SNMP v2c (sysDescr + sysUptime) contra `ip`.
 
-    ip = req.ip.strip()
-    community = req.community.strip()
-    dev_type = req.type.lower().strip()
-    logs = []
-    details = {}
-
-    logs.append(f"[INIT] Iniciando diagnóstico para {ip} (tipo: {dev_type.upper()}, comunidad: '{community}')...")
-
-    # 1. Test ICMP Ping
-    logs.append(f"[STEP 1] Probando conectividad ICMP (Ping) a {ip}...")
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "ping", "-c", "2", "-W", "2", ip,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode == 0:
-            logs.append(f"  --> ICMP Ping Exitoso [OK]")
-            details["ping"] = True
-        else:
-            logs.append(f"  --> ICMP Ping Fallido (sin respuesta del host) [FAIL]")
-            details["ping"] = False
-    except Exception as e:
-        logs.append(f"  --> Error ejecutando ping: {e}")
-        details["ping"] = False
-
-    # 2. Test SNMP (sysDescr 1.3.6.1.2.1.1.1.0 y sysUptime 1.3.6.1.2.1.1.3.0)
-    logs.append(f"[STEP 2] Probando consulta SNMP (UDP/161) v2c con comunidad '{community}'...")
+    Returns:
+        (ok, details, log_lines) — las log_lines van al diagnóstico del test.
+    """
+    logs: List[str] = []
+    details: Dict[str, Any] = {}
     snmp_ok = False
     try:
         try:
@@ -132,12 +108,11 @@ async def test_device_connection(req: DeviceTestRequest):
 
         if errorIndication:
             logs.append(f"  --> Fallo de respuesta SNMP: {errorIndication} [FAIL]")
-            logs.append(f"  --> [DIAGNÓSTICO] El equipo responde a Ping pero NO a SNMP. Verifique SNMP activado y firewall UDP 161.")
         elif errorStatus:
             logs.append(f"  --> Error SNMP status: {errorStatus.prettyPrint()} en el índice {errorIndex} [FAIL]")
         else:
             snmp_ok = True
-            logs.append(f"  --> Consulta SNMP Exitosa! [OK]")
+            logs.append("  --> Consulta SNMP Exitosa! [OK]")
             for varBind in varBinds:
                 oid_str = str(varBind[0])
                 val_str = str(varBind[1])
@@ -149,8 +124,50 @@ async def test_device_connection(req: DeviceTestRequest):
                     details["sysUptime"] = val_str
     except Exception as e:
         logs.append(f"  --> Excepción al realizar consulta SNMP: {e} [FAIL]")
+    return snmp_ok, details, logs
 
+
+@router.post("/test", response_model=DeviceTestResponse)
+async def test_device_connection(req: DeviceTestRequest):
+    """Realiza una prueba en vivo de conectividad ICMP (Ping) y consulta SNMP contra un dispositivo."""
+    ip = req.ip.strip()
+    community = req.community.strip()
+    dev_type = req.type.lower().strip()
+    logs = []
+    details = {}
+
+    logs.append(f"[INIT] Iniciando diagnóstico para {ip} (tipo: {dev_type.upper()}, comunidad: '{community}')...")
+
+    # 1. Test ICMP Ping — icmp_ping usa `ping` y degrada a fping cuando `ping`
+    #    no puede abrir ICMP (LXC unprivileged sin cap_net_raw / ping_group_range
+    #    restringido), evitando falsos "host caído".
+    logs.append(f"[STEP 1] Probando conectividad ICMP (Ping) a {ip}...")
+    ping_res = await asyncio.to_thread(icmp_ping, ip, 2, 2)
+    details["ping"] = bool(ping_res["ok"])
+    if details["ping"]:
+        via = "" if ping_res.get("tool") == "ping" else f" (vía {ping_res.get('tool')})"
+        logs.append(f"  --> ICMP Ping Exitoso{via} [OK]")
+    else:
+        attempts = "; ".join(ping_res.get("attempts") or []) or "sin respuesta del host"
+        logs.append(f"  --> ICMP Ping Fallido ({attempts}) [FAIL]")
+
+    # 2. Test SNMP (sysDescr 1.3.6.1.2.1.1.1.0 y sysUptime 1.3.6.1.2.1.1.3.0)
+    logs.append(f"[STEP 2] Probando consulta SNMP (UDP/161) v2c con comunidad '{community}'...")
+    snmp_ok, snmp_details, snmp_logs = await _snmp_probe(ip, community)
+    logs.extend(snmp_logs)
+    details.update(snmp_details)
     details["snmp"] = snmp_ok
+
+    # Diagnóstico coherente con lo realmente observado (antes se afirmaba
+    # "responde a Ping" aunque el ICMP hubiera fallado).
+    if not snmp_ok:
+        if details["ping"]:
+            logs.append("  --> [DIAGNÓSTICO] El equipo responde a Ping pero NO a SNMP. "
+                        "Verifique SNMP activado y firewall UDP/161 (debe permitir la IP de origen de este servidor).")
+        else:
+            logs.append("  --> [DIAGNÓSTICO] Sin respuesta ICMP ni SNMP. Verifique IP/ruta y ACLs "
+                        "de firewall (ICMP y UDP/161 desde la IP de este servidor).")
+
     overall_success = details.get("ping", False) and snmp_ok
 
     if overall_success:

@@ -23,6 +23,9 @@ from .auth import (
     API_KEY_ADMIN,
     API_KEY_VIEWER,
     ALLOWED_ORIGINS,
+    TV_NOAUTH_IPS,
+    TV_NOAUTH_NETWORKS,
+    TV_NOAUTH_ROLE,
 )
 
 # ── Rate Limiting ────────────────────────────────────────────────────────────
@@ -212,10 +215,15 @@ async def _log_security_status():
     viewer_status = "configured" if API_KEY_VIEWER else "not configured"
     rate_status = "ENABLED" if SLOWAPI_AVAILABLE else "DISABLED (slowapi not installed)"
     cors_status = f"origins={ALLOWED_ORIGINS}" if ALLOWED_ORIGINS else "disabled (same-origin only)"
+    if TV_NOAUTH_NETWORKS:
+        trusted_status = f"{TV_NOAUTH_IPS} (TV /backbone,/olts, rol: {TV_NOAUTH_ROLE})"
+    else:
+        trusted_status = "none"
 
     logger.info("=== Security Status ===")
     logger.info(f"  Authentication: {auth_status}")
     logger.info(f"  Viewer key: {viewer_status}")
+    logger.info(f"  TV no-auth IPs: {trusted_status}")
     logger.info(f"  Rate limiting: {rate_status}")
     logger.info(f"  CORS: {cors_status}")
     logger.info(f"  Security headers: ENABLED")
@@ -234,3 +242,19 @@ async def _log_security_status():
         logger.info(f"Status window set to {_ia_cfg.ping_monitor.status_window_minutes} min")
     except Exception as e:
         logger.warning(f"Could not load ping config for status window: {e}")
+
+@app.get("/newdesign", response_class=HTMLResponse)
+async def newdesign():
+    index_file = STATIC_DIR / "newdesign.html"
+    if index_file.exists():
+        content = index_file.read_text(encoding="utf-8")
+        content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+        return HTMLResponse(
+            content=content,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+    return HTMLResponse("Not Found", status_code=404)

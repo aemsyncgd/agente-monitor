@@ -1,0 +1,24 @@
+[Unit]
+Description=Agente Monitor - API FastAPI + Dashboard web
+Documentation=file:///home/monitor/agente-monitor/README_AGENT.md
+After=influxdb-ia.service
+Wants=influxdb-ia.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/monitor/agente-monitor
+Environment=CONFIG_PATH=config/config_ia.yaml
+Environment=NODES_PATH=config/nodes.yaml
+EnvironmentFile=/home/monitor/agente-monitor/.env.ia
+ExecStart=/home/monitor/agente-monitor/venv/bin/python3 -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Logs
+StandardOutput=append:/home/monitor/agente-monitor/logs/api.log
+StandardError=append:/home/monitor/agente-monitor/logs/api-error.log
+
+[Install]
+WantedBy=default.target

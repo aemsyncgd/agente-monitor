@@ -1,7 +1,6 @@
 # src/verifier.py
 import os
 import warnings
-import subprocess
 import logging
 from typing import Optional, Any
 from .models import Event, FaultVerification, VerificationResult
@@ -79,22 +78,24 @@ class Verifier:
     def _verify_ping(self, ip: str) -> VerificationResult:
         if not self.config.verification.ping_enabled:
             return VerificationResult(source="ping", success=False, error="Disabled")
-        
-        try:
-            result = subprocess.run(
-                ["ping", "-c", "1", "-W", str(self.config.verification.ping_timeout_seconds), ip],
-                capture_output=True,
-                timeout=self.config.verification.ping_timeout_seconds + 2
-            )
+
+        # icmp_ping usa `ping` y degrada a fping si `ping` no puede abrir ICMP
+        # (p. ej. LXC unprivileged con ping_group_range restringido).
+        from .icmp import icmp_ping
+
+        res = icmp_ping(ip, count=1, timeout=self.config.verification.ping_timeout_seconds)
+        if res["ok"]:
             return VerificationResult(
                 source="ping",
-                success=result.returncode == 0,
-                details={"returncode": result.returncode}
+                success=True,
+                details={"returncode": res["returncode"], "tool": res["tool"]}
             )
-        except subprocess.TimeoutExpired:
-            return VerificationResult(source="ping", success=False, error="Timeout")
-        except Exception as e:
-            return VerificationResult(source="ping", success=False, error=str(e))
+        return VerificationResult(
+            source="ping",
+            success=False,
+            error="; ".join(res["attempts"]) or "Timeout",
+            details={"returncode": res["returncode"], "attempts": res["attempts"]}
+        )
     
     def _verify_snmp(self, ip: str, puerto_pon: str) -> VerificationResult:
         if not self.config.verification.snmp_enabled:

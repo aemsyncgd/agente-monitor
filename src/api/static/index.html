@@ -67,12 +67,17 @@
             --surface-700: 51 65 85;
             --surface-800: 30 41 59;
             --surface-900: 15 23 42;
-            --surface-950: 2 6 23;
+            --surface-950: 6 8 16;
         }
         [v-cloak] { display: none !important; }
-        body { font-family: 'Inter', system-ui, sans-serif; transition: background-color 0.2s, color 0.2s; }
+        body { font-family: 'Inter', system-ui, sans-serif; transition: background-color 0.25s ease, color 0.25s ease; background:
+            radial-gradient(1400px 900px at 10% -10%, rgba(59,130,246,0.14), transparent),
+            radial-gradient(1100px 800px at 90% -20%, rgba(16,185,129,0.09), transparent),
+            radial-gradient(800px 600px at 50% 120%, rgba(59,130,246,0.06), transparent),
+            rgb(var(--surface-950));
+        }
         ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: rgb(var(--surface-800)); }
+        ::-webkit-scrollbar-track { background: rgb(var(--surface-900)); }
         ::-webkit-scrollbar-thumb { background: rgb(var(--surface-600)); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: rgb(var(--surface-500)); }
         .fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease; }
@@ -115,41 +120,69 @@
         })();
     </script>
 </head>
-<body class="bg-surface-950 text-surface-100 min-h-screen">
+<body class="bg-surface-950 text-surface-100 min-h-screen" style="scroll-padding-top: 90px;">
 <div id="app" v-cloak>
-    <div class="flex min-h-screen">
-
-        <!-- Sidebar -->
-        <aside :class="sidebarOpen ? 'w-64' : 'w-16'" class="bg-surface-900 border-r border-surface-700/50 flex flex-col transition-all duration-300 ease-in-out fixed h-full z-40">
-            <!-- Logo -->
-            <div class="h-16 flex items-center px-4 border-b border-surface-700/50">
-                <div class="flex items-center gap-3 overflow-hidden">
-                    <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                    </div>
-                    <span v-show="sidebarOpen" class="font-bold text-brand-400 whitespace-nowrap">Vidanet IA</span>
+    <div class="min-h-screen">
+        <!-- Header (separado) -->
+        <header class="fixed top-0 left-0 right-0 h-20 bg-surface-950/95 flex items-center justify-between px-10 z-[1000]" style="backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); mask-image: linear-gradient(to bottom, black 0%, black calc(100% - 10px), transparent 100%); -webkit-mask-image: linear-gradient(to bottom, black 0%, black calc(100% - 10px), transparent 100%);">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-400 via-brand-500 to-brand-700 flex items-center justify-center flex-shrink-0 shadow-[0_18px_60px_-20px_rgba(59,130,246,0.95)]">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                </div>
+                <div class="flex flex-col leading-tight">
+                    <span class="font-semibold text-surface-100 whitespace-nowrap tracking-tight text-lg">Vidanet</span>
+                    <span class="text-xs text-surface-400 whitespace-nowrap">Monitor IA</span>
                 </div>
             </div>
+            <div class="flex items-center gap-3">
+                <button @click="toggleTheme" class="p-2 rounded-full hover:bg-surface-800/60 hover:text-accent-400 transition-colors" :title="isDark ? 'Modo claro' : 'Modo oscuro'">
+                    <svg v-if="isDark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                </button>
+                <div class="flex items-center gap-2 text-xs text-surface-400 px-2">
+                    <span :class="systemHealth === 'healthy' ? 'bg-emerald-400' : systemHealth === 'degraded' ? 'bg-amber-400' : 'bg-red-400'" class="w-1.5 h-1.5 rounded-full"></span>
+                    <span>InfluxDB: {{ systemHealth }}</span>
+                </div>
+                <div class="text-xs text-surface-500">Actualiza en {{ refreshCountdown }}s</div>
+                <button @click="fetchAll" class="p-2 rounded-full hover:bg-surface-800/60 text-surface-400 hover:text-surface-200 transition-colors" :class="{ 'animate-spin': loading }">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                </button>
+                <div class="relative">
+                    <button @click.stop="showApiKeyMenu = !showApiKeyMenu" class="p-2 rounded-full hover:bg-surface-800/60 text-surface-400 hover:text-surface-200 transition-colors" :title="'Cambiar API Key / cerrar sesión'">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    </button>
+                    <div v-if="showApiKeyMenu" @click.stop class="absolute right-0 top-12 mt-1 w-56 bg-surface-900/98 backdrop-blur-xl border border-surface-700/50 rounded-xl shadow-2xl p-2 z-50">
+                        <div class="px-3 py-2 text-xs text-surface-400 border-b border-surface-700/50 mb-1">Sesión: {{ getApiKey() ? 'API Key activa' : 'Sin sesión' }}</div>
+                        <button @click="changeApiKey" class="w-full text-left px-3 py-2 rounded-lg text-sm text-surface-200 hover:bg-surface-800 transition-colors">Cambiar API Key</button>
+                        <button @click="logout" class="w-full text-left px-3 py-2 rounded-lg text-sm text-red-400 hover:bg-surface-800 transition-colors">Cerrar sesión</button>
+                    </div>
+                </div>
+            </div>
+        </header>
 
-            <!-- Nav Items -->
-            <nav class="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+                <div class="flex pt-32">
+            <!-- Sidebar -->
+            <aside :class="sidebarOpen ? 'w-72' : 'w-[76px]'" class="bg-surface-950/98 backdrop-blur-xl border border-surface-700/40 rounded-xl flex flex-col transition-all duration-300 ease-in-out fixed z-40 shadow-[0_40px_120px_-60px_rgba(59,130,246,0.4)]" style="top: 6.625rem; left: 1rem; height: fit-content; max-height: calc(100vh - 8rem);">
+                <!-- Nav Items -->
+                <nav class="py-2 px-3 space-y-1">
                 <template v-for="item in navItems" :key="item.id">
                     <!-- Group with children (Nodos > MikroTik | OLTs) -->
                     <div v-if="item.children && item.children.length">
                         <button @click="activeTab = item.id; toggleNavGroup(item.id)"
-                            :class="activeTab === item.id || isChildActive(item.id) ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' : 'text-surface-400 hover:bg-surface-800 hover:text-emerald-300 border-transparent'"
-                            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all border">
-                            <span class="flex-shrink-0" v-html="item.icon"></span>
-                            <span v-show="sidebarOpen" class="whitespace-nowrap">{{ item.label }}</span>
-                            <span v-show="sidebarOpen && item.badge" class="ml-auto bg-emerald-500/20 text-emerald-400 text-xs px-1.5 py-0.5 rounded-full font-medium">{{ item.badge }}</span>
-                            <svg v-show="sidebarOpen" class="w-4 h-4 ml-auto text-surface-500 transition-transform duration-200" :class="navOpen[item.id] ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            :class="activeTab === item.id || isChildActive(item.id) ? 'bg-gradient-to-r from-brand-500/20 to-transparent text-surface-100' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-800/60'"
+                            :title="!sidebarOpen ? item.label : ''"
+                            class="group w-full flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium transition-all duration-200">
+                            <span class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center" :class="activeTab === item.id || isChildActive(item.id) ? 'bg-brand-500/25 text-brand-300' : 'text-surface-500 group-hover:text-surface-300'" v-html="item.icon"></span>
+                            <span v-show="sidebarOpen" class="whitespace-nowrap flex-1 text-left">{{ item.label }}</span>
+                            <span v-show="sidebarOpen && item.badge" class="bg-emerald-500/20 text-emerald-400 text-xs px-1.5 py-0.5 rounded-full font-medium">{{ item.badge }}</span>
+                            <svg v-show="sidebarOpen" class="w-4 h-4 text-surface-500 transition-transform duration-200" :class="navOpen[item.id] ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                         </button>
                         <transition name="fade">
-                            <div v-if="navOpen[item.id] && sidebarOpen" class="ml-3 mt-1 space-y-1 pl-3 border-l border-surface-700/50">
+                            <div v-if="navOpen[item.id] && sidebarOpen" class="ml-[22px] mt-1 space-y-1 pl-5 border-l border-surface-700/40">
                                 <button v-for="child in item.children" :key="child.id" @click="activeTab = child.id"
-                                    :class="activeTab === child.id ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' : 'text-surface-400 hover:bg-surface-800 hover:text-emerald-300 border-transparent'"
-                                    class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all border">
-                                    <span class="flex-shrink-0" v-html="child.icon"></span>
+                                    :class="activeTab === child.id ? 'text-surface-100 bg-surface-800/50' : 'text-surface-500 hover:text-surface-200 hover:bg-surface-800/40'"
+                                    class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-sm transition-all duration-200">
+                                    <span class="flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-current" v-html="child.icon"></span>
                                     <span class="whitespace-nowrap">{{ child.label }}</span>
                                 </button>
                             </div>
@@ -157,70 +190,41 @@
                     </div>
                     <!-- Regular item -->
                     <button v-else @click="activeTab = item.id"
-                        :class="activeTab === item.id ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' : 'text-surface-400 hover:bg-surface-800 hover:text-emerald-300 border-transparent'"
-                        class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all border">
-                        <span class="flex-shrink-0" v-html="item.icon"></span>
-                        <span v-show="sidebarOpen" class="whitespace-nowrap">{{ item.label }}</span>
-                        <span v-show="sidebarOpen && item.badge" class="ml-auto bg-emerald-500/20 text-emerald-400 text-xs px-1.5 py-0.5 rounded-full font-medium">{{ item.badge }}</span>
+                        :class="activeTab === item.id ? 'bg-gradient-to-r from-brand-500/20 to-transparent text-surface-100' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-800/60'"
+                        :title="!sidebarOpen ? item.label : ''"
+                        class="group w-full flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium transition-all duration-200">
+                        <span class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center" :class="activeTab === item.id ? 'bg-brand-500/25 text-brand-300' : 'text-surface-500 group-hover:text-surface-300'" v-html="item.icon"></span>
+                        <span v-show="sidebarOpen" class="whitespace-nowrap flex-1 text-left">{{ item.label }}</span>
+                        <span v-show="sidebarOpen && item.badge" class="bg-emerald-500/20 text-emerald-400 text-xs px-1.5 py-0.5 rounded-full font-medium">{{ item.badge }}</span>
                     </button>
                 </template>
             </nav>
 
-            <!-- Collapse Toggle -->
-            <div class="p-2 border-t border-surface-700/50">
-                <button @click="sidebarOpen = !sidebarOpen" class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-surface-400 hover:bg-surface-800 hover:text-surface-200 transition-colors text-sm">
-                    <svg :class="sidebarOpen ? '' : 'rotate-180'" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/></svg>
-                    <span v-show="sidebarOpen" class="text-xs">Colapsar</span>
-                </button>
-            </div>
-        </aside>
-
-        <!-- Main Content -->
-        <main :class="sidebarOpen ? 'ml-64' : 'ml-16'" class="flex-1 transition-all duration-300">
-
-            <!-- Top Bar -->
-            <header class="h-16 bg-gradient-to-r from-surface-950 to-surface-900 backdrop-blur-sm border-b border-surface-700/50 flex items-center justify-between px-6 sticky top-0 z-30">
-                <div class="flex items-center gap-3">
-                    <h1 class="text-lg font-semibold">{{ currentTitle }}</h1>
+                <!-- Collapse Toggle -->
+                <div class="p-2 mt-1">
+                    <button @click="sidebarOpen = !sidebarOpen" class="w-full flex items-center justify-center px-2 py-2 rounded-xl text-surface-500 hover:text-surface-200 hover:bg-surface-800/60 transition-all duration-200" :title="sidebarOpen ? 'Colapsar' : 'Expandir'">
+                        <svg :class="sidebarOpen ? '' : 'rotate-180'" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/></svg>
+                    </button>
                 </div>
-                <div class="flex items-center gap-4">
-                    <button @click="toggleTheme" class="p-2 rounded-lg hover:bg-surface-800/50 hover:text-accent-400 transition-colors" :title="isDark ? 'Modo claro' : 'Modo oscuro'">
-                        <svg v-if="isDark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                        <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-                    </button>
-                    <div class="flex items-center gap-2 text-xs text-surface-400">
-                        <span :class="systemHealth === 'healthy' ? 'bg-emerald-500' : systemHealth === 'degraded' ? 'bg-emerald-400' : 'bg-red-500'" class="w-2 h-2 rounded-full"></span>
-                        <span>InfluxDB: {{ systemHealth }}</span>
-                    </div>
-                    <div class="text-xs text-surface-500">Actualiza en {{ refreshCountdown }}s</div>
-                    <button @click="fetchAll" class="p-2 rounded-lg hover:bg-surface-800 text-surface-400 hover:text-surface-200 transition-colors" :class="{ 'animate-spin': loading }">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                    </button>
-                    <button @click.stop="showApiKeyMenu = !showApiKeyMenu" class="p-2 rounded-lg hover:bg-surface-800 text-surface-400 hover:text-surface-200 transition-colors" :title="'Cambiar API Key / cerrar sesión'">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                    </button>
-                    <div v-if="showApiKeyMenu" @click.stop class="absolute right-6 top-14 mt-1 w-56 bg-surface-900 border border-surface-700/50 rounded-xl shadow-2xl p-2 z-40">
-                        <div class="px-3 py-2 text-xs text-surface-400 border-b border-surface-700/50 mb-1">Sesión: {{ getApiKey() ? 'API Key activa' : 'Sin sesión' }}</div>
-                        <button @click="changeApiKey" class="w-full text-left px-3 py-2 rounded-lg text-sm text-surface-200 hover:bg-surface-800 transition-colors">Cambiar API Key</button>
-                        <button @click="logout" class="w-full text-left px-3 py-2 rounded-lg text-sm text-red-400 hover:bg-surface-800 transition-colors">Cerrar sesión</button>
-                    </div>
-                </div>
-            </header>
+            </aside>
 
-            <!-- Page Content -->
-            <div class="p-6">
+            <!-- Main Content -->
+            <main class="flex-1 transition-all duration-300 pl-[304px] pr-6">
+
+                <!-- Page Content -->
+                <div class="px-6 pb-12 max-w-[1750px] mx-auto">
 
                 <!-- ==================== TAB: Dashboard ==================== -->
-                <div v-if="activeTab === 'dashboard'" class="slide-in space-y-6">
+                <div v-if="activeTab === 'dashboard'" class="slide-in space-y-6 pt-2">
                     <!-- Summary Cards -->
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                        <div v-for="card in summaryCards" :key="card.label" class="bg-surface-900 rounded-xl shadow-sm overflow-hidden border border-surface-700/50 hover:shadow-md transition-shadow">
-                            <div class="flex items-center justify-between p-4 border-b border-surface-700/50">
-                                <span class="text-xs font-medium text-surface-400 uppercase tracking-wider">{{ card.label }}</span>
+                        <div v-for="card in summaryCards" :key="card.label" class="group bg-surface-900/95 rounded-xl shadow-sm overflow-hidden border border-surface-700/60 hover:border-brand-400/40 hover:shadow-[0_30px_60px_-40px_rgba(59,130,246,0.8)] transition-all duration-200 hover:-translate-y-0.5">
+                            <div class="flex items-center justify-between p-4 border-b border-surface-700/60">
+                                <span class="text-xs font-medium text-surface-400 uppercase tracking-[0.18em]">{{ card.label }}</span>
                                 <span :class="card.iconClass" class="p-1.5 rounded-lg" v-html="card.icon"></span>
                             </div>
                             <div class="p-4">
-                                <div class="text-2xl font-bold" :class="card.valueClass">{{ card.value }}</div>
+                                <div class="text-2xl font-semibold tracking-tight" :class="card.valueClass">{{ card.value }}</div>
                                 <div v-if="card.sub" class="text-xs text-surface-500 mt-1">{{ card.sub }}</div>
                             </div>
                         </div>
@@ -228,24 +232,33 @@
 
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <!-- ONU Status Pie -->
-                        <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
-                            <h3 class="text-sm font-semibold text-surface-300 mb-4">Estado de ONUs</h3>
+                        <div class="bg-surface-900/95 rounded-xl border border-surface-700/60 p-5 hover:border-brand-400/40 hover:shadow-[0_40px_70px_-50px_rgba(59,130,246,0.8)] transition-all duration-200">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-sm font-semibold text-surface-200">Estado de ONUs</h3>
+                                <span class="text-[10px] uppercase tracking-[0.24em] text-surface-500">Resumen</span>
+                            </div>
                             <div id="chart-onu-status" class="min-h-[240px]"></div>
                         </div>
 
                         <!-- Optical Power Distribution -->
-                        <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5 lg:col-span-2">
-                            <h3 class="text-sm font-semibold text-surface-300 mb-4">Distribucion de Potencia Optica (dBm)</h3>
+                        <div class="bg-surface-900/95 rounded-xl border border-surface-700/60 p-5 lg:col-span-2 hover:border-brand-400/40 hover:shadow-[0_40px_70px_-50px_rgba(59,130,246,0.8)] transition-all duration-200">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-sm font-semibold text-surface-200">Distribucion de Potencia Optica (dBm)</h3>
+                                <span class="text-[10px] uppercase tracking-[0.24em] text-surface-500">Histograma</span>
+                            </div>
                             <div id="chart-optical-dist" class="min-h-[240px]"></div>
                         </div>
                     </div>
 
                     <!-- OLT System Metrics -->
-                    <div class="bg-surface-900 rounded-xl shadow-sm border border-surface-700/50 p-5">
-                        <h3 class="text-sm font-semibold text-surface-300 mb-4">Metricas de OLTs</h3>
+                    <div class="bg-surface-900/95 rounded-xl shadow-sm border border-surface-700/60 p-5 hover:border-brand-400/40 hover:shadow-[0_40px_70px_-50px_rgba(59,130,246,0.8)] transition-all duration-200">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-surface-200">Metricas de OLTs</h3>
+                            <span class="text-[10px] uppercase tracking-[0.24em] text-surface-500">Salud</span>
+                        </div>
                         <div v-if="oltMetrics.length === 0" class="text-center py-8 text-surface-500 text-sm">Sin datos de OLTs disponibles</div>
                         <div v-else class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                            <div v-for="olt in oltMetrics" :key="olt.olt_name" class="bg-surface-800 rounded-lg p-4 border border-surface-700/50 hover:shadow-sm transition-shadow">
+                            <div v-for="olt in oltMetrics" :key="olt.olt_name" class="bg-surface-800/90 rounded-lg p-4 border border-surface-700/60 hover:border-brand-400/50 hover:shadow-[0_25px_50px_-35px_rgba(59,130,246,0.9)] transition-all duration-200">
                                 <div class="flex items-center justify-between mb-3">
                                     <span class="font-medium text-sm text-surface-200">{{ olt.olt_name }}</span>
                                     <span class="flex items-center gap-1.5 text-xs">
@@ -272,10 +285,10 @@
                     </div>
 
                     <!-- Recent Anomalies -->
-                    <div class="bg-surface-900 rounded-xl shadow-sm border border-surface-700/50 p-5">
+                    <div class="bg-surface-900/95 rounded-xl shadow-sm border border-surface-700/60 p-5 hover:border-brand-400/40 hover:shadow-[0_40px_70px_-50px_rgba(59,130,246,0.8)] transition-all duration-200">
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-surface-300">Anomalias Recientes</h3>
-                            <button @click="activeTab = 'anomalies'" class="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">Ver todas</button>
+                            <h3 class="text-sm font-semibold text-surface-200">Anomalias Recientes</h3>
+                            <button @click="activeTab = 'anomalies'" class="text-xs text-brand-400 hover:text-brand-300 transition-colors">Ver todas</button>
                         </div>
                         <div v-if="recentAnomalies.length === 0" class="text-center py-6 text-surface-500 text-sm">Sin anomalias detectadas</div>
                         <div v-else class="space-y-2">
@@ -296,7 +309,7 @@
                 </div>
 
                 <!-- ==================== TAB: Nodos ==================== -->
-                <div v-if="activeTab === 'nodes'" class="slide-in">
+                <div v-if="activeTab === 'nodes'" class="slide-in pt-2">
                     <div class="flex items-center justify-between mb-6">
                         <div>
                             <p class="text-sm text-surface-400">{{ nodes.length }} nodos configurados</p>
@@ -349,7 +362,7 @@
                 </div>
 
                 <!-- ==================== TAB: MikroTik Metrics ==================== -->
-                <div v-if="activeTab === 'mikrotik'" class="slide-in">
+                <div v-if="activeTab === 'mikrotik'" class="slide-in pt-2">
                     <div class="flex items-center justify-between mb-6">
                         <div>
                             <h2 class="text-lg font-semibold text-surface-100">Metricas MikroTik</h2>
@@ -506,7 +519,7 @@
                 </div>
 
                 <!-- ==================== TAB: OLT Metrics ==================== -->
-                <div v-if="activeTab === 'olt'" class="slide-in">
+                <div v-if="activeTab === 'olt'" class="slide-in pt-2">
                     <div class="flex items-center justify-between mb-6">
                         <div>
                             <h2 class="text-lg font-semibold text-surface-100">Metricas OLTs</h2>
@@ -953,7 +966,7 @@
                 </div>
 
                 <!-- ==================== TAB: Dispositivos ==================== -->
-                <div v-if="activeTab === 'devices'" class="slide-in">
+                <div v-if="activeTab === 'devices'" class="slide-in pt-2">
                     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
                         <div class="flex items-center gap-3">
                             <div class="flex bg-surface-800 rounded-lg border border-surface-700 p-0.5">
@@ -1104,7 +1117,7 @@
                 </div>
 
                 <!-- ==================== TAB: Anomalias ==================== -->
-                <div v-if="activeTab === 'anomalies'" class="slide-in space-y-6">
+                <div v-if="activeTab === 'anomalies'" class="slide-in space-y-6 pt-2">
                     <!-- KPIs -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                         <div v-for="kpi in anomalyKpis" :key="kpi.key" class="relative overflow-hidden rounded-xl bg-surface-900/60 border border-surface-700/50 p-4">
@@ -1202,7 +1215,7 @@
                 </div>
 
                 <!-- ==================== TAB: Monitoreo de Red ==================== -->
-                <div v-if="activeTab === 'network'" class="slide-in space-y-6">
+                <div v-if="activeTab === 'network'" class="slide-in space-y-6 pt-2">
                     <!-- Ping Status Summary -->
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div class="bg-surface-900 rounded-xl p-4 border border-surface-700/50">
@@ -1265,7 +1278,7 @@
                 </div>
 
                 <!-- ==================== TAB: Agente IA ==================== -->
-                <div v-if="activeTab === 'agent'" class="slide-in space-y-6">
+                <div v-if="activeTab === 'agent'" class="slide-in space-y-6 pt-2">
                     <!-- Agent Status Cards (compact) -->
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
                         <div class="bg-surface-900 rounded-xl px-3 py-2.5 border border-surface-700/50 flex items-center gap-3">
@@ -1792,7 +1805,7 @@
                 </div>
 
                 <!-- ==================== TAB: Configuracion ==================== -->
-                <div v-if="activeTab === 'config'" class="slide-in space-y-6">
+                <div v-if="activeTab === 'config'" class="slide-in space-y-6 pt-2">
                     <!-- Health Status -->
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div class="bg-surface-900 rounded-xl p-5 border border-surface-700/50">
@@ -1851,7 +1864,7 @@
 
                     <!-- Config Summary -->
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
-                        <h3 class="text-sm font-semibold text-surface-300 mb-4">Resumen de Configuracion</h3>
+
                         <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
                             <div class="bg-surface-800 rounded-lg p-3 text-center">
                                 <div class="text-xl font-bold text-brand-400">{{ configSummary.nodes_count || 0 }}</div>
@@ -1877,33 +1890,50 @@
                     </div>
 
                     <!-- Actions -->
-                    <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
-                        <h3 class="text-sm font-semibold text-surface-300 mb-4">Acciones</h3>
-                        <div class="flex flex-wrap gap-3">
-                            <button @click="fetchAll" class="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                                Actualizar Todo
-                            </button>
-                            <button @click="validateConfig" class="flex items-center gap-2 bg-surface-700 hover:bg-surface-600 text-surface-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                                Validar Config
-                            </button>
+                    <div class="bg-surface-900 rounded-xl border border-surface-700/50">
+                        <div class="flex items-center justify-between p-5 cursor-pointer select-none" @click="accionesSectionExpanded = !accionesSectionExpanded">
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-8 h-8 rounded-lg bg-brand-500/15 flex items-center justify-center">
+                                    <svg class="w-4 h-4 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                </div>
+                                <h3 class="text-sm font-semibold text-surface-300">Acciones</h3>
+                            </div>
+                            <svg :class="accionesSectionExpanded ? 'rotate-180' : ''" class="w-4 h-4 text-surface-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         </div>
-                        <div v-if="configErrors.length > 0" class="mt-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-                            <h4 class="text-sm font-medium text-red-400 mb-2">Errores de configuracion:</h4>
-                            <ul class="space-y-1">
-                                <li v-for="(err, i) in configErrors" :key="i" class="text-xs text-red-300">{{ err }}</li>
-                            </ul>
+                        <div v-if="accionesSectionExpanded" class="px-5 pb-5">
+                            <div class="flex flex-wrap gap-3">
+                                <button @click="fetchAll" class="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                    Actualizar Todo
+                                </button>
+                                <button @click="validateConfig" class="flex items-center gap-2 bg-surface-700 hover:bg-surface-600 text-surface-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                                    Validar Config
+                                </button>
+                            </div>
+                            <div v-if="configErrors.length > 0" class="mt-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                                <h4 class="text-sm font-medium text-red-400 mb-2">Errores de configuracion:</h4>
+                                <ul class="space-y-1">
+                                    <li v-for="(err, i) in configErrors" :key="i" class="text-xs text-red-300">{{ err }}</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Reporte Telegram Config -->
-                    <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-surface-300">Reporte Telegram</h3>
-                            <span v-if="reporteStatus.status" :class="reporteStatus.status === 'active' ? 'bg-emerald-500' : 'bg-amber-500'" class="w-2.5 h-2.5 rounded-full"></span>
+                    <div class="bg-surface-900 rounded-xl border border-surface-700/50">
+                        <div class="flex items-center justify-between p-5 cursor-pointer select-none" @click.stop="reporteSectionExpanded = !reporteSectionExpanded">
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center">
+                                    <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                                </div>
+                                <h3 class="text-sm font-semibold text-surface-300">Reporte Telegram</h3>
+                                <span v-if="reporteStatus.status" :class="reporteStatus.status === 'active' ? 'bg-emerald-500' : 'bg-amber-500'" class="w-2.5 h-2.5 rounded-full"></span>
+                            </div>
+                            <svg :class="reporteSectionExpanded ? 'rotate-180' : ''" class="w-4 h-4 text-surface-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         </div>
+                        <div v-if="reporteSectionExpanded" class="px-5 pb-5 space-y-4">
 
-                        <!-- Toggle -->
+                            <!-- Toggle -->
                         <div class="flex items-center justify-between mb-4 bg-surface-800 rounded-lg px-4 py-3">
                             <span class="text-sm text-surface-300">Reporte autom&aacute;tico</span>
                             <button @click="toggleReporteEnabled"
@@ -2090,6 +2120,7 @@
                                 Guardar Configuraci&oacute;n
                             </button>
                         </div>
+                        </div>
                     </div>
 
                     <!-- ==================== Configuracion LLM ==================== -->
@@ -2104,7 +2135,7 @@
                             </div>
                             <svg :class="llmConfigSectionExpanded ? 'rotate-180' : ''" class="w-4 h-4 text-surface-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         </div>
-                        <div v-show="llmConfigSectionExpanded" class="px-5 pb-5 space-y-4">
+                        <div v-if="llmConfigSectionExpanded" class="px-5 pb-5 space-y-4">
                             <!-- Enabled Toggle -->
                             <div class="flex items-center justify-between bg-surface-800 rounded-lg px-4 py-3">
                                 <div class="flex items-center gap-3">
@@ -2331,7 +2362,7 @@
                             </div>
                             <svg :class="instructionsSectionExpanded ? 'rotate-180' : ''" class="w-4 h-4 text-surface-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         </div>
-                        <div v-show="instructionsSectionExpanded" class="px-5 pb-5">
+                        <div v-if="instructionsSectionExpanded" class="px-5 pb-5">
                             <div class="flex items-center justify-end mb-3">
                                 <button @click="openNewInstructionModal()" class="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -2373,10 +2404,17 @@
                     </div>
 
                     <!-- ==================== Configuracion TV (Monitoreo en Sala) ==================== -->
-                    <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-surface-300">Configuracion de TV (Monitoreo en Sala)</h3>
+                    <div class="bg-surface-900 rounded-xl border border-surface-700/50">
+                        <div class="flex items-center justify-between p-5 cursor-pointer select-none" @click="tvSectionExpanded = !tvSectionExpanded">
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center">
+                                    <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                </div>
+                                <h3 class="text-sm font-semibold text-surface-300">Configuracion de TV (Monitoreo en Sala)</h3>
+                            </div>
+                            <svg :class="tvSectionExpanded ? 'rotate-180' : ''" class="w-4 h-4 text-surface-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         </div>
+                        <div v-if="tvSectionExpanded" class="px-5 pb-5">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <!-- WAN 1 -->
                             <div>
@@ -2418,6 +2456,7 @@
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                                 Guardar Configuracion TV
                             </button>
+                        </div>
                         </div>
                     </div>
 
@@ -2669,6 +2708,10 @@ createApp({
         const instructionsExpanded = ref(false);
         const llmConfigSectionExpanded = ref(true);
         const instructionsSectionExpanded = ref(true);
+        const accionesSectionExpanded = ref(false);
+        const reporteSectionExpanded = ref(false);
+        const tvSectionExpanded = ref(false);
+        const pingSectionExpanded = ref(false);
 
         // LLM Agent state
         const llmConfig = ref({ enabled: true, mode: 'hybrid', provider: 'ollama', model: 'qwen2.5:3b-instruct', check_interval_seconds: 900, max_tokens: 512, temperature: 0.0, daily_budget_usd: 2.0, system_prompt: '', keep_alive: '5m', num_ctx: 4096, num_thread: 4 });
@@ -3396,6 +3439,15 @@ createApp({
         let showApiKeyMenu = ref(false);
         function closeApiKeyMenu() { showApiKeyMenu.value = false; }
         function changeApiKey() { showApiKeyMenu.value = false; clearApiKey(); location.reload(); }
+                function toggleConfigSection(section) {
+            if (section === 'acciones') accionesSectionExpanded.value = !accionesSectionExpanded.value;
+            else if (section === 'reporte') reporteSectionExpanded.value = !reporteSectionExpanded.value;
+            else if (section === 'llm') llmConfigSectionExpanded.value = !llmConfigSectionExpanded.value;
+            else if (section === 'instructions') instructionsSectionExpanded.value = !instructionsSectionExpanded.value;
+            else if (section === 'tv') tvSectionExpanded.value = !tvSectionExpanded.value;
+            else if (section === 'ping') pingSectionExpanded.value = !pingSectionExpanded.value;
+        }
+
         function logout() { showApiKeyMenu.value = false; clearApiKey(); location.reload(); }
         // Shared lock so many parallel 401s open only ONE prompt dialog
         let apiPromptLock = null;
@@ -3547,11 +3599,22 @@ createApp({
                     chart: { type: 'donut', height: 240, ...apexChartTheme.value.chart },
                     series: [onlineOnus, offlineOnus],
                     labels: ['Online', 'Offline'],
-                    colors: ['#10b981', '#ef4444'],
+                    colors: ['#22d3ee', '#f87171'],
                     plotOptions: {
-                        pie: { donut: { size: '65%', labels: { show: true, name: { show: true }, value: { show: true, fontSize: '20px', fontWeight: 'bold', color: '#e2e8f0' } } } }
+                        pie: {
+                            donut: {
+                                size: '68%',
+                                background: 'transparent',
+                                labels: {
+                                    show: true,
+                                    name: { show: true, color: '#cbd5f5' },
+                                    value: { show: true, fontSize: '22px', fontWeight: '600', color: '#e2e8f0' },
+                                    total: { show: true, label: 'Total', color: '#94a3b8', formatter: (w) => w.globals.seriesTotals.reduce((a,b)=>a+b,0) }
+                                }
+                            }
+                        }
                     },
-                    stroke: { show: false },
+                    stroke: { width: 2, colors: ['rgba(15,23,42,0.8)'] },
                     legend: { position: 'bottom', labels: { colors: '#94a3b8', useSeriesColors: false, padding: 16 } },
                     dataLabels: { enabled: false },
                     tooltip: { theme: isDark.value ? 'dark' : 'light' },
@@ -3579,11 +3642,11 @@ createApp({
                     chart: { type: 'bar', height: 240, ...apexChartTheme.value.chart },
                     series: [{ name: 'ONUs', data: binValues }],
                     labels: binKeys,
-                    colors: ['#6366f1'],
-                    plotOptions: { bar: { borderRadius: 4, columnWidth: '70%' } },
+                    colors: ['#60a5fa'],
+                    plotOptions: { bar: { borderRadius: 6, columnWidth: '58%', distributed: false } },
                     xaxis: { title: { text: 'dBm', style: { color: '#64748b' } }, labels: { style: { colors: '#64748b', fontSize: '10px' } } },
                     yaxis: { title: { text: 'Cantidad', style: { color: '#64748b' } }, labels: { style: { colors: '#64748b' } } },
-                    grid: { borderColor: isDark.value ? '#1e293b' : '#e2e8f0' },
+                    grid: { borderColor: isDark.value ? 'rgba(148,163,184,0.12)' : '#e2e8f0', strokeDashArray: 4 },
                     tooltip: { theme: isDark.value ? 'dark' : 'light' },
                     dataLabels: { enabled: false },
                     legend: { show: false },

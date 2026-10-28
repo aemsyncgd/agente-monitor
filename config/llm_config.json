@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "mode": "hybrid",
   "provider": "ollama",
   "model": "qwen2.5:3b-instruct",

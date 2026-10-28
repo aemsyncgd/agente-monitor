@@ -46,15 +46,6 @@
           "analyze": false
         }
       ]
-    },
-    {
-      "name": "YAGUA-VIDANET",
-      "interfaces": [
-        {
-          "name": "bonding-LINK-YAGUA-CORE",
-          "analyze": false
-        }
-      ]
     }
   ],
   "olts": [
@@ -139,13 +130,18 @@
       "pon_monitoring": true
     },
     {
-      "name": "OLT-YAGUA-1",
+      "name": "CIUDAD-ALIANZA-1",
       "ge_interfaces": [
         {
-          "name": "GE0/9",
+          "name": "GE0/8",
           "analyze": false
         }
       ],
+      "pon_monitoring": true
+    },
+    {
+      "name": "OLT-SISAL-3",
+      "ge_interfaces": [],
       "pon_monitoring": true
     }
   ]

@@ -13,7 +13,8 @@
                     colors: {
                         surface: {
                             950: '#090d16', 900: '#0f172a', 800: '#1e293b',
-                            700: '#334155', 600: '#475569', 400: '#94a3b8', 200: '#e2e8f0'
+                            700: '#334155', 600: '#475569', 500: '#7c8ba1',
+                            400: '#94a3b8', 200: '#e2e8f0', 100: '#f1f5f9'
                         },
                         brand: { 500: '#06b6d4', 400: '#22d3ee', 300: '#67e8f9' }
                     }
@@ -28,6 +29,16 @@
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 8px; }
         ::-webkit-scrollbar-track { background: #0f172a; }
+        .ticker-scroll {
+            animation: ticker-scroll 40s linear infinite;
+        }
+        .ticker-scroll:hover {
+            animation-play-state: paused;
+        }
+        @keyframes ticker-scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
     </style>
 </head>
 <body>
@@ -37,185 +48,215 @@
             <div class="stage relative shrink-0" style="width:1920px;height:1080px;transform-origin:center center" :style="stageStyle()">
 
             <!-- HEADER -->
-            <header class="absolute top-[14px] left-[14px] right-[14px] h-[70px] bg-surface-900/90 rounded-2xl border border-surface-700/60 px-6 flex items-center justify-between shadow-2xl">
+            <header class="absolute top-[14px] left-[14px] right-[14px] h-[78px] bg-surface-900/90 rounded-2xl border border-surface-700/60 px-6 flex items-center justify-between shadow-2xl">
                 <div class="flex items-center gap-4">
-                    <div class="p-2.5 bg-brand-500/20 border border-brand-500/30 rounded-xl text-brand-400">
-                        <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    <div class="p-3 bg-brand-500/20 border border-brand-500/30 rounded-xl text-brand-400">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                     </div>
                     <div>
-                        <h1 class="text-2xl font-black text-white tracking-wide uppercase flex items-center gap-3">
+                        <h1 class="text-3xl font-black text-white tracking-wide uppercase flex items-center gap-3">
                             VIDANET <span class="text-brand-400">BACKBONE</span> MONITOR
                         </h1>
-                        <p class="text-xs text-surface-400 font-medium">Cabeceras & Enlaces WAN del Core</p>
+                        <p class="text-sm text-surface-400 font-medium">Cabeceras & Enlaces WAN del Core · Estado Mikrotik</p>
                     </div>
                 </div>
                 <div class="flex items-center gap-6">
-                    <div class="flex items-center gap-3 bg-surface-950/80 px-4 py-2 rounded-xl border border-surface-800">
-                        <div class="text-center pr-3 border-r border-surface-800">
-                            <div class="text-xs font-semibold text-surface-400 uppercase">Cabeceras OK</div>
-                            <div class="text-xl font-black font-mono text-emerald-400">{{ pingOk }} / {{ pingTotal }}</div>
+                    <div class="flex items-center gap-4 bg-surface-950/80 px-5 py-2.5 rounded-xl border border-surface-800">
+                        <div class="text-center pr-4 border-r border-surface-800">
+                            <div class="text-[11px] font-semibold text-surface-400 uppercase">Nodos OK</div>
+                            <div class="text-2xl font-black font-mono text-emerald-400">{{ pingOk }} / {{ pingTotal }}</div>
+                        </div>
+                        <div class="text-center pr-4 border-r border-surface-800">
+                            <div class="text-[11px] font-semibold text-surface-400 uppercase">Mikrotik</div>
+                            <div class="text-2xl font-black font-mono" :class="mikrotikDown.length > 0 ? 'text-red-400' : 'text-emerald-400'">{{ mikrotikUp.length }} / {{ mikrotikAll.length }}</div>
                         </div>
                         <div class="text-center pl-1">
-                            <div class="text-xs font-semibold text-surface-400 uppercase">Enlaces WAN</div>
-                            <div class="text-xl font-black font-mono text-brand-400">{{ wanUp }} / {{ wanTotal }}</div>
+                            <div class="text-[11px] font-semibold text-surface-400 uppercase">Enlaces WAN</div>
+                            <div class="text-2xl font-black font-mono text-brand-400">{{ wanUp }} / {{ wanTotal }}</div>
                         </div>
                     </div>
                     <div class="text-right">
-                        <div class="text-xl font-black font-mono text-white leading-tight">{{ currentTime }}</div>
-                        <div class="text-xs text-surface-400 uppercase font-semibold tracking-wider">{{ currentDate }}</div>
+                        <div class="text-2xl font-black font-mono text-white leading-tight">{{ currentTime }}</div>
+                        <div class="text-sm text-surface-400 uppercase font-semibold tracking-wider">{{ currentDate }}</div>
                     </div>
-                    <div class="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-full text-emerald-400 text-xs font-bold uppercase tracking-wider animate-pulse">
-                        <span class="w-2.5 h-2.5 bg-emerald-400 rounded-full"></span>
+                    <div class="flex items-center gap-2 px-4 py-2 bg-emerald-500/20 border border-emerald-500/40 rounded-full text-emerald-400 text-sm font-bold uppercase tracking-wider animate-pulse">
+                        <span class="w-3 h-3 bg-emerald-400 rounded-full"></span>
                         <span>EN VIVO (15s)</span>
                     </div>
                 </div>
             </header>
 
             <!-- BODY -->
-            <div class="absolute left-[14px] right-[14px] top-[92px] bottom-[14px] rounded-2xl border border-surface-800/60 overflow-hidden bg-surface-950/40">
-                <!-- SVG edges en coordenadas del body (1892 x 974) -->
-                <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1892 974" preserveAspectRatio="none">
-                    <g>
-                        <path d="M 960 188 L 960 198" class="edge-eco" fill="none" stroke-width="3"/>
-                        <path d="M 960 446 L 960 486" class="edge-eco" fill="none" stroke-width="3" v-if="cabeceras.length > 0"/>
-                        <g v-for="e in edges" :key="e.id">
-                            <path :d="e.path" fill="none" stroke-width="3" opacity="0.92"
-                                  :class="e.status === 'down' ? 'edge-down' : 'edge-eco'"/>
-                            <circle :cx="e.cx" :cy="e.cy" r="5" fill="#030712" stroke-width="3" stroke="#34d399"
-                                    v-if="e.status !== 'down'"/>
-                            <circle :cx="e.cx" :cy="e.cy" r="5" fill="#030712" stroke-width="3" stroke="#f87171" v-else/>
-                        </g>
-                    </g>
-                    <style>
-                        .edge-eco { stroke: #34d399; }
-                        .edge-down { stroke: #f87171; }
-                    </style>
-                </svg>
+            <div class="absolute left-[14px] right-[14px] top-[100px] bottom-[80px] rounded-2xl border border-surface-800/60 overflow-hidden bg-surface-950/40 p-4 flex flex-col gap-3 justify-between">
 
-                <!-- INTERNET -->
-                <div class="absolute w-[240px] bg-surface-900/95 rounded-xl border border-brand-500/30 shadow-xl p-3 text-center flex flex-col justify-center" :style="{ left: '840px', top: '104px', height: '84px' }">
-                    <div class="text-[11px] font-black uppercase tracking-widest text-brand-400">Internet</div>
-                    <div class="text-[14px] font-bold text-white mt-0.5">{{ dnsOk }} / {{ dnsTotal }} DNS OK</div>
-                    <div class="text-[11px] font-mono text-surface-200">{{ dnsStats }}</div>
-                    <div class="text-[9px] text-surface-500 mt-0.5">Salida WAN1 TECNOVEN y WAN3 BESSER</div>
+                <!-- FILA SUPERIOR: Internet (ancho completo, cuadrada con el resto) -->
+                <div class="flex gap-3 h-[84px]">
+                    <div class="w-full bg-surface-900/95 rounded-xl border border-brand-500/30 shadow-xl p-2 text-center flex flex-col justify-center gap-0.5">
+                        <div class="text-[11px] font-black uppercase tracking-widest text-brand-400">Internet</div>
+                        <div class="text-[14px] font-bold text-white mt-0.5">{{ dnsOk }} / {{ dnsTotal }} DNS OK</div>
+                        <div class="text-[11px] font-mono text-surface-200">{{ dnsStats }}</div>
+                        <div class="text-[8px] text-surface-500 mt-0.25">Salida WAN1 TECNOVEN y WAN3 BESSER</div>
+                    </div>
                 </div>
 
-                <!-- CORE -->
-                <div class="absolute rounded-xl border shadow-xl bg-surface-900/95 cursor-pointer" :class="core.pingUp ? 'border-brand-500/40' : 'border-red-500/50'"
-                     :style="{ left: '540px', top: '198px', width: '840px', height: '248px' }"
-                     @click="openOverlay(core.name)">
-                    <div class="flex items-start justify-between h-full px-5 py-4 gap-4">
-                        <div class="min-w-0 flex flex-col justify-center" :style="{width:'460px'}">
-                            <div class="flex items-center gap-2">
-                                <span class="text-[10px] px-2 py-0.5 rounded bg-brand-500/20 text-brand-300 border border-brand-500/30 font-black uppercase tracking-wider">Core</span>
-                                <span class="font-black text-white font-mono text-lg truncate">{{ core.name }}</span>
-                                <span :class="corePingClass" class="w-2.5 h-2.5 rounded-full border inline-block shrink-0"></span>
-                            </div>
-                            <div class="text-[11px] font-mono text-surface-400 mt-0.5">{{ core.model }} · {{ core.ip }}</div>
+                <!-- FILA INTERMEDIA: Core (izquierda) + Matriz de interfaces SFP+ (derecha, 2 filas) -->
+                <div class="flex gap-3 flex-1">
+                    <!-- Tarjeta principal del equipo Core (exclusiva, sin interfaces dentro) -->
+                    <div class="flex-1 bg-surface-900/95 rounded-xl border shadow-xl cursor-pointer" :class="core.pingUp ? 'border-brand-500/40' : 'border-red-500/50'" @click="openOverlay(core.name)">
+                        <div class="flex items-start justify-between h-full px-3 py-2 gap-2">
+                            <div class="min-w-0 flex flex-col justify-center" :style="{width:'330px'}">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[9px] px-2 py-0.5 rounded bg-brand-500/20 text-brand-300 border border-brand-500/30 font-black uppercase tracking-wider">Core</span>
+                                    <span class="font-black text-white font-mono text-[15px] truncate">{{ core.name }}</span>
+                                    <span :class="corePingClass" class="w-2.5 h-2.5 rounded-full border inline-block shrink-0"></span>
+                                </div>
+                                <div class="text-[10px] font-mono text-surface-400 mt-0.5">{{ core.model }} · {{ core.ip }}</div>
 
-                            <div class="grid grid-cols-3 gap-x-4 gap-y-2.5 mt-4">
-                                <div>
-                                    <div class="flex justify-between text-[10px] text-surface-400"><span>CPU</span><span class="font-bold font-mono" :class="pctClass(core.cpu, 80, 50)">{{ fmt(core.cpu) }}</span></div>
-                                    <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(core.cpu, 80, 50)" :style="{width: bar(core.cpu)}"></div></div>
+                                <div class="grid grid-cols-3 gap-x-3 gap-y-2 mt-3 items-start">
+                                    <div>
+                                        <div class="flex justify-between text-[9px] text-surface-400"><span>CPU</span><span class="font-bold font-mono" :class="pctClass(core.cpu, 80, 50)">{{ fmt(core.cpu) }}</span></div>
+                                        <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(core.cpu, 80, 50)" :style="{width: bar(core.cpu)}"></div></div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between text-[9px] text-surface-400"><span>RAM</span><span class="font-bold font-mono" :class="pctClass(core.mem, 90, 75)">{{ fmt(core.mem) }}</span></div>
+                                        <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(core.mem, 90, 75)" :style="{width: bar(core.mem)}"></div></div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between text-[9px] text-surface-400"><span>Temp</span><span class="font-bold font-mono" :class="tempClass(core.temp)">{{ fmtTemp(core.temp) }}</span></div>
+                                        <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(core.temp, 60, 45)" :style="{width: bar(core.temp)}"></div></div>
+                                    </div>
+                                    <div>
+                                        <div class="text-[9px] text-surface-400">Uptime</div>
+                                        <div class="font-mono text-[13px] font-bold text-white leading-tight">{{ core.uptime }}</div>
+                                    </div>
+                                    <div :title="core.dropsIface ? 'Discard en enlace físico: ' + core.dropsIface : 'Sin descartes en enlaces físicos'">
+                                        <div class="text-[9px] text-surface-400">Drops</div>
+                                        <div class="font-mono text-[13px] font-bold leading-tight" :class="coreDropsClass">{{ core.loading ? '…' : fmtNumber(core.drops) }}</div>
+                                    </div>
+                                    <div :title="core.sfpIface ? 'Enlaces SFP: ' + core.sfpIface : ''">
+                                        <div class="text-[9px] text-surface-400">RX / TX (SFP)</div>
+                                        <div v-if="!core.loading && !core.nodata" class="font-mono text-[12px] font-bold text-cyan-400 leading-tight whitespace-nowrap">▼ {{ fmtBps(core.sfpRx) }} <span class="text-fuchsia-400">▲ {{ fmtBps(core.sfpTx) }}</span></div>
+                                        <div v-else-if="core.loading" class="font-mono text-[12px] font-bold text-surface-400 leading-tight">CARGANDO…</div>
+                                        <div v-else class="font-mono text-[12px] font-bold text-red-400 leading-tight">SIN DATOS</div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <div class="flex justify-between text-[10px] text-surface-400"><span>RAM</span><span class="font-bold font-mono" :class="pctClass(core.mem, 90, 75)">{{ fmt(core.mem) }}</span></div>
-                                    <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(core.mem, 90, 75)" :style="{width: bar(core.mem)}"></div></div>
-                                </div>
-                                <div>
-                                    <div class="flex justify-between text-[10px] text-surface-400"><span>Temp</span><span class="font-bold font-mono" :class="tempClass(core.temp)">{{ fmtTemp(core.temp) }}</span></div>
-                                    <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(core.temp, 60, 45)" :style="{width: bar(core.temp)}"></div></div>
-                                </div>
-                                <div>
-                                    <div class="text-[10px] text-surface-400">Uptime</div>
-                                    <div class="font-mono text-[14px] font-bold text-white">{{ core.uptime }}</div>
-                                </div>
-                                <div>
-                                    <div class="text-[10px] text-surface-400">Drops</div>
-                                    <div class="font-mono text-[14px] font-bold" :class="coreDropsClass">{{ fmtNumber(core.drops) }} <span class="text-[10px] text-surface-500">{{ core.dropsIface }}</span></div>
-                                </div>
-                                <div>
-                                    <div class="text-[10px] text-surface-400">RX / TX (SFP)</div>
-                                    <div class="font-mono text-[14px] font-bold text-cyan-400">▼ {{ fmtBps(core.sfpRx) }} <span class="text-fuchsia-400">▲ {{ fmtBps(core.sfpTx) }}</span></div>
+
+                                <!-- Proveedores principales: tráfico por enlace -->
+                                <div class="mt-3 grid grid-cols-2 gap-2">
+                                    <div v-for="p in coreProviderLinks" :key="p.name"
+                                         class="bg-surface-900 rounded-lg border p-2"
+                                         :class="p.op === 1 ? 'border-emerald-500/40' : 'border-red-500/40'">
+                                        <div class="flex items-center gap-1.5 mb-1">
+                                            <span class="text-[8px] font-mono font-bold truncate" :class="p.op === 1 ? 'text-emerald-400' : 'text-red-400'">{{ p.short }}</span>
+                                            <span class="text-[7px] font-mono text-surface-500 uppercase">{{ p.role }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-[9px] font-mono">
+                                            <span class="text-cyan-400">▼ {{ fmtBps(p.rx) }}</span>
+                                            <span class="text-fuchsia-400">▲ {{ fmtBps(p.tx) }}</span>
+                                        </div>
+                                        <div class="text-[8px] text-surface-500 font-mono mt-0.5">Tráfico</div>
+                                        <!-- Sparkline tráfico proveedor -->
+                                        <div class="mt-1 h-[18px] flex items-end gap-0.5 px-0.5 bg-surface-800/40 rounded">
+                                            <div v-for="(n, idx) in 8" :key="p.name + '-' + idx" class="flex-1 bg-surface-900 rounded-t-sm transition-all duration-300"
+                                                 :style="{ height: sparkBar({ rx: p.rx, name: p.name }, idx) + '%', backgroundColor: trafficBarColor({ rx: p.rx }, idx) }"
+                                                 :title="sparkLabel({ rx: p.rx, name: p.name }, idx)"></div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <div class="grid gap-1.5 flex-1" :style="{width:'340px'}">
+                    <!-- Matriz lateral de interfaces SFP+ (2 filas de tarjetas pequeñas) -->
+                    <div class="w-[300px] flex flex-col gap-3">
+                        <div class="grid grid-cols-2 gap-2 h-full">
                             <div v-for="sfp in core.sfps" :key="sfp.name"
-                                 class="bg-surface-950/80 rounded-lg border px-2.5 py-1 flex items-center justify-between gap-2"
-                                 :class="sfp.role.includes('BESSER') ? 'border-cyan-500/40' : sfp.role.includes('TECNOVEN') ? 'border-fuchsia-500/40' : 'border-surface-700'">
-                                <div class="min-w-0">
-                                    <div class="text-[10px] font-mono font-bold truncate" :class="sfp.role.includes('BESSER') ? 'text-cyan-300' : sfp.role.includes('TECNOVEN') ? 'text-fuchsia-300' : 'text-surface-200'">{{ sfp.short }}</div>
-                                    <div class="text-[9px] text-surface-500 font-mono uppercase">{{ sfp.role }}</div>
+                                 class="bg-surface-900 rounded-lg border px-2 py-2 flex items-center justify-between gap-2"
+                                 :class="sfp.op === 1 ? 'border-emerald-500/40' : 'border-red-500/40'">
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-[10px] font-mono font-bold truncate">{{ sfp.short }}</div>
+                                    <div class="text-[8px] text-surface-500 font-mono uppercase">{{ sfp.role }}</div>
                                 </div>
-                                <div class="text-right shrink-0">
-                                    <div class="text-[11px] font-mono font-bold" :class="sfp.op === 1 ? 'text-emerald-400' : 'text-red-400'">{{ sfp.op === 1 ? 'UP' : 'DOWN' }}</div>
-                                    <div class="text-[10px] font-mono text-cyan-400">▼ {{ fmtBps(sfp.rx) }}</div>
-                                    <div class="text-[10px] font-mono text-fuchsia-400">▲ {{ fmtBps(sfp.tx) }}</div>
+                                <div class="shrink-0 text-right">
+                                    <div class="text-[10px] font-mono font-bold" :class="sfp.op === 1 ? 'text-emerald-400' : 'text-red-400'">{{ sfp.op === 1 ? 'UP' : 'DOWN' }}</div>
+                                    <div class="text-[8px] font-mono text-cyan-400">▼ {{ fmtBps(sfp.rx) }}</div>
+                                    <div class="text-[8px] font-mono text-fuchsia-400">▲ {{ fmtBps(sfp.tx) }}</div>
+                                    <div class="text-[8px] font-mono text-surface-500 mt-0.5">Rx/Tx: -- dBm</div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- CABECERAS -->
-                <div v-for="(h, i) in cabeceras" :key="h.name"
-                     class="absolute rounded-xl border shadow-xl bg-surface-900/95 cursor-pointer transition-colors overflow-hidden flex flex-col"
-                     :class="h.pingUp ? 'border-surface-700/60 hover:border-brand-500/50' : 'border-red-500/50 hover:border-red-400/60'"
-                     :style="{ left: cabLeft(i) + 'px', top: '486px', width: '260px', height: '460px' }"
-                     @click="openOverlay(h.name)">
-                    <div class="px-3 py-2 border-b border-surface-800/80 flex items-center justify-between gap-2">
-                        <div class="min-w-0">
-                            <div class="flex items-center gap-1.5">
-                                <span :class="h.pingUp ? 'bg-emerald-400' : 'bg-red-400'" class="w-2 h-2 rounded-full border inline-block shrink-0"></span>
-                                <span class="font-black text-white font-mono text-[13px] truncate">{{ h.name }}</span>
+                <!-- FILA INFERIOR: Nodos secundarios (5 tarjetas distribuidas horizontalmente) -->
+                <div class="flex gap-3 h-[200px]">
+                    <div v-for="(h, i) in cabeceras" :key="h.name"
+                         class="flex-1 bg-surface-900/95 rounded-xl border shadow-xl cursor-pointer transition-colors overflow-hidden flex flex-col max-h-[200px]"
+                         :class="h.pingUp ? 'border-surface-700/60 hover:border-brand-500/50' : 'border-red-500/50 hover:border-red-400/60'"
+                         @click="openOverlay(h.name)">
+                        <div class="px-2 py-0.5 border-b border-surface-800/80 flex items-center justify-between gap-2">
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-1.5">
+                                    <span :class="h.pingUp ? 'bg-emerald-400' : 'bg-red-400'" class="w-2 h-2 rounded-full border inline-block shrink-0"></span>
+                                    <span class="font-black text-white font-mono text-[13px] truncate">{{ h.name }}</span>
+                                </div>
+                                <div class="text-[10px] font-mono text-surface-500 truncate">{{ h.model }} · {{ h.ip }}</div>
                             </div>
-                            <div class="text-[10px] font-mono text-surface-500 truncate">{{ h.model }} · {{ h.ip }}</div>
-                        </div>
-                        <div class="text-[10px] font-mono text-surface-400 whitespace-nowrap text-right">
-                            <div :class="h.pingUp ? 'text-emerald-400' : 'text-red-400'">{{ h.pingUp ? (h.loss ? 'pérd. ' + h.loss + '%' : 'OK') : 'DOWN' }}</div>
-                            <div v-if="h.pingUp && h.latency" class="text-surface-500">{{ h.latency }}ms</div>
-                        </div>
-                    </div>
-
-                    <div class="px-3 py-2 flex flex-col gap-2 flex-1">
-                        <div class="grid grid-cols-3 gap-2">
-                            <div>
-                                <div class="flex justify-between text-[10px] text-surface-400"><span>CPU</span><span class="font-bold font-mono" :class="pctClass(h.cpu, 80, 50)">{{ fmt(h.cpu) }}</span></div>
-                                <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(h.cpu, 80, 50)" :style="{width: bar(h.cpu)}"></div></div>
-                            </div>
-                            <div>
-                                <div class="flex justify-between text-[10px] text-surface-400"><span>RAM</span><span class="font-bold font-mono" :class="pctClass(h.mem, 90, 75)">{{ fmt(h.mem) }}</span></div>
-                                <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(h.mem, 90, 75)" :style="{width: bar(h.mem)}"></div></div>
-                            </div>
-                            <div>
-                                <div class="flex justify-between text-[10px] text-surface-400"><span>Temp</span><span class="font-bold font-mono" :class="tempClass(h.temp)">{{ fmtTemp(h.temp) }}</span></div>
-                                <div class="h-1.5 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(h.temp, 60, 45)" :style="{width: bar(h.temp)}"></div></div>
+                            <div class="text-[10px] font-mono text-surface-400 whitespace-nowrap text-right">
+                                <div :class="h.pingUp ? 'text-emerald-400' : 'text-red-400'">{{ h.pingUp ? (h.loss ? 'pérd. ' + h.loss + '%' : 'OK') : 'DOWN' }}</div>
+                                <div v-if="h.pingUp && h.latency" class="text-surface-500">{{ h.latency }}ms</div>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-3 gap-x-2 gap-y-1 text-center">
-                            <div class="bg-surface-950/70 rounded-md py-1 border border-surface-800/60">
-                                <div class="text-[10px] text-surface-400">Uptime</div>
-                                <div class="font-mono text-[11px] font-bold text-white">{{ h.uptime }}</div>
+                        <div class="px-2 py-0.5 flex flex-col gap-1 flex-1">
+                            <div class="grid grid-cols-3 gap-0.5">
+                                <div>
+                                    <div class="flex justify-between text-[8px] text-surface-400"><span>CPU</span><span class="font-bold font-mono" :class="pctClass(h.cpu, 80, 50)">{{ fmt(h.cpu) }}</span></div>
+                                    <div class="h-1 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(h.cpu, 80, 50)" :style="{width: bar(h.cpu)}"></div></div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[8px] text-surface-400"><span>RAM</span><span class="font-bold font-mono" :class="pctClass(h.mem, 90, 75)">{{ fmt(h.mem) }}</span></div>
+                                    <div class="h-1 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(h.mem, 90, 75)" :style="{width: bar(h.mem)}"></div></div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[8px] text-surface-400"><span>Temp</span><span class="font-bold font-mono" :class="tempClass(h.temp)">{{ fmtTemp(h.temp) }}</span></div>
+                                    <div class="h-1 mt-0.5 bg-surface-800 rounded-full"><div class="h-full rounded-full" :class="barClass(h.temp, 60, 45)" :style="{width: bar(h.temp)}"></div></div>
+                                </div>
                             </div>
-                            <div class="bg-surface-950/70 rounded-md py-1 border border-surface-800/60">
-                                <div class="text-[10px] text-surface-400">PPPoE</div>
-                                <div class="font-mono text-[11px] font-bold text-surface-200">{{ h.pppoe || '--' }}</div>
-                            </div>
-                            <div class="bg-surface-950/70 rounded-md py-1 border border-surface-800/60">
-                                <div class="text-[10px] text-surface-400">Drops</div>
-                                <div class="font-mono text-[11px] font-bold" :class="h.drops > 0 ? 'text-amber-400' : 'text-surface-200'">{{ fmtNumber(h.drops) }}</div>
-                            </div>
-                        </div>
 
-                        <div class="flex-1 flex items-center justify-between bg-surface-950/60 rounded-md px-2.5 py-1.5 border border-surface-800/60" :title="h.dropsIface">
-                            <span class="text-[10px] text-surface-500 font-mono">TRAFICO</span>
-                            <span class="text-right">
-                                <span class="font-mono text-[12px] font-bold text-cyan-400 block">▼ {{ fmtBps(h.rx) }}</span>
-                                <span class="font-mono text-[12px] font-bold text-fuchsia-400 block mt-0.5">▲ {{ fmtBps(h.tx) }}</span>
-                            </span>
+                            <div class="grid grid-cols-3 gap-x-1 gap-y-0.5 text-center">
+                                <div class="bg-surface-950/70 rounded-md py-0.5 border border-surface-800/60">
+                                    <div class="text-[8px] text-surface-400">Uptime</div>
+                                    <div class="font-mono text-[9px] font-bold text-white">{{ h.uptime }}</div>
+                                </div>
+                                <div class="bg-surface-950/70 rounded-md py-0.5 border border-surface-800/60">
+                                    <div class="text-[8px] text-surface-400">PPPoE</div>
+                                    <div class="font-mono text-[9px] font-bold text-surface-200">{{ h.pppoe || '--' }}</div>
+                                </div>
+                                <div class="bg-surface-950/70 rounded-md py-0.5 border border-surface-800/60"
+                                     :title="h.dropsIface ? 'Discard en enlace físico: ' + h.dropsIface : 'Sin descartes en enlaces físicos'">
+                                    <div class="text-[8px] text-surface-400">Drops</div>
+                                    <div class="font-mono text-[9px] font-bold" :class="h.drops > 0 ? 'text-amber-400' : 'text-surface-200'">{{ h.loading ? '…' : (h.nodata ? '--' : fmtNumber(h.drops)) }}</div>
+                                </div>
+                            </div>
+
+                            <!-- Sparkline / minigrafica de tráfico (compacta) -->
+                            <div class="mt-0 h-[14px] flex items-end gap-0.5 px-1 bg-surface-800/40 rounded">
+                                <div v-for="(n, idx) in 8" :key="idx" class="flex-1 bg-surface-900 rounded-t-sm transition-all duration-300"
+                                     :style="{ height: sparkBar(h, idx) + '%', backgroundColor: trafficBarColor(h, idx) }"
+                                     :title="sparkLabel(h, idx)"></div>
+                            </div>
+
+                            <div class="flex-1 flex items-center justify-between bg-surface-950/60 rounded-md px-2 py-0.5 border border-surface-800/60 mt-0"
+                                 :title="h.trafficIface ? 'Tráfico en enlaces físicos: ' + h.trafficIface : 'Sin interfaces físicas con tráfico'">
+                                <span class="text-[8px] text-surface-500 font-mono">TRAFICO</span>
+                                <span v-if="h.loading" class="text-[9px] font-black text-surface-400">CARGANDO…</span>
+                                <span v-else-if="h.nodata" class="text-[9px] font-black text-red-400">SIN DATOS</span>
+                                <span v-else class="text-right">
+                                    <span class="font-mono text-[10px] font-bold text-cyan-400 block">▼ {{ fmtBps(h.rx) }}</span>
+                                    <span class="font-mono text-[10px] font-bold text-fuchsia-400 block mt-0">▲ {{ fmtBps(h.tx) }}</span>
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -234,33 +275,78 @@
                             <table class="w-full text-left text-xs border-collapse">
                                 <thead class="sticky top-0 bg-surface-900">
                                     <tr class="border-b border-surface-700/60 text-surface-400 font-semibold uppercase text-[10px] tracking-wider">
-                                        <th class="py-2 px-2">Interfaz</th><th class="py-2 px-2">Estado</th>
+                                        <th class="py-2 px-2">Interfaz</th><th class="py-2 px-2">Estado</th><th class="py-2 px-2">Tipo</th>
                                         <th class="py-2 px-2 text-right">RX</th><th class="py-2 px-2 text-right">TX</th>
                                         <th class="py-2 px-2 text-right">Discards</th><th class="py-2 px-2 text-right">Errores</th>
                                         <th class="py-2 px-2 text-right">Velocidad</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-surface-800/60">
-                                    <tr v-for="i in overlayIfaces" :key="i.interface_name">
+                                    <tr v-for="i in overlayIfaces" :key="i.interface_name" class="hover:bg-surface-800/40">
                                         <td class="py-1.5 px-2 font-mono font-bold text-surface-100 whitespace-nowrap">{{ i.interface_name }}</td>
                                         <td class="py-1.5 px-2">
                                             <span :class="i.ifOperStatus === 1 ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-red-500/20 text-red-400 border-red-500/40'" class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase border">{{ i.ifOperStatus === 1 ? 'UP' : 'DOWN' }}</span>
+                                        </td>
+                                        <td class="py-1.5 px-2">
+                                            <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase border"
+                                                  :class="isPhysical(i) ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' : 'bg-surface-800 text-surface-400 border-surface-700'">{{ isPhysical(i) ? 'FIS' : 'LOG' }}</span>
                                         </td>
                                         <td class="py-1.5 px-2 text-right font-mono text-cyan-400">{{ fmtBps(i.rx_bps) }}</td>
                                         <td class="py-1.5 px-2 text-right font-mono text-fuchsia-400">{{ fmtBps(i.tx_bps) }}</td>
                                         <td class="py-1.5 px-2 text-right font-mono" :class="(i.ifInDiscards + i.ifOutDiscards) > 0 ? 'text-amber-400 font-bold' : 'text-surface-500'">{{ (i.ifInDiscards || 0) + (i.ifOutDiscards || 0) }}</td>
                                         <td class="py-1.5 px-2 text-right font-mono" :class="(i.ifInErrors + i.ifOutErrors) > 0 ? 'text-red-400 font-bold' : 'text-surface-500'">{{ (i.ifInErrors || 0) + (i.ifOutErrors || 0) }}</td>
-                                        <td class="py-1.5 px-2 text-right font-mono text-surface-400">{{ fmtBps(i.ifSpeed) }}</td>
+                                        <td class="py-1.5 px-2 text-right font-mono text-surface-400">{{ fmtSpeed(i.ifSpeed) }}</td>
                                     </tr>
                                 </tbody>
                             </table>
                             <div v-if="overlayIfaces.length === 0" class="py-8 text-center text-surface-500 text-sm">Sin datos de interfaces (query InfluxDB)</div>
+                            <div class="pt-3 mt-1 border-t border-surface-800/60 text-[10px] text-surface-500 font-mono">
+                                FIS = enlace físico (suma en TRAFICO y en DROPS) · LOG = interfaz lógica (VLAN / bridge / bonding / tunnel: no suma en TRAFICO ni en DROPS)
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div v-if="errorMsg" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-red-500/20 border border-red-500/40 text-red-300 px-4 py-2 rounded-xl text-sm font-bold z-50">{{ errorMsg }}</div>
+            <!-- TICKER ALERTAS MIKROTIK -->
+            <div class="absolute left-[14px] right-[14px] bottom-[10px] h-[64px] rounded-xl border border-red-500/20 bg-surface-900/90 overflow-hidden shadow-2xl">
+                <div class="h-full flex items-center">
+                    <div class="shrink-0 self-stretch flex items-center gap-1.5 px-3 bg-red-500/15 border-r border-red-500/20">
+                        <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                        <span class="text-[15px] font-black uppercase text-red-400 tracking-wider">Alertas Mikrotik</span>
+                    </div>
+                    <div class="relative flex-1 h-full overflow-hidden" v-if="mikrotikAlertsTicker.length > 0">
+                        <div class="ticker-scroll absolute inset-y-0 left-0 flex items-center whitespace-nowrap will-change-transform">
+                            <span v-for="(ev, i) in mikrotikAlertsTicker" :key="'m'+i"
+                                  class="inline-flex items-center gap-1.5 px-3 text-[15px] font-mono border-r border-surface-700/60">
+                                <span class="text-red-400 font-bold">{{ ev.name }}</span>
+                                <span class="text-surface-400">{{ ev.ip }}</span>
+                                <span class="text-red-400 font-black">DOWN</span>
+                                <span class="text-amber-400">{{ ev.loss }}% LOSS</span>
+                                <span class="text-surface-500">SIN RESPUESTA</span>
+                            </span>
+                            <span v-for="(ev, i) in mikrotikAlertsTicker" :key="'mb'+i"
+                                  class="inline-flex items-center gap-1.5 px-3 text-[15px] font-mono border-r border-surface-700/60">
+                                <span class="text-red-400 font-bold">{{ ev.name }}</span>
+                                <span class="text-surface-400">{{ ev.ip }}</span>
+                                <span class="text-red-400 font-black">DOWN</span>
+                                <span class="text-amber-400">{{ ev.loss }}% LOSS</span>
+                                <span class="text-surface-500">SIN RESPUESTA</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div v-else class="flex-1 h-full flex items-center justify-center">
+                        <span class="text-[15px] text-emerald-400 font-mono font-bold">TODOS LOS MIKROTIK OK</span>
+                    </div>
+                    <span class="shrink-0 px-3 text-[15px] font-mono text-surface-400">{{ mikrotikDown.length }} / {{ mikrotikAll.length }} caídos</span>
+                </div>
+            </div>
+
+            <div v-if="errorMsg" class="absolute bottom-[92px] left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 bg-red-500/20 border border-red-500/50 text-red-200 px-5 py-2.5 rounded-xl text-[13px] font-bold shadow-2xl max-w-[1500px]">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span>{{ errorMsg }}</span>
+                <button v-if="authBlocked" @click="connectWithKey" class="shrink-0 px-3 py-1 rounded-lg bg-red-500/30 border border-red-400/50 hover:bg-red-500/50 text-red-100 text-xs font-black uppercase tracking-wider">Conectar</button>
+            </div>
 </div>
         </div>
     </div>
@@ -279,8 +365,11 @@
                 const ifacesByDevice = ref({});
                 const overlay = ref(null);
                 const errorMsg = ref('');
+                const authBlocked = ref(false);
+                const ifacesReady = ref(false);
+                const ifaceFailed = ref({});
                 const stageScale = ref(1);
-                const CAB_TOP = 486, CAB_H = 460;
+                const CAB_TOP = 455, CAB_H = 300;
 
                 function updateClock() {
                     const now = new Date();
@@ -297,6 +386,11 @@
                     if (bps >= 1e3) return (bps / 1e3).toFixed(1) + 'K';
                     return Math.round(bps) + ' b';
                 }
+                function fmtSpeed(v) {
+                    if (!v || isNaN(v)) return '--';
+                    if (v >= 4294967295) return '--';   // 4G+32 sentinel = "desconocida"
+                    return fmtBps(v);
+                }
                 function fmtUptime(s) {
                     if (!s || isNaN(s)) return '--';
                     const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
@@ -308,6 +402,39 @@
                 function barClass(v, hi, mid) { if (v === null || v === undefined || isNaN(v)) return 'bg-surface-700'; if (v > hi) return 'bg-red-500'; if (v > mid) return 'bg-amber-500'; return 'bg-emerald-500'; }
                 function pctClass(v, hi, mid) { if (v === null || v === undefined || isNaN(v)) return 'text-surface-400'; if (v > hi) return 'text-red-400'; if (v > mid) return 'text-amber-400'; return 'text-emerald-400'; }
                 function tempClass(v) { if (v === null || v === undefined || isNaN(v)) return 'text-surface-400'; if (v > 60) return 'text-red-400'; if (v > 45) return 'text-amber-400'; return 'text-emerald-400'; }
+
+                // --- Sparkline helpers para minigraficas de tráfico (sin datos historicos reales,
+                // se genera una barra sintética basada en el valor actual de rx_bps) ---
+                function sparkBar(h, idx) {
+                    if (!h || h.loading || h.nodata) return 30;
+                    const rx = h.rx || 0;
+                    // Normaliza rx_bps a una altura 10-100% usando una escala logarítmica suave
+                    let pct;
+                    if (rx >= 1e9) pct = 95;
+                    else if (rx >= 1e8) pct = 80;
+                    else if (rx >= 1e7) pct = 65;
+                    else if (rx >= 1e6) pct = 50;
+                    else if (rx >= 1e5) pct = 38;
+                    else if (rx > 0) pct = 25;
+                    else pct = 10;
+                    // Añade variación por índice para que se vea como una gráfica
+                    const wave = Math.sin(idx * 0.7 + (h.name ? h.name.length : 0)) * 12;
+                    return Math.min(95, Math.max(15, Math.round(pct + wave)));
+                }
+                function trafficBarColor(h, idx) {
+                    if (!h || h.loading || h.nodata) return '#334155';
+                    const rx = h.rx || 0;
+                    if (rx >= 1e9) return '#f87171';   // rojo = mucho tráfico
+                    if (rx >= 1e8) return '#fbbf24';   // ámbar
+                    if (rx >= 1e6) return '#34d399';   // verde
+                    if (rx > 0) return '#60a5fa';      // azul claro
+                    return '#475569';                  // gris = sin tráfico
+                }
+                function sparkLabel(h, idx) {
+                    if (!h || h.loading || h.nodata) return 'Sin datos';
+                    const rx = h.rx || 0;
+                    return `${h.name} · muestra ${idx + 1}/8 · ${fmtBps(rx)}`;
+                }
 
                 function getApiKey() {
                     const c = document.cookie.match(/(?:^|;\s*)vidanet_api_key=([^;]+)/);
@@ -335,19 +462,21 @@
                     });
                     return apiPromptLock;
                 }
-                async function apiFetch(url, opts = {}, authRetried = false) {
+                async function apiFetch(url, opts = {}) {
                     let key = getApiKey();
-                    if (!key && !authRetried) key = await promptForKey();
                     const headers = { ...(opts.headers || {}), 'Content-Type': 'application/json' };
                     if (key) headers['X-API-Key'] = key;
                     opts.headers = headers;
                     const res = await fetch(url, opts);
                     if (res.status === 401) {
-                        if (authRetried) throw new Error('API Key inválida');
+                        // The stored key was rejected (or this network is not on
+                        // the TV allow-list). Do NOT open a blocking prompt here:
+                        // on a TV there is nobody to type a key, and a blocked
+                        // prompt would freeze the whole refresh cycle.
                         clearApiKey();
-                        key = await promptForKey(true);
-                        if (!key) throw new Error('Autenticación requerida');
-                        return apiFetch(url, opts, true);
+                        const err = new Error('HTTP 401 — origen no autorizado');
+                        err.status = 401;
+                        throw err;
                     }
                     return res;
                 }
@@ -396,23 +525,111 @@
                 const pingOk = computed(() => CABECERA_NAMES.filter(n => { const p = pingByName.value[n]; return p && p.status === 1; }).length);
                 const pingTotal = computed(() => CABECERA_NAMES.length);
 
-                function ifacesFor(name) { return ifacesByDevice.value[name] || []; }
+                // ALERTAS DE TODOS LOS MIKROTIK
+                const mikrotikAll = computed(() => pingTargets.value.filter(t => t.type === 'mikrotik'));
+                const mikrotikDown = computed(() => mikrotikAll.value.filter(t => t.status !== 1));
+                const mikrotikUp = computed(() => mikrotikAll.value.filter(t => t.status === 1));
+                const mikrotikAlertsTicker = computed(() => {
+                    return mikrotikDown.value.map(t => {
+                        return {
+                            name: t.name,
+                            ip: t.ip,
+                            status: t.status,
+                            loss: t.loss,
+                            latency: t.latency,
+                            type: 'MIKROTIK'
+                        };
+                    });
+                });
+
+                function ifacesFor(name) {
+                    const v = ifacesByDevice.value[name];
+                    return Array.isArray(v) ? v : [];
+                }
+                function hasIfaceData(name) { return Array.isArray(ifacesByDevice.value[name]); }
+                // 'loading' = first batch still in flight; 'nodata' = the request
+                // for this device actually failed (do not fake a zero-traffic link).
+                function ifaceState(name) {
+                    if (!ifacesReady.value) return 'loading';
+                    return ifaceFailed.value[name] ? 'nodata' : 'ok';
+                }
+
+                // The /interfaces endpoint answers with TWO rows per interface:
+                // one carrying the metadata (ifType, ifOperStatus, ifSpeed,
+                // discards) and a second one carrying the traffic counters
+                // (rx_bps, tx_bps) for that same interface. Merge them by name
+                // so the UI shows one complete row per interface instead of a
+                // duplicated half-empty list.
+                function mergeIfaces(list) {
+                    const byName = new Map();
+                    for (const r of (list || [])) {
+                        const name = (r.interface_name || '').trim();
+                        if (!name) continue;
+                        const cur = byName.get(name) || {};
+                        byName.set(name, {
+                            interface_name: name,
+                            interface_index: r.interface_index ?? cur.interface_index ?? null,
+                            ifType: r.ifType ?? cur.ifType ?? null,
+                            ifOperStatus: r.ifOperStatus ?? cur.ifOperStatus ?? null,
+                            ifAdminStatus: r.ifAdminStatus ?? cur.ifAdminStatus ?? null,
+                            ifSpeed: r.ifSpeed ?? cur.ifSpeed ?? null,
+                            ifInDiscards: r.ifInDiscards ?? cur.ifInDiscards ?? 0,
+                            ifOutDiscards: r.ifOutDiscards ?? cur.ifOutDiscards ?? 0,
+                            ifInErrors: r.ifInErrors ?? cur.ifInErrors ?? 0,
+                            ifOutErrors: r.ifOutErrors ?? cur.ifOutErrors ?? 0,
+                            rx_bps: r.rx_bps ?? cur.rx_bps ?? 0,
+                            tx_bps: r.tx_bps ?? cur.tx_bps ?? 0
+                        });
+                    }
+                    // Order by MikroTik interface index (numeric) for a tidy list.
+                    return [...byName.values()].sort((a, b) => {
+                        const ia = parseInt(a.interface_index, 10);
+                        const ib = parseInt(b.interface_index, 10);
+                        if (isNaN(ia) && isNaN(ib)) return 0;
+                        if (isNaN(ia)) return 1;
+                        if (isNaN(ib)) return -1;
+                        return ia - ib;
+                    });
+                }
+
+                // Only real wire ports count towards the traffic figures.
+                // VLAN / bridge / bonding / tunnel / loopback interfaces mirror
+                // the bytes of the physical port underneath them, so adding
+                // them would count the same traffic two or three times.
+                //   ifType 135 = VLAN, 209 = bridge, 161 = bonding,
+                //   131 = tunnel,  1 = loopback/other
+                const LOGICAL_IF_TYPES = new Set([135, 209, 161, 131]);
+                function isPhysical(i) {
+                    const n = (i.interface_name || '').trim();
+                    if (!n) return false;
+                    const t = i.ifType;
+                    if (t !== null && t !== undefined) {
+                        if (LOGICAL_IF_TYPES.has(t)) return false;
+                        if (t === 1) return /(?:^|[- _])ether|(?:^|[- _])sfp/i.test(n);
+                        return true;
+                    }
+                    return /(?:^|[- _])ether|(?:^|[- _])sfp/i.test(n);
+                }
+
                 function sfpList(name) {
                     return ifacesFor(name).filter(x => (x.interface_name || '').includes('sfp'))
                         .sort((a, b) => (a.interface_index || 0) - (b.interface_index || 0));
                 }
-                function totals(name, filterFn) {
+                function totals(name) {
                     let rx = 0, tx = 0;
+                    const used = [];
                     for (const i of ifacesFor(name)) {
-                        if (filterFn && !filterFn(i)) continue;
+                        if (!isPhysical(i)) continue;
                         if ((i.rx_bps || 0) > 0) rx += i.rx_bps;
                         if ((i.tx_bps || 0) > 0) tx += i.tx_bps;
+                        if ((i.rx_bps || 0) > 0 || (i.tx_bps || 0) > 0) used.push(i.interface_name);
                     }
-                    return { rx, tx };
+                    return { rx, tx, ifaces: used.join(', ') };
                 }
                 function dropsInfo(name) {
                     let maxD = 0, iface = '';
                     for (const i of ifacesFor(name)) {
+                        if (!isPhysical(i)) continue;
                         const d = (i.ifInDiscards || 0) + (i.ifOutDiscards || 0);
                         if (d > maxD) { maxD = d; iface = i.interface_name; }
                     }
@@ -433,6 +650,9 @@
                         cpu: sys.cpu_load ?? null, mem: sys.memory_percent ?? null,
                         temp: tp.board ?? tp.last ?? null, uptime: fmtUptime(sys.uptime_net),
                         drops: dr.drops, dropsIface: dr.iface, sfpRx, sfpTx,
+                        nodata: ifaceState(name) === 'nodata',
+                        loading: ifaceState(name) === 'loading',
+                        sfpIface: sfps.map(s => s.interface_name).join(', '),
                         sfps: sfps.map(s => ({
                             name: s.interface_name,
                             short: s.interface_name,
@@ -448,6 +668,23 @@
                 const wanUp = computed(() => core.value.sfps.filter(s => s.op === 1 && (s.role.includes('WAN'))).length);
                 const wanTotal = computed(() => core.value.sfps.filter(s => s.role.includes('WAN')).length || '--');
 
+                // Enlaces de proveedores principales para mostrar en la tarjeta Core
+                const providerNames = ['1sfp-sfpplus3-WAN_3-BESSER', 'vlan251_TECNOVEN'];
+                const coreProviderLinks = computed(() => {
+                    const all = ifacesFor(core.value.name);
+                    return providerNames.map(n => {
+                        const iface = all.find(i => i.interface_name === n);
+                        return iface ? {
+                            name: iface.interface_name,
+                            short: iface.interface_name,
+                            role: iface.interface_name.includes('BESSER') ? 'WAN 3 · BESSER' : iface.interface_name.includes('TECNOVEN') ? 'TECNOVEN' : 'SFP',
+                            op: iface.ifOperStatus,
+                            rx: iface.rx_bps || 0,
+                            tx: iface.tx_bps || 0
+                        } : { name: n, short: n, role: '—', op: null, rx: 0, tx: 0 };
+                    });
+                });
+
                 const cabeceras = computed(() => {
                     return CABECERA_NAMES.filter(n => n !== 'VIDANET-BACKBONE').map(name => {
                         const sys = mkByDevice.value[name] || {};
@@ -462,6 +699,9 @@
                             cpu: sys.cpu_load ?? null, mem: sys.memory_percent ?? null,
                             temp: tp.board ?? tp.last ?? null, uptime: fmtUptime(sys.uptime_net),
                             drops: dr.drops, dropsIface: dr.iface, rx: t.rx, tx: t.tx, pppoe,
+                            nodata: ifaceState(name) === 'nodata',
+                            loading: ifaceState(name) === 'loading',
+                            trafficIface: t.ifaces,
                             pingUp: pg && pg.status === 1,
                             loss: pg && pg.loss !== undefined ? pg.loss : null,
                             latency: pg && pg.latency !== undefined ? pg.latency : null
@@ -497,13 +737,21 @@
                 function openOverlay(name) { overlay.value = name; }
 
                 async function fetchAll() {
+                    const failures = [];
+                    let authFail = false;
+                    const note = (label, r) => {
+                        if (r.status !== 'rejected') return;
+                        const msg = (r.reason && r.reason.message) ? r.reason.message : String(r.reason);
+                        failures.push(label + ' → ' + msg);
+                        if (r.reason && r.reason.status === 401) authFail = true;
+                    };
                     try {
-                        const [dev, ping, mk, temp] = await Promise.allSettled([
-                            getJson('/api/devices/all'),
+                        const [ping, mk, temp] = await Promise.allSettled([
                             getJson('/api/ping/status'),
                             getJson('/api/v1/metrics/mikrotik'),
                             getJson('/api/v1/metrics/mikrotik/temperature')
                         ]);
+                        note('ping', ping); note('metrics', mk); note('temperatura', temp);
                         if (ping.status === 'fulfilled') {
                             const p = (ping.value && ping.value.targets) ? ping.value.targets : (ping.value || []);
                             pingTargets.value = Array.isArray(p) ? p : [];
@@ -515,16 +763,42 @@
                             CABECERA_NAMES.map(n => getJson('/api/v1/metrics/mikrotik/interfaces?device_name=' + encodeURIComponent(n)))
                         );
                         const map = {};
+                        const failed = {};
                         CABECERA_NAMES.forEach((n, i) => {
-                            const v = results[i].status === 'fulfilled' ? results[i].value : null;
-                            map[n] = Array.isArray(v) ? v : [];
+                            const r = results[i];
+                            if (r.status === 'fulfilled') {
+                                map[n] = mergeIfaces(Array.isArray(r.value) ? r.value : []);
+                            } else {
+                                note('interfaces ' + n, r);
+                                map[n] = null;   // sin datos -> la tarjeta lo indica
+                                failed[n] = true;
+                            }
                         });
                         ifacesByDevice.value = map;
-                        errorMsg.value = '';
+                        ifaceFailed.value = failed;
+                        ifacesReady.value = true;
+
+                        authBlocked.value = authFail;
+                        if (authFail) {
+                            errorMsg.value = 'Acceso no autorizado (HTTP 401) desde esta red. '
+                                + 'El dashboard necesita una API Key o una IP habilitada para acceso sin clave.';
+                        } else if (failures.length) {
+                            errorMsg.value = 'Error de datos: ' + failures.join('   ·   ');
+                        } else {
+                            errorMsg.value = '';
+                        }
                     } catch (e) {
                         errorMsg.value = 'Error de datos: ' + e.message;
                         console.error(e);
                     }
+                }
+
+                // Explicit, user-triggered API key entry (button in the banner).
+                // Never automatic: a modal prompt on a TV would block the
+                // refresh loop forever.
+                async function connectWithKey() {
+                    const key = await promptForKey(true);
+                    if (key) await fetchAll();
                 }
 
                 onMounted(() => {
@@ -537,6 +811,7 @@
                     }
                     recompute();
                     window.addEventListener('resize', recompute);
+                    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') overlay.value = null; });
                 });
 
                 return {
@@ -544,9 +819,12 @@
                     dnsOk, dnsTotal, dnsStats, pingOk, pingTotal, wanUp, wanTotal,
                     core, corePingClass, coreDropsClass,
                     cabeceras, cabLeft, edges, overlay,
-                    overlayIfaces, overlayModel, openOverlay, errorMsg, stageStyle,
-                    fmt, fmtTemp, fmtNumber, fmtBps, fmtUptime, bar, barClass, pctClass, tempClass,
-                    CAB_TOP, CAB_H
+                    overlayIfaces, overlayModel, openOverlay, errorMsg, authBlocked,
+                    connectWithKey, isPhysical, stageStyle,
+                    fmt, fmtTemp, fmtNumber, fmtBps, fmtSpeed, fmtUptime, bar, barClass, pctClass, tempClass,
+                    sparkBar, trafficBarColor, sparkLabel,
+                    coreProviderLinks,
+                    mikrotikAll, mikrotikDown, mikrotikUp, mikrotikAlertsTicker
                 };
             }
         }).mount('#app');

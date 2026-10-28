@@ -16,7 +16,8 @@ telegram:
   update_interval_minutes: 30
 
 ml:
-  model_path: "/home/server/agente-monitor/models/zone_model.pkl"
+  # Ruta relativa al directorio del proyecto (portabilidad entre hosts)
+  model_path: "models/zone_model.pkl"
   retrain_hours: 24
   min_samples: 2
   eps: 0.3

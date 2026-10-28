@@ -1,0 +1,23 @@
+[Unit]
+Description=Agente Monitor - SNMP Collector + FastAPI + AI Agent (todo en uno)
+Documentation=file:///home/monitor/agente-monitor/README_AGENT.md
+After=network-online.target influxdb-ia.service
+Wants=network-online.target influxdb-ia.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/monitor/agente-monitor
+ExecStart=/home/monitor/agente-monitor/scripts/start-all.sh
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+# Limites de recursos
+MemoryMax=4G
+CPUQuota=200%
+
+[Install]
+WantedBy=default.target

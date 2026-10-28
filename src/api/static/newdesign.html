@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es-PE" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vidanet — NEXO NOC | Prueba /newdesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<style>
+:root{--bg:#050813;--panel:#0c1326;--panel-2:#10192d;--text:#e7e9ee;--text-dim:#8b93a7;--border:#1b2540;--accent:#22d3ee;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--violet:#a78bfa}
+html[data-theme="light"]{--bg:#f7f9fc;--panel:#fff;--panel-2:#f4f7fa;--text:#0f1629;--text-dim:#4f5b7a;--border:#e5eaf2;--accent:#0891b2;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--violet:#7c3aed}
+body{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:radial-gradient(1400px 900px at 15% -20%,rgba(34,211,238,.10),transparent 60%),var(--bg);color:var(--text);margin:0;line-height:1.7}
+.font-mono{font-family:'JetBrains Mono',monospace}
+.nexo-border{border:1px solid var(--border)}
+.nexo-panel{background:radial-gradient(700px 220px at 50% -10%,rgba(34,211,238,.09),transparent 65%),var(--panel)}
+.nexo-panel-2{background:linear-gradient(180deg,rgba(34,211,238,.06),transparent 70%),var(--panel-2)}
+.nav-btn.active{color:var(--text);border-color:rgba(34,211,238,.55);background:radial-gradient(420px 140px at 50% 0%,rgba(34,211,238,.18),transparent 70%)}
+.gear{display:inline-block;width:16px;height:16px;vertical-align:-3px;background:currentColor;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center/contain no-repeat}
+[v-cloak]{display:none!important}
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+<header class="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 px-5 md:px-6 py-2.5 nexo-border backdrop-blur-xl" style="background:linear-gradient(180deg,rgba(5,8,19,.98),rgba(5,8,19,.88))">
+<div class="flex items-center gap-3"><div class="relative"><span class="block w-2.5 h-2.5 rounded-full bg-gradient-to-br from-cyan-300 to-sky-500"></span><span class="absolute -inset-2 rounded-full" style="box-shadow:0 0 0 6px rgba(34,211,238,.10),0 0 28px rgba(14,165,233,.38)"></span></div>
+<div class="flex items-center gap-2"><span class="font-semibold tracking-[.16em] uppercase text-[.88rem]">Vidanet</span><span class="text-[.78rem] uppercase tracking-[.42em] text-[color:var(--text-dim)] hidden sm:block">NEXO · NOC</span><span class="ml-1 px-1.5 py-0.5 text-[.68rem] font-mono uppercase tracking-[.28em] rounded-full nexo-border text-[color:var(--accent)]">PRUEBA /newdesign</span></div>
+</div>
+<nav class="flex flex-wrap items-center gap-1">
+<button v-for="tab in tabs" :key="tab.key" @click="setActive(tab.key)" class="nav-btn px-3 py-1.5 text-[.9rem] rounded-full border border-transparent text-[color:var(--text-dim)]" :class="{'active':active===tab.key}"><span v-if="tab.key==='config'" class="gear mr-1"></span>{{ tab.label }}</button>
+</nav>
+<div class="flex items-center gap-1.5">
+<div class="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-full nexo-border text-[.78rem] font-mono text-[color:var(--text-dim)]"><span class="w-1.5 h-1.5 rounded-full" :class="allOk?'bg-[color:var(--ok)] shadow-[0_0_0_4px_rgba(34,197,94,.12)]':'bg-[color:var(--warn)] shadow-[0_0_0_4px_rgba(245,158,11,.12)]'"></span><span>Datos reales · {{ lastUpdate }}</span></div>
+<button @click="toggleTheme" class="px-2.5 py-1 text-[.78rem] rounded-full nexo-border text-[color:var(--text-dim)] hover:text-[color:var(--text)]">{{ themeLabel }}</button>
+<a href="/" class="px-2.5 py-1 text-[.78rem] rounded-full nexo-border text-[color:var(--text-dim)] hover:text-[color:var(--text)]">Principal</a>
+</div>
+</header>
+
+<!-- OVERVIEW -->
+<div v-if="active==='overview'">
+<section class="px-5 md:px-6 pt-4">
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
+<article class="rounded-xl nexo-border nexo-panel p-4"><div class="flex flex-col gap-1.5"><span class="text-[.78rem] uppercase tracking-[.2em] text-[color:var(--text-dim)]">TOTAL ANOMALÍAS · 24H</span><span class="font-mono text-3xl md:text-4xl">{{ fmt(kpi.total24) }}</span></div></article>
+<article class="rounded-xl nexo-border nexo-panel p-4"><div class="flex flex-col gap-1.5"><span class="text-[.78rem] uppercase tracking-[.2em] text-[color:var(--text-dim)]">CRÍTICAS · 24H</span><span class="font-mono text-3xl md:text-4xl text-[color:var(--bad)]">{{ fmt(kpi.crit24) }}</span></div></article>
+<article class="rounded-xl nexo-border nexo-panel p-4"><div class="flex flex-col gap-1.5"><span class="text-[.78rem] uppercase tracking-[.2em] text-[color:var(--text-dim)]">ADVERTENCIAS · 24H</span><span class="font-mono text-3xl md:text-4xl text-[color:var(--warn)]">{{ fmt(kpi.warn24) }}</span></div></article>
+<article class="rounded-xl nexo-border nexo-panel p-4"><div class="flex flex-col gap-1.5"><span class="text-[.78rem] uppercase tracking-[.2em] text-[color:var(--text-dim)]">PREDICCIONES ACTIVAS</span><span class="font-mono text-3xl md:text-4xl text-[color:var(--violet)]">{{ fmt(kpi.pred) }}</span></div></article>
+</div>
+<div class="mt-2.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+<div class="rounded-xl nexo-border nexo-panel-2 p-3"><p class="text-[.78rem] uppercase tracking-[.2em] text-[color:var(--text-dim)]">DISPOSITIVOS</p><p class="mt-1 font-mono text-2xl">{{ fmt(kpi.devices) }}</p></div>
+<div class="rounded-xl nexo-border nexo-panel-2 p-3"><p class="text-[.78rem] uppercase tracking-[.2em] text-[color:var(--text-dim)]">MIKROTIK / OLTS</p><p class="mt-1 font-mono text-xl">{{ fmt(kpi.mikrotik) }} / {{ fmt(kpi.olts) }}</p></div>
+<div class="rounded-xl nexo-border nexo-panel-2 p-3"><p class="text-[.78rem] uppercase tracking-[.2em] text-[color:var(--text-dim)]">CLIENTES ENRIQUECIDOS</p><p class="mt-1 font-mono text-2xl">{{ fmt(kpi.clientesTotal) }}</p></div>
+<div class="rounded-xl nexo-border nexo-panel-2 p-3"><p class="text-[.78rem] uppercase tracking-[.2em] text-[color:var(--text-dim)]">HEALTH</p><p class="mt-1 font-mono text-lg" :class="healthOk?'text-[color:var(--ok)]':'text-[color:var(--warn)]'">{{ healthText }}</p></div>
+</div>
+</section>
+<main class="px-5 md:px-6 mt-4 grid grid-cols-1 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-2.5">
+<section class="rounded-xl nexo-border nexo-panel overflow-hidden"><div class="px-5 py-3 border-b nexo-border text-[.78rem] uppercase tracking-[.22em] text-[color:var(--text-dim)]">Alertas recientes</div><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[color:var(--text-dim)]"><th class="px-5 py-2">Hora</th><th class="py-2 pr-4">OLT</th><th class="py-2 pr-4">PON</th><th class="py-2 pr-4">ONU</th><th class="py-2 pr-4">Rx(dBm)</th><th class="py-2 pr-4">Tipo</th></tr></thead><tbody><tr v-if="anoms.length===0"><td colspan="6" class="px-5 py-4 text-[color:var(--text-dim)]">Cargando datos reales...</td></tr><tr v-for="a in anoms" :key="a.time+a.onu_serial" class="border-t nexo-border"><td class="px-5 py-2 font-mono text-[.82rem] text-[color:var(--text-dim)]">{{ fmtTime(a.time) }}</td><td class="py-2 pr-4">{{ a.olt_name||'—' }}</td><td class="py-2 pr-4 font-mono">{{ a.pon_port||'—' }}</td><td class="py-2 pr-4 font-mono">{{ a.onu_serial||'—' }}</td><td class="py-2 pr-4 font-mono" :class="powerClass(a.rx_power)">{{ a.rx_power??'—' }}</td><td class="py-2 pr-4"><span class="px-1.5 py-0.5 text-[.78rem] rounded-full nexo-border" :class="sevClass(a.anomaly_type)">{{ a.anomaly_type||'—' }}</span></td></tr></tbody></table></div></section>
+<aside class="rounded-xl nexo-border nexo-panel overflow-hidden"><div class="px-5 py-3 border-b nexo-border text-[.78rem] uppercase tracking-[.22em] text-[color:var(--text-dim)]">Estado por OLT</div><div class="flex-1 overflow-y-auto max-h-[460px]"><ul class="divide-y divide-[color:var(--border)]"><li v-if="olts.length===0" class="px-5 py-4 text-[color:var(--text-dim)]">Cargando...</li><li v-for="o in olts" :key="o.ip" class="px-5 py-3 flex justify-between"><div><div class="flex items-center gap-2"><span class="font-medium">{{ o.hostname||o.ip }}</span><span class="w-1.5 h-1.5 rounded-full" :class="o.status==='online'?'bg-[color:var(--ok)] shadow-[0_0_0_4px_rgba(34,197,94,.10)]':'bg-[color:var(--text-dim)] shadow-[0_0_0_4px_rgba(139,147,167,.10)]'"></span></div><span class="text-[.82rem] font-mono text-[color:var(--text-dim)]">{{ o.ip }}</span></div><span class="text-[.78rem] font-mono uppercase" :class="o.status==='online'?'text-[color:var(--ok)]':'text-[color:var(--text-dim)]'">{{ o.status }}</span></li></ul></div></aside>
+</main>
+</div>
+
+<div v-if="active==='topo'" class="px-5 md:px-6 pt-4"><div class="rounded-xl nexo-border nexo-panel h-[calc(100dvh-180px)]"><div class="px-5 py-3 border-b nexo-border text-[.78rem] uppercase tracking-[.22em] text-[color:var(--text-dim)]">Mapa / Topología · Datos reales</div><div id="net" class="w-full h-[calc(100%-48px)]"></div></div></div>
+<div v-if="active==='mikrotik'" class="px-5 md:px-6 pt-4"><div class="rounded-xl nexo-border nexo-panel"><div class="px-5 py-3 border-b nexo-border text-[.78rem] uppercase tracking-[.22em] text-[color:var(--text-dim)]">MikroTik</div><div class="px-5 py-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3"><div v-for="m in mikrotiks" :key="m.ip" class="rounded-lg nexo-border nexo-panel-2 p-3"><div class="flex justify-between"><span class="font-medium">{{ m.hostname||m.ip }}</span><span class="text-xs font-mono px-1.5 py-0.5 rounded-full nexo-border" :class="m.status==='online'?'text-[color:var(--ok)]':'text-[color:var(--text-dim)]'">{{ m.status }}</span></div><div class="text-xs font-mono text-[color:var(--text-dim)]">{{ m.ip }} · {{ m.node||'—' }}</div></div><div v-if="mikrotiks.length===0" class="text-[color:var(--text-dim)] px-5 py-4">Sin datos</div></div></div></div>
+<div v-if="active==='olt'" class="px-5 md:px-6 pt-4"><div class="rounded-xl nexo-border nexo-panel"><div class="px-5 py-3 border-b nexo-border text-[.78rem] uppercase tracking-[.22em] text-[color:var(--text-dim)]">OLT VSOL</div><div class="px-5 py-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3"><div v-for="o in olts" :key="o.ip" class="rounded-lg nexo-border nexo-panel-2 p-3"><div class="flex justify-between"><span class="font-medium">{{ o.hostname||o.ip }}</span><span class="text-xs font-mono px-1.5 py-0.5 rounded-full nexo-border" :class="o.status==='online'?'text-[color:var(--ok)]':'text-[color:var(--text-dim)]'">{{ o.status }}</span></div><div class="text-xs font-mono text-[color:var(--text-dim)]">{{ o.ip }} · {{ o.node||'—' }} · PON {{ o.pon_count||'—' }}</div></div><div v-if="olts.length===0" class="text-[color:var(--text-dim)] px-5 py-4">Sin datos</div></div></div></div>
+<div v-if="active==='clientes'" class="px-5 md:px-6 pt-4"><div class="rounded-xl nexo-border nexo-panel h-[60dvh] flex items-center justify-center text-[color:var(--text-dim)]"><div class="text-center"><p>ONUs / Clientes GPON</p><p class="text-sm"><code class="text-[color:var(--warn)]">requiere backend</code></p></div></div></div>
+<div v-if="active==='wisp'" class="px-5 md:px-6 pt-4"><div class="rounded-xl nexo-border nexo-panel h-[60dvh] flex items-center justify-center text-[color:var(--text-dim)]"><div class="text-center"><p>WISP</p><p class="text-sm"><code class="text-[color:var(--warn)]">requiere backend</code></p></div></div></div>
+<div v-if="active==='fichas'" class="px-5 md:px-6 pt-4"><div class="rounded-xl nexo-border nexo-panel h-[60dvh] flex items-center justify-center text-[color:var(--text-dim)]"><div class="text-center"><p>Fichas de clientes</p><p class="text-sm"><code class="text-[color:var(--warn)]">requiere backend</code></p></div></div></div>
+<div v-if="active==='jobs'" class="px-5 md:px-6 pt-4"><div class="rounded-xl nexo-border nexo-panel h-[60dvh] flex items-center justify-center text-[color:var(--text-dim)]"><div class="text-center"><p>Trabajos programados</p><p class="text-sm"><code class="text-[color:var(--warn)]">requiere backend</code></p></div></div></div>
+<div v-if="active==='reportes'" class="px-5 md:px-6 pt-4"><div class="rounded-xl nexo-border nexo-panel h-[60dvh] flex items-center justify-center text-[color:var(--text-dim)]"><div class="text-center"><p>Reportes / SLA</p><p class="text-sm"><code class="text-[color:var(--warn)]">requiere backend</code></p></div></div></div>
+<div v-if="active==='auditoria'" class="px-5 md:px-6 pt-4"><div class="rounded-xl nexo-border nexo-panel h-[60dvh] flex items-center justify-center text-[color:var(--text-dim)]"><div class="text-center"><p>Auditoría</p><p class="text-sm"><code class="text-[color:var(--warn)]">requiere backend</code></p></div></div></div>
+<div v-if="active==='config'" class="px-5 md:px-6 pt-4"><div class="rounded-xl nexo-border nexo-panel p-5 text-[color:var(--text-dim)]"><p class="text-lg text-[color:var(--text)]">Configuración</p><p class="mt-2">CRUD nodos/MikroTik/OLT vía <code class="text-[color:var(--accent)]">/api/nodes/*</code>. Resto <code class="text-[color:var(--warn)]">requiere backend</code>.</p></div></div>
+</div>
+<script>
+const API_KEY='228ydJWePNS_w3dElOlFFUuSwxGLuArPQrnpIRWkfsA';
+const {createApp,ref,computed,onMounted,nextTick,watch}=Vue;
+createApp({
+setup(){
+const tabs=[{key:'overview',label:'Visión General'},{key:'topo',label:'Mapa / Topología'},{key:'mikrotik',label:'MikroTik'},{key:'olt',label:'OLT VSOL'},{key:'clientes',label:'ONUs / Clientes GPON'},{key:'wisp',label:'WISP'},{key:'fichas',label:'Fichas de clientes'},{key:'jobs',label:'Trabajos programados'},{key:'reportes',label:'Reportes / SLA'},{key:'auditoria',label:'Auditoría'},{key:'config',label:'Configuración'}];
+const active=ref('overview'); const theme=ref(localStorage.getItem('vidanet_theme')||'dark');
+const lastUpdate=ref('--:--:--');
+const kpi=ref({total24:0,crit24:0,warn24:0,pred:0,devices:0,mikrotik:0,olts:0,clientesTotal:0});
+const healthOk=ref(false); const healthText=ref('—'); const anoms=ref([]); const olts=ref([]); const mikrotiks=ref([]); const nodes=ref([]);
+let net=null;
+const allOk=computed(()=>healthOk.value); const themeLabel=computed(()=>theme.value==='dark'?'Tema: oscuro':'Tema: claro');
+function toggleTheme(){theme.value=theme.value==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',theme.value);localStorage.setItem('vidanet_theme',theme.value)}
+function setActive(k){active.value=k; if(k==='topo') nextTick(drawTopo)}
+function fmt(v){return v===null||v===undefined||v===''?'—':Number(v).toLocaleString('es-PE')}
+function fmtTime(t){if(!t)return '—';try{return new Date(t).toLocaleString('es-PE')}catch(e){return t}}
+function powerClass(p){const v=Number(p);if(isNaN(v))return 'text-[color:var(--text-dim)]';if(v<-28)return 'text-[color:var(--bad)]';if(v<-25)return 'text-[color:var(--warn)]';return 'text-[color:var(--ok)]'}
+function sevClass(t){const s=(t||'').toLowerCase();if(s.includes('crit'))return 'text-[color:var(--bad)] border-[color:rgba(239,68,68,.6)]';if(s.includes('warn'))return 'text-[color:var(--warn)] border-[color:rgba(245,158,11,.6)]';return 'text-[color:var(--text-dim)]'}
+async function fetchJson(u){try{const url=u+(u.includes('?')?'&':'?')+'api_key='+API_KEY;const r=await fetch(url);if(!r.ok)return null;return await r.json()}catch(e){return null}}
+async function load(){
+lastUpdate.value=new Date().toLocaleTimeString('es-PE');
+const [ns,as,hs,cs]=await Promise.all([fetchJson('/api/nodes/summary'),fetchJson('/api/v1/anomalies/summary'),fetchJson('/api/health'),fetchJson('/api/clientes/stats')]);
+if(ns){kpi.value.devices=(ns.total_mikrotiks||0)+(ns.total_olts||0)||ns.nodes_count||0;kpi.value.mikrotik=ns.total_mikrotiks||0;kpi.value.olts=ns.total_olts||0}
+if(as){const l=as.last_24h,p=as.previous;if(typeof l==='number'){kpi.value.total24=l;kpi.value.crit24=p?.critical||0;kpi.value.warn24=p?.warning||0}else{kpi.value.total24=l?.total||0;kpi.value.crit24=l?.critical||0;kpi.value.warn24=l?.warning||0}kpi.value.pred=as.predictions?.count||0}
+if(hs){healthOk.value=hs.status==='healthy';healthText.value=hs.status==='healthy'?'OK':(hs.status||'DEGRADED')}
+if(cs) kpi.value.clientesTotal=cs.total_clientes||0;
+const [nlist,arec]=await Promise.all([fetchJson('/api/nodes/'),fetchJson('/api/v1/anomalies/recent?limit=15')]);
+if(nlist){nodes.value=nlist;mikrotiks.value=nlist.flatMap(n=>n.mikrotiks||[]);olts.value=nlist.flatMap(n=>n.olts||[])}
+if(arec) anoms.value=arec;
+}
+function drawTopo(){
+const c=document.getElementById('net'); if(!c||nodes.value.length===0)return;
+const nds=[]; const eds=[]; const ids=new Map(); let i=1;
+nodes.value.forEach(n=>{const id='n'+i++; ids.set(n.name,id); nds.push({id,label:n.name,font:{color:'var(--text)'},color:{border:'var(--border)',background:'var(--panel-2)'},borderWidth:1})});
+nodes.value.forEach(n=>{(n.mikrotiks||[]).forEach(m=>{if(m.conectado_a&&ids.get(m.conectado_a)) eds.push({from:ids.get(n.name),to:ids.get(m.conectado_a),arrows:'to',color:'#22d3ee',width:1})});(n.olts||[]).forEach(o=>{if(o.conectado_a&&ids.get(o.conectado_a)) eds.push({from:ids.get(n.name),to:ids.get(o.conectado_a),arrows:'to',color:'#38bdf8',width:1})})});
+if(net) net.destroy(); net=new vis.Network(c,{nodes:nds,edges:eds},{physics:{stabilization:true},interaction:{hover:true}});
+}
+onMounted(load); setInterval(load,30000); document.documentElement.setAttribute('data-theme',theme.value);
+watch(active,(v)=>{if(v==='topo') setTimeout(drawTopo,60)});
+return {tabs,active,themeLabel,allOk,lastUpdate,kpi,healthOk,healthText,anoms,olts,mikrotiks,nodes,fmt,fmtTime,powerClass,sevClass,toggleTheme,setActive}
+}
+}).mount('#app');
+</script>
+</body>
+</html>
