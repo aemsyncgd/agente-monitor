@@ -1,6 +1,14 @@
 # compose.yml - Agente Monitor
-# InfluxDB como servicio central con auto-start
-# App services (collector, API, AI) corren como systemd en el host
+# Fuente única de verdad para la infraestructura de contenedores.
+# Los 3 servicios comparten la red "agente-monitor-net", por lo que se
+# resuelven entre sí por nombre de servicio/contenedor.
+
+name: agente-monitor
+
+networks:
+  agente-monitor-net:
+    name: agente-monitor-net
+    driver: bridge
 
 services:
   influxdb-ia:
@@ -15,6 +23,8 @@ services:
     volumes:
       - ./influxdb/data:/var/lib/influxdb2
       - ./influxdb/config:/etc/influxdb2
+    networks:
+      - agente-monitor-net
     healthcheck:
       test: ["CMD", "influx", "ping"]
       interval: 10s
@@ -35,9 +45,28 @@ services:
       --appendonly yes
     volumes:
       - ./redis/data:/data
+    networks:
+      - agente-monitor-net
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 5s
+
+  # --- SYSLOG MIKROTIK ---
+  mikrotik-syslog:
+    image: docker.io/rsyslog/rsyslog:latest
+    container_name: mikrotik-syslog
+    restart: unless-stopped
+    # rsyslog corre como usuario "syslog" (no root): usamos 5514 también
+    # dentro del contenedor para no necesitar el puerto privilegiado 514.
+    ports:
+      - "5514:5514/udp"
+      - "5514:5514/tcp"
+    volumes:
+      - ./mikrotik-syslog/config/rsyslog.conf:/etc/rsyslog.conf:ro
+      - ./mikrotik-syslog/logs:/var/log/mikrotik:Z
+    networks:
+      - agente-monitor-net

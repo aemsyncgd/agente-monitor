@@ -298,16 +298,33 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 | `CONFIG_PATH` / `NODES_PATH` / `MODEL_PATH` / `PING_TARGETS_PATH` | Rutas de configuración y del modelo |
 | `INFLUXDB_ADMIN_TOKEN` (en `.env`) | Token admin inicial que consume `compose.yml` |
 
-### 3 · Levantar los contenedores (InfluxDB + Redis)
+### 3 · Levantar los contenedores (InfluxDB + Redis + Syslog)
 
 ```bash
 podman compose up -d
-podman ps            # influxdb-ia y redis-ia en Up
+podman ps            # influxdb-ia, redis-ia y mikrotik-syslog en Up
 ```
 
-> **Nota:** si `redis-ia` reinicia en bucle (`restart counter` alto), el motivo suele ser
-> que el directorio `redis/data` no es escribible por el usuario del contenedor. Solución:
-> `mkdir -p redis/data && chmod 777 redis/data && systemctl --user restart redis-ia.service`.
+`compose.yml` es la **única fuente de verdad**: define los 3 servicios en la red
+`agente-monitor-net` (se resuelven entre sí por nombre). El arranque automático lo
+gestiona `agente-monitor-compose.service`, que la app declara como dependencia
+(`Wants=` + `After=`), por lo que no hace falta ningún quadlet en
+`~/.config/containers/systemd/`.
+
+```bash
+systemctl --user status  agente-monitor-compose.service
+systemctl --user restart agente-monitor-compose.service
+```
+
+> **Nota:** `podman-compose` 1.3.0 no es idempotente (`up -d` falla si los contenedores
+> ya existen). Por eso la unit hace `down` antes de `up` y **devuelve 0 aunque falle**:
+> verifica siempre con `podman ps`, no solo con `systemctl is-active`.
+>
+> Si `redis-ia` reinicia en bucle (`restart counter` alto), revisa
+> `journalctl --user -u agente-monitor-compose.service`: suele ser un AOF corrupto
+> (`Bad file format reading the append only file`). Solución:
+> `podman-compose down`, respaldar `redis/data/appendonlydir` y
+> `podman run --rm -v $PWD/redis/data:/data redis:7-alpine redis-check-aof --fix /data/appendonlydir/appendonly.aof.manifest`.
 
 Tráfico histórico de interfaces usa el bucket `monitoreo`. Para conservar ≥1 año de
 datos extender la retención (ejecutar una sola vez, 400 días = 9600h):
@@ -427,3 +444,16 @@ Suite actual: **333 tests** · `pytest` + `pytest-asyncio`. Cubren colectores, d
 ## ⚖️ Licencia
 
 Proyecto publicado bajo la **GNU General Public License v3.0** — ver [LICENSE](LICENSE).
+
+
+## Syslog MikroTik/OLTs + Redis aislado para logs
+
+- **Receptor syslog**: `mikrotik-syslog` (rsyslog) escucha UDP/TCP 5514. Configuración en `mikrotik-syslog/config/rsyslog.conf`. Logs JSONL en `mikrotik-syslog/logs/all.jsonl` con rotación diaria/logrotate (retención 365 días).
+- **Procesador en tiempo real**: `scripts/log_monitor.py` lee el JSONL, filtra eventos relevantes y envía a cola Redis `cola_logs_para_llm` (LPUSH).
+- **Redis aislado**: `redis-syslog` en `127.0.0.1:6380` (solo loopback), maxmemory 64MB, `allkeys-lru`, sin AOF/saves. Comparte red `agente-monitor-net` con el resto.
+- **Servicio systemd**: `~/.config/systemd/user/agente-log-monitor.service` ejecuta el monitor como usuario. Se inicia con `systemctl --user start/enable agente-log-monitor`.
+- **Redis original**: `redis-ia` permanece íntegro para el cache de clientes (`ClientStore`). No comparte instancia con la cola de syslog.
+
+**Notas:**
+- El monitor apunta a `redis-syslog:6380` (127.0.0.1). Si se recrea el contenedor con otra IP en redes puente, usar IP/host correcto.
+- Para consumir la cola desde el agente LLM: `BRPOP cola_logs_para_llm <timeout>` en Redis `redis-syslog`.
