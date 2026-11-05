@@ -433,13 +433,34 @@ def _olt_names(og: OLTGroup, limit: int = 8) -> List[str]:
 
 
 def _recovery_info(key: str, down_since: Optional[float]) -> dict:
+    """Parseo de claves de fault_state para generar información de recuperación.
+
+    Formatos soportados:
+    - fault:olt:<olt_name>      → scope="olt", label=<olt_name>
+    - fault:nap:<olt>:<label>   → scope="nap", label=<label>
+    """
     parts = key.split(":")
-    if len(parts) >= 4 and parts[0] == "fault" and parts[1] == "olt":
-        return {"olt": parts[2], "label": parts[2], "scope": "olt",
+
+    # Validar formato básico: debe empezar con "fault"
+    if len(parts) < 3 or parts[0] != "fault":
+        return {"olt": "unknown", "label": "unknown", "scope": "unknown",
                 "down": 0, "total": 0, "names": []}
-    # fault:nap:olt:label
-    return {"olt": parts[2], "label": parts[3], "scope": "nap",
-            "down": 0, "total": 0, "names": []}
+
+    # Detectar tipo de clave por el segundo componente
+    if parts[1] == "olt":
+        # Formato: fault:olt:<olt_name>
+        olt_name = parts[2] if len(parts) > 2 else "unknown"
+        return {"olt": olt_name, "label": olt_name, "scope": "olt",
+                "down": 0, "total": 0, "names": []}
+    elif parts[1] == "nap" and len(parts) >= 4:
+        # Formato: fault:nap:<olt_name>:<label>
+        return {"olt": parts[2], "label": parts[3], "scope": "nap",
+                "down": 0, "total": 0, "names": []}
+    else:
+        # Formato desconocido o malformado
+        return {"olt": parts[2] if len(parts) > 2 else "unknown",
+                "label": "unknown", "scope": "unknown",
+                "down": 0, "total": 0, "names": []}
 
 
 def _clients_from_rows(results: List[dict]) -> List[dict]:
