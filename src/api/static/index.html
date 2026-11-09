@@ -1116,9 +1116,9 @@
                     </div>
                 </div>
 
-                <!-- ==================== TAB: Anomalias ==================== -->
+                <!-- ==================== TAB: Logs ==================== -->
                 <div v-if="activeTab === 'anomalies'" class="slide-in space-y-6 pt-2">
-                    <!-- KPIs -->
+                    <!-- Tarjetas de KPIs -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                         <div v-for="kpi in anomalyKpis" :key="kpi.key" class="relative overflow-hidden rounded-xl bg-surface-900/60 border border-surface-700/50 p-4">
                             <div class="flex items-start justify-between gap-2">
@@ -1151,11 +1151,11 @@
                         </select>
                     </div>
 
-                    <!-- Panel Analisis Predictivo de IA -->
+                    <!-- Panel Analisis Predictivo -->
                     <div class="w-full rounded-xl border border-teal-700/60 bg-teal-950/20 p-5">
                         <div class="flex items-center gap-2 mb-3">
                             <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
-                            <h3 class="text-sm font-semibold text-teal-300">Analisis Predictivo de IA</h3>
+                            <h3 class="text-sm font-semibold text-teal-300">Analisis Predictivo</h3>
                         </div>
                         <div v-if="aiQuotes.length === 0" class="text-sm text-surface-500">Sin predicciones activas en este momento.</div>
                         <div v-else class="space-y-2">
@@ -1166,7 +1166,7 @@
                         </div>
                     </div>
 
-                    <!-- Lista de Anomalias Detectadas -->
+                    <!-- Lista de Logs / Anomalias Detectadas -->
                     <div>
                         <h3 class="text-sm font-semibold text-surface-300 mb-3">Anomalias Detectadas</h3>
                         <div class="flex flex-col gap-4">
@@ -3100,7 +3100,7 @@ createApp({
             ] },
             { id: 'devices', label: 'Dispositivos', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>' },
             { id: 'network', label: 'Red', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>' },
-            { id: 'agent', label: 'Agente', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>' },
+            { id: 'agent', label: 'Clientes | Servicios', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>' },
             { id: 'anomalies', label: 'Anomalias', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>', badge: anomalySummary.value.total_anomalies > 0 ? anomalySummary.value.total_anomalies : null },
             { id: 'config', label: 'Configuracion', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>' },
         ]);
@@ -3117,7 +3117,7 @@ createApp({
         }
 
         const currentTitle = computed(() => {
-            const titles = { dashboard: 'Resumen', nodes: 'Nodos', mikrotik: 'MikroTik', olt: 'OLTs', devices: 'Dispositivos', network: 'Monitoreo de Red', agent: 'Agente IA', anomalies: 'Anomalias', config: 'Configuracion' };
+            const titles = { dashboard: 'Resumen', nodes: 'Nodos', mikrotik: 'MikroTik', olt: 'OLTs', devices: 'Dispositivos', network: 'Monitoreo de Red', agent: 'Clientes | Servicios', anomalies: 'Logs', config: 'Configuracion' };
             return titles[activeTab.value] || '';
         });
 
