@@ -177,6 +177,12 @@
     </main>
 </div>
 
+<!-- ==================== MODAL DE DETALLE DEL EVENTO ==================== -->
+<div id="eventModal" class="hidden fixed inset-0 z-[2000] flex items-start justify-center p-4 sm:p-8 overflow-y-auto">
+    <div class="fixed inset-0 bg-black/70 backdrop-blur-sm" data-close></div>
+    <div id="eventModalPanel" class="relative w-full max-w-5xl my-4 rounded-2xl border border-surface-700/60 bg-surface-900 shadow-[0_40px_140px_-40px_rgba(0,0,0,0.9)] slide-in"></div>
+</div>
+
 <script>
 // ==================== DATOS DE EJEMPLO ====================
 const NAV = [
@@ -284,11 +290,26 @@ const TYPE_ICON = {
 const svg = (d, cls) => `<svg class="${cls}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${d}"/></svg>`;
 
 // ==================== RENDER: NAV ====================
+// Indicadores del menú: OLT alertas (rojo), OLT advertencias (ámbar),
+// OLT noticias (celeste) y MikroTik noticias (gris).
+const NAV_BADGES = {
+  anomalies: [
+    { n: LOGS.olt.alert.length,        cls:'bg-red-500/20 text-red-300',         title:'OLT · alertas (high / danger)' },
+    { n: LOGS.olt.warning.length,      cls:'bg-amber-500/20 text-amber-300',     title:'OLT · advertencias' },
+    { n: LOGS.olt.news.length,         cls:'bg-sky-500/20 text-sky-300',         title:'OLT · noticias' },
+    { n: LOGS.mikrotik.news.length,    cls:'bg-surface-700/70 text-surface-300', title:'MikroTik · noticias' }
+  ]
+};
+
 document.getElementById('nav').innerHTML = NAV.map(item => {
   const active = item.id === 'anomalies';
+  const badges = (NAV_BADGES[item.id] || []).map(b =>
+    `<span class="text-[9px] font-bold leading-none px-1.5 py-1 rounded-full ${b.cls}" title="${b.title}">${String(b.n).padStart(2,'0')}</span>`
+  ).join('');
   return `<button class="group w-full flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium transition-all duration-200 ${active ? 'bg-gradient-to-r from-brand-500/20 to-transparent text-surface-100' : 'text-surface-400 hover:text-surface-100 hover:bg-surface-800/60'}">
       <span class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${active ? 'bg-brand-500/25 text-brand-300' : 'text-surface-500 group-hover:text-surface-300'}">${svg(item.icon,'w-5 h-5')}</span>
       <span class="whitespace-nowrap flex-1 text-left">${item.label}</span>
+      ${badges ? `<span class="flex items-center gap-1 flex-shrink-0">${badges}</span>` : ''}
     </button>`;
 }).join('');
 
@@ -318,10 +339,10 @@ document.getElementById('summary').innerHTML = SUMMARY.map(s => `
   </button>`).join('');
 
 // ==================== RENDER: EVENTOS ====================
-function eventCard(e) {
+function eventCard(e, idx) {
   const s = SEV[e.sev];
   const repeats = e.repeats > 1 ? `<span class="px-1.5 py-0.5 rounded bg-surface-800 text-surface-300 font-semibold">×${e.repeats}</span>` : '';
-  return `<article class="relative overflow-hidden rounded-xl border ${s.card} p-4 transition-all hover:border-brand-500/50" data-sev="${e.sev}">
+  return `<article class="group relative overflow-hidden rounded-xl border ${s.card} p-4 cursor-pointer transition-all hover:border-brand-500/60 hover:bg-surface-800/40" data-sev="${e.sev}" data-idx="${idx}" title="Ver detalle del evento">
       <span class="absolute left-0 top-0 bottom-0 w-1 ${s.dot}"></span>
       <div class="flex items-start gap-3 pl-2">
         <div class="w-9 h-9 rounded-lg ${s.icon} flex items-center justify-center flex-shrink-0">${svg(TYPE_ICON[e.type] || TYPE_ICON.network,'w-5 h-5')}</div>
@@ -338,6 +359,7 @@ function eventCard(e) {
             <span class="text-surface-700">·</span>
             <span class="truncate">${e.device}</span>
             ${repeats ? '<span class="ml-auto"></span>' + repeats : ''}
+            <span class="ml-auto text-[10px] font-semibold text-brand-300 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Ver detalle →</span>
           </div>
         </div>
       </div>
@@ -348,11 +370,16 @@ const eventsEl = document.getElementById('events');
 const emptyEl = document.getElementById('eventsEmpty');
 function renderEvents(filter) {
   const list = filter === 'all' ? EVENTS : EVENTS.filter(e => e.sev === filter);
-  eventsEl.innerHTML = list.map(eventCard).join('');
+  eventsEl.innerHTML = list.map(e => eventCard(e, EVENTS.indexOf(e))).join('');
   document.getElementById('eventsCount').textContent = list.length;
   emptyEl.classList.toggle('hidden', list.length > 0);
 }
 renderEvents('all');
+
+eventsEl.addEventListener('click', (ev) => {
+  const card = ev.target.closest('[data-idx]');
+  if (card) openEventDetail(Number(card.dataset.idx));
+});
 
 document.querySelectorAll('.filter-chip').forEach(chip => {
   chip.addEventListener('click', () => {
@@ -411,6 +438,404 @@ document.getElementById('devicePanels').innerHTML = Object.values(LOGS).map(p =>
       </div>
     </div>`;
 }).join('');
+
+// ==================== DETALLE POR EVENTO (MODAL) ====================
+const DETAILS = [
+  {
+    id:'SEC-2026-11-11-0014', estado:'EN CURSO', estadoCls:'red',
+    inicio:'12:38:02', detectado:'12:38:41', duracion:'3 min',
+    causa:'Barrido de credenciales por SSH desde <b>45.148.10.23</b>. El firewall aplicó la lista negra tras 14 intentos en 180 s; no se estableció ninguna sesión.',
+    confianza:96,
+    evidencia:[
+      '14 intentos de login en 180 s desde una sola IP',
+      'Usuarios probados: <b>admin</b>, <b>root</b>, <b>support</b>',
+      'Sin sesiones establecidas (0 logins exitosos)',
+      'IP agregada a <b>input-drop-blacklist</b> a las 12:38:41'
+    ],
+    impacto:[{n:'14',l:'Intentos'},{n:'0',l:'Sesiones'},{n:'1',l:'IP bloqueada'},{n:'1',l:'Router'}],
+    fuentes:[{l:'Syslog',ok:true},{l:'Firewall',ok:true},{l:'Login',ok:true},{l:'Netflow',ok:false}],
+    interfaces:[
+      {if:'ether1 (WAN)', st:'up', rx:'412 Mbps', tx:'38 Mbps', err:'0', drop:'14', last:'12:38:41'},
+      {if:'bridge-local', st:'up', rx:'—', tx:'—', err:'0', drop:'0', last:'—'}
+    ],
+    clientes:[],
+    logs:[
+      {t:'12:38:02', tag:'firewall,info', msg:'input drop: 45.148.10.23 -> 10.0.0.1:22'},
+      {t:'12:38:11', tag:'system,error', msg:'login failure for user admin from 45.148.10.23'},
+      {t:'12:38:27', tag:'system,error', msg:'login failure for user root from 45.148.10.23'},
+      {t:'12:38:41', tag:'firewall,info', msg:'address 45.148.10.23 added to input-drop-blacklist'}
+    ],
+    acciones:['Bloquear IP 24 h','Reconocer','Silenciar 1 h','Historial del evento']
+  },
+  {
+    id:'INC-2026-11-11-0031', estado:'EN CURSO', estadoCls:'red',
+    inicio:'12:32:05', detectado:'12:32:19', duracion:'12 min',
+    causa:'Corte de fibra en la <b>troncal del PON 0/9</b>, aguas arriba del primer splitter. El patrón descarta falla de energía: las 96 ONUs perdieron señal en una ventana de 6 s y las RouterBoards asociadas mantienen uptime continuo.',
+    confianza:91,
+    evidencia:[
+      '100 clientes cayeron en <b>4 NAPs</b> dentro de 6 s <em>(12:32:05–12:32:11)</em>',
+      '96 ONUs sin señal óptica (LOS) → <b>descarta corte de energía</b>',
+      'Todos comparten <b>GPON0/9</b> y el mismo puerto de uplink',
+      'Sin reinicios en las 3 RouterBoards afectadas <em>(uptime continuo)</em>',
+      'Syslog: <span class="font-mono">link down</span> en <span class="font-mono">fc/1</span> a las 12:32:05'
+    ],
+    impacto:[{n:'100',l:'Clientes'},{n:'4',l:'NAPs'},{n:'96',l:'ONUs en LOS'},{n:'1',l:'PON'},{n:'12m',l:'Sin servicio'}],
+    fuentes:[{l:'Estado ONU',ok:true},{l:'Potencia actual',ok:true},{l:'Histórico de potencia',ok:true},{l:'PPPoE',ok:true},{l:'MAC',ok:true},{l:'Serial ONU',ok:true},{l:'RouterBoard',ok:true},{l:'Syslog',ok:true}],
+    interfaces:[
+      {if:'GPON0/9', st:'down', rx:'—', tx:'—', err:'—', drop:'96 ONUs', last:'12:32:05'},
+      {if:'fc/1 (uplink)', st:'down', rx:'—', tx:'—', err:'1.2k CRC', drop:'—', last:'12:32:05'},
+      {if:'GPON0/8', st:'up', rx:'-21.4 dBm', tx:'2.1 dBm', err:'0', drop:'0', last:'—'}
+    ],
+    clientes:[
+      {n:'Juan Pérez', pppoe:'jperez', onu:'SISAL-ONU-00124', rx:'-31.2', st:'caído'},
+      {n:'María Gómez', pppoe:'mgomez', onu:'SISAL-ONU-00131', rx:'-30.8', st:'caído'},
+      {n:'Carlos Ruiz', pppoe:'cruiz', onu:'SISAL-ONU-00147', rx:'-29.5', st:'caído'},
+      {n:'Ana Torres', pppoe:'atorres', onu:'SISAL-ONU-00153', rx:'-28.9', st:'LOS'},
+      {n:'Luis Medina', pppoe:'lmedina', onu:'SISAL-ONU-00168', rx:'-32.1', st:'caído'},
+      {n:'Sofía Ríos', pppoe:'srios', onu:'SISAL-ONU-00172', rx:'-30.2', st:'caído'},
+      {n:'Pedro Salas', pppoe:'psalas', onu:'SISAL-ONU-00190', rx:'-28.4', st:'LOS'},
+      {n:'Elena Vargas', pppoe:'evargas', onu:'SISAL-ONU-00203', rx:'-31.7', st:'caído'}
+    ],
+    clientesTotal:100,
+    logs:[
+      {t:'12:32:05', tag:'pon,error,critical', msg:'GPON0/9 link down'},
+      {t:'12:32:06', tag:'alarm,error', msg:'96 ONUs lost signal on GPON0/9'},
+      {t:'12:32:19', tag:'alarm,error', msg:'LOS on GPON0/9 persists > 10 s'},
+      {t:'12:33:55', tag:'alarm,error', msg:'LOS on GPON0/9 persists > 60 s'}
+    ],
+    acciones:['Reconocer','Silenciar 1 h','Abrir en mapa','Enviar informe','Historial del evento']
+  },
+  {
+    id:'OPT-2026-11-11-0009', estado:'EN OBSERVACIÓN', estadoCls:'amber',
+    inicio:'11:40:00', detectado:'12:20:31', duracion:'40 min',
+    causa:'Degradación sostenida de <b>-0.4 dB/h</b> en 18 ONUs del mismo splitter (GPON0/3). Compatible con conector sucio o macrocurvatura en el tramo; se descarta saturación del puerto.',
+    confianza:78,
+    evidencia:[
+      '18 ONUs por debajo del umbral de <b>-27 dBm</b>',
+      'Tendencia constante de <b>-0.4 dB/h</b> en el histórico',
+      'Todas comparten el mismo splitter de <b>GPON0/3</b>',
+      'Sin errores CRC en el puerto (no es saturación)'
+    ],
+    impacto:[{n:'18',l:'ONUs'},{n:'22',l:'Clientes'},{n:'1',l:'PON'},{n:'6h20',l:'ETA de fallo'}],
+    fuentes:[{l:'Histórico de potencia',ok:true},{l:'Predicción IA',ok:true},{l:'Serial ONU',ok:true},{l:'Syslog',ok:false}],
+    interfaces:[
+      {if:'GPON0/3', st:'up', rx:'-27.8 dBm', tx:'2.3 dBm', err:'0', drop:'0', last:'—'},
+      {if:'GPON0/3 · splitter 1:32', st:'degradado', rx:'-27.4 dBm', tx:'—', err:'0', drop:'0', last:'—'}
+    ],
+    clientes:[
+      {n:'Rosa Medina', pppoe:'rmedina', onu:'HUN-ONU-00412', rx:'-27.9', st:'LOS'},
+      {n:'Jorge Peña', pppoe:'jpena', onu:'HUN-ONU-00418', rx:'-28.1', st:'LOS'},
+      {n:'Lucía Canul', pppoe:'lcanul', onu:'HUN-ONU-00427', rx:'-27.6', st:'caído'},
+      {n:'Mario Ek', pppoe:'mek', onu:'HUN-ONU-00435', rx:'-28.4', st:'LOS'},
+      {n:'Irene Poot', pppoe:'ipoot', onu:'HUN-ONU-00441', rx:'-27.7', st:'LOS'}
+    ],
+    clientesTotal:22,
+    logs:[
+      {t:'12:20:31', tag:'optical,warning', msg:'ONU 48575443AA11BB22 RX -27.8 dBm below threshold'},
+      {t:'12:10:02', tag:'pon,warning', msg:'LOS detected on GPON0/3 (3 ONUs)'},
+      {t:'11:48:19', tag:'onu,warning', msg:'dying gasp from ONU 4857544311AA22BB'}
+    ],
+    acciones:['Reconocer','Silenciar 1 h','Programar visita técnica','Historial del evento']
+  },
+  {
+    id:'NET-2026-11-11-0006', estado:'MITIGADO', estadoCls:'emerald',
+    inicio:'12:03:10', detectado:'12:05:44', duracion:'6 min',
+    causa:'Pico de <b>850 Mbps</b> de salida hacia 3 destinos externos con patrón de reflexión UDP. La regla de mitigación (rate-limit + blacklist) redujo el tráfico a 120 Mbps en 40 s.',
+    confianza:84,
+    evidencia:[
+      'Pico de <b>850 Mbps</b> sostenido durante 40 s',
+      'Origen: 3 IPs externas → 10.0.0.5:53 (UDP)',
+      'Mitigación automática aplicada a las 12:06:24',
+      'Tráfico normalizado a 120 Mbps sin cortar clientes'
+    ],
+    impacto:[{n:'850',l:'Mbps pico'},{n:'3',l:'IPs origen'},{n:'1',l:'Router'},{n:'0',l:'Clientes afectados'}],
+    fuentes:[{l:'Netflow',ok:true},{l:'Firewall',ok:true},{l:'Syslog',ok:true},{l:'SNMP',ok:true}],
+    interfaces:[
+      {if:'ether1 (WAN)', st:'up', rx:'1.2 Gbps', tx:'850 Mbps', err:'0', drop:'—', last:'12:06:24'},
+      {if:'ether2 (core)', st:'up', rx:'—', tx:'—', err:'0', drop:'0', last:'—'}
+    ],
+    clientes:[],
+    logs:[
+      {t:'12:05:44', tag:'firewall,info', msg:'input drop: 45.148.10.23 -> 10.0.0.5:53 (rate-limit)'},
+      {t:'12:06:24', tag:'script,info', msg:'mitigation: applied udp-flood profile to ether1'},
+      {t:'12:07:05', tag:'script,info', msg:'mitigation: traffic back to 120 Mbps'}
+    ],
+    acciones:['Reconocer','Silenciar 1 h','Revisar reglas de firewall','Historial del evento']
+  },
+  {
+    id:'SYS-2026-11-11-0004', estado:'RESUELTO', estadoCls:'emerald',
+    inicio:'11:52:10', detectado:'11:52:14', duracion:'2 min',
+    causa:'<b>Kernel panic</b> con reinicio automático del CCR2004. No se encontró un patrón previo; se recomienda revisar memoria y actualizar RouterOS.',
+    confianza:62,
+    evidencia:[
+      'Kernel panic registrado a las 11:52:10',
+      'Uptime reiniciado (antes 42 días)',
+      'Servicios restablecidos a las 11:54:02',
+      'Sin reinicios previos en 30 días'
+    ],
+    impacto:[{n:'1',l:'Router'},{n:'2m',l:'Sin servicio'},{n:'0',l:'Clientes'},{n:'42d',l:'Uptime previo'}],
+    fuentes:[{l:'Syslog',ok:true},{l:'SNMP',ok:true},{l:'Histórico uptime',ok:true},{l:'Netflow',ok:false}],
+    interfaces:[
+      {if:'ether1 (WAN)', st:'up', rx:'412 Mbps', tx:'38 Mbps', err:'0', drop:'0', last:'11:52:10'},
+      {if:'ether2 (core)', st:'up', rx:'—', tx:'—', err:'0', drop:'0', last:'11:52:10'}
+    ],
+    clientes:[],
+    logs:[
+      {t:'11:52:10', tag:'system,error,critical', msg:'router rebooted: kernel panic'},
+      {t:'11:52:14', tag:'system,info', msg:'system started (RouterOS 7.14.3)'},
+      {t:'11:54:02', tag:'pppoe,info', msg:'all PPPoE sessions restored (312)'}
+    ],
+    acciones:['Reconocer','Programar actualización','Historial del evento']
+  },
+  {
+    id:'NET-2026-11-11-0005', estado:'EN OBSERVACIÓN', estadoCls:'amber',
+    inicio:'11:34:00', detectado:'11:44:03', duracion:'1 h',
+    causa:'5 caídas de <b>ether1</b> en 10 min (42 s acumulados). Compatible con deterioro del enlace del proveedor o módulo SFP.',
+    confianza:70,
+    evidencia:[
+      '5 eventos link down/up en 10 min',
+      '42 s acumulados sin enlace',
+      '128 errores CRC en el puerto',
+      'Sin impacto en clientes (failover activo)'
+    ],
+    impacto:[{n:'5',l:'Caídas'},{n:'42s',l:'Sin enlace'},{n:'128',l:'CRC'},{n:'0',l:'Clientes'}],
+    fuentes:[{l:'Syslog',ok:true},{l:'SNMP',ok:true},{l:'Histórico de enlace',ok:true},{l:'Netflow',ok:false}],
+    interfaces:[
+      {if:'ether1 (WAN)', st:'flapping', rx:'0 bps', tx:'0 bps', err:'128 CRC', drop:'—', last:'11:44:03'},
+      {if:'sfp1', st:'up', rx:'-14.2 dBm', tx:'-2.1 dBm', err:'0', drop:'0', last:'—'}
+    ],
+    clientes:[],
+    logs:[
+      {t:'11:44:03', tag:'interface,info', msg:'ether1 link down'},
+      {t:'11:44:09', tag:'interface,info', msg:'ether1 link up (1000Mbps full duplex)'},
+      {t:'11:44:51', tag:'interface,info', msg:'ether1 link down'},
+      {t:'11:45:02', tag:'interface,info', msg:'ether1 link up (1000Mbps full duplex)'}
+    ],
+    acciones:['Reconocer','Silenciar 1 h','Notificar al proveedor','Historial del evento']
+  },
+  {
+    id:'CAP-2026-11-11-0002', estado:'ABIERTO', estadoCls:'amber',
+    inicio:'11:30:12', detectado:'11:30:12', duracion:'1 h',
+    causa:'<b>245 de 250</b> direcciones asignadas en <span class="font-mono">pool-clientes</span>. El crecimiento de dispositivos invitados agotará el pool en ~2 h.',
+    confianza:99,
+    evidencia:[
+      '98% de ocupación del pool (245/250)',
+      'Crecimiento de 18 leases en la última hora',
+      'Sin rechazos DHCP todavía',
+      'Dispositivos invitados: 41 activos'
+    ],
+    impacto:[{n:'245',l:'Leases'},{n:'5',l:'Libres'},{n:'98%',l:'Ocupación'},{n:'2h',l:'ETA de agote'}],
+    fuentes:[{l:'DHCP leases',ok:true},{l:'Syslog',ok:true},{l:'Netflow',ok:false}],
+    interfaces:[
+      {if:'bridge-local', st:'up', rx:'—', tx:'—', err:'0', drop:'0', last:'—'}
+    ],
+    clientes:[],
+    logs:[
+      {t:'11:30:12', tag:'dhcp,info', msg:'pool-clientes exhausted: 245/250 leases in use'},
+      {t:'11:12:44', tag:'dhcp,info', msg:'lease added 10.20.3.91 (guest device)'}
+    ],
+    acciones:['Reconocer','Ampliar pool','Silenciar 1 h','Historial del evento']
+  },
+  {
+    id:'CFG-2026-11-11-0001', estado:'OK', estadoCls:'emerald',
+    inicio:'11:00:00', detectado:'11:00:00', duracion:'1 min',
+    causa:'Tarea programada de respaldo diario. Se guardaron 6 routers y 4 OLTs sin errores.',
+    confianza:100,
+    evidencia:[
+      '10 equipos respaldados',
+      '1.8 MB almacenados',
+      '0 errores de transferencia',
+      'Verificación de integridad correcta'
+    ],
+    impacto:[{n:'10',l:'Equipos'},{n:'1.8',l:'MB'},{n:'0',l:'Errores'},{n:'24h',l:'Próximo'}],
+    fuentes:[{l:'Backup',ok:true},{l:'Syslog',ok:true}],
+    interfaces:[],
+    clientes:[],
+    logs:[
+      {t:'11:00:00', tag:'script,info', msg:'backup started: 6 routers, 4 OLTs'},
+      {t:'11:00:41', tag:'script,info', msg:'backup completed: 1.8 MB, 0 errors'}
+    ],
+    acciones:['Ver respaldos','Historial del evento']
+  }
+];
+
+const modal = document.getElementById('eventModal');
+const modalPanel = document.getElementById('eventModalPanel');
+
+const ESTADO_CLS = {
+  red: 'bg-red-500/15 text-red-300 border-red-600/40',
+  amber: 'bg-amber-500/15 text-amber-300 border-amber-600/40',
+  emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-600/40'
+};
+
+function openEventDetail(idx) {
+  const e = EVENTS[idx];
+  const d = DETAILS[idx];
+  if (!e || !d) return;
+  const s = SEV[e.sev];
+
+  const stats = d.impacto.map(st => `
+    <div class="rounded-lg border border-surface-700/50 bg-surface-800/50 px-3 py-2 min-w-[92px]">
+      <div class="text-lg font-bold leading-none text-surface-100">${st.n}</div>
+      <div class="mt-1 text-[10px] uppercase tracking-wider text-surface-500">${st.l}</div>
+    </div>`).join('');
+
+  const fuentes = d.fuentes.map(f =>
+    `<span class="text-[10.5px] px-2 py-1 rounded-full border ${f.ok ? 'bg-emerald-500/10 border-emerald-600/25 text-emerald-300' : 'bg-surface-800/60 border-surface-700/40 text-surface-500 line-through'}">${f.ok ? '✓ ' : ''}${f.l}</span>`
+  ).join('');
+
+  const evidencia = d.evidencia.map(t =>
+    `<li class="relative pl-4 text-xs text-surface-300 leading-relaxed">
+       <span class="absolute left-0.5 top-1.5 w-1.5 h-1.5 rounded-full bg-brand-400"></span>${t}
+     </li>`).join('');
+
+  const ifaces = d.interfaces.length ? `
+    <div>
+      <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-2">Interfaces / puertos con errores</div>
+      <div class="overflow-x-auto rounded-lg border border-surface-700/50">
+        <table class="w-full text-xs">
+          <thead class="bg-surface-800/60 text-[10px] uppercase tracking-wider text-surface-500">
+            <tr><th class="text-left px-3 py-2">Interfaz</th><th class="text-left px-3 py-2">Estado</th><th class="text-left px-3 py-2">RX</th><th class="text-left px-3 py-2">TX</th><th class="text-left px-3 py-2">Errores</th><th class="text-left px-3 py-2">Drops</th><th class="text-left px-3 py-2">Últ. evento</th></tr>
+          </thead>
+          <tbody class="divide-y divide-surface-800/60">
+            ${d.interfaces.map(i => `
+              <tr class="hover:bg-surface-800/30">
+                <td class="px-3 py-2 font-mono text-surface-200">${i.if}</td>
+                <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded text-[10px] font-semibold ${i.st === 'down' || i.st === 'flapping' ? 'bg-red-500/15 text-red-300' : i.st === 'degradado' ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300'}">${i.st}</span></td>
+                <td class="px-3 py-2 font-mono text-surface-300">${i.rx}</td>
+                <td class="px-3 py-2 font-mono text-surface-300">${i.tx}</td>
+                <td class="px-3 py-2 font-mono ${/CRC|k/.test(i.err) ? 'text-amber-300' : 'text-surface-400'}">${i.err}</td>
+                <td class="px-3 py-2 font-mono text-surface-400">${i.drop}</td>
+                <td class="px-3 py-2 font-mono text-surface-500">${i.last}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  const clientes = d.clientes.length ? `
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500">Clientes involucrados</div>
+        <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-800 text-surface-400">${d.clientesTotal || d.clientes.length}</span>
+        <div class="ml-auto flex items-center gap-2">
+          <input class="bg-surface-800 border border-surface-700 rounded-md px-2.5 py-1 text-[11px] text-surface-200 placeholder-surface-500 focus:outline-none focus:border-brand-500" placeholder="Buscar cliente, PPPoE, ONU…">
+          <button class="text-[11px] font-semibold px-2.5 py-1 rounded-md border border-surface-700 text-surface-300 hover:bg-surface-800">Exportar CSV</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto rounded-lg border border-surface-700/50">
+        <table class="w-full text-xs">
+          <thead class="bg-surface-800/60 text-[10px] uppercase tracking-wider text-surface-500">
+            <tr><th class="text-left px-3 py-2">#</th><th class="text-left px-3 py-2">Cliente</th><th class="text-left px-3 py-2">PPPoE</th><th class="text-left px-3 py-2">Serial ONU</th><th class="text-left px-3 py-2">Rx</th><th class="text-left px-3 py-2">Estado</th></tr>
+          </thead>
+          <tbody class="divide-y divide-surface-800/60">
+            ${d.clientes.map((c, i) => `
+              <tr class="hover:bg-surface-800/30">
+                <td class="px-3 py-2 text-surface-500">${i + 1}</td>
+                <td class="px-3 py-2 font-semibold text-surface-200">${c.n}</td>
+                <td class="px-3 py-2 font-mono text-surface-300">${c.pppoe}</td>
+                <td class="px-3 py-2 font-mono text-surface-400">${c.onu}</td>
+                <td class="px-3 py-2 font-mono ${parseFloat(c.rx) < -30 ? 'text-red-300' : 'text-amber-300'}">${c.rx}</td>
+                <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded text-[10px] font-semibold ${c.st === 'caído' ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}">${c.st}</span></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      ${d.clientesTotal && d.clientesTotal > d.clientes.length ? `<div class="mt-2 flex items-center justify-between text-[11px] text-surface-500">
+        <span>Mostrando ${d.clientes.length} de <b class="text-surface-300">${d.clientesTotal}</b> clientes</span>
+        <a href="#" class="text-brand-300 font-semibold hover:underline">Ver los ${d.clientesTotal} →</a>
+      </div>` : ''}
+    </div>` : '';
+
+  const logs = d.logs.map(l => `
+    <div class="flex items-start gap-2 px-3 py-1.5">
+      <span class="font-mono text-[11px] text-surface-500 flex-shrink-0">${l.t}</span>
+      <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-surface-800 text-surface-400 flex-shrink-0">${l.tag}</span>
+      <span class="font-mono text-[11px] text-surface-300">${l.msg}</span>
+    </div>`).join('');
+
+  const acciones = d.acciones.map((a, i) =>
+    `<button class="text-xs font-semibold px-3 py-1.5 rounded-lg ${i === 0 ? 'bg-brand-500 text-white hover:bg-brand-600' : 'border border-surface-700 text-surface-300 hover:bg-surface-800'}">${a}</button>`
+  ).join('');
+
+  modalPanel.innerHTML = `
+    <div class="sticky top-0 z-10 flex items-start gap-3 rounded-t-2xl border-b border-surface-700/60 bg-surface-900/95 px-5 py-4 backdrop-blur">
+      <div class="w-10 h-10 rounded-lg ${s.icon} flex items-center justify-center flex-shrink-0">${svg(TYPE_ICON[e.type] || TYPE_ICON.network, 'w-5 h-5')}</div>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded border ${s.badge}">${s.label}</span>
+          <span class="text-[11px] text-surface-500">${e.source}</span>
+          <span class="text-[11px] font-mono text-surface-500">${d.id}</span>
+        </div>
+        <h2 class="mt-1 text-lg font-bold text-surface-100 leading-snug">${e.title}</h2>
+        <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-surface-400">
+          <span>Inicio <b class="text-surface-200">${d.inicio}</b></span>
+          <span>Detectado <b class="text-surface-200">${d.detectado}</b></span>
+          <span>Duración <b class="text-surface-200">${d.duracion}</b></span>
+          <span>Equipo <b class="text-surface-200">${e.device}</b></span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <span class="text-[10px] font-bold px-2 py-1 rounded-full border ${ESTADO_CLS[d.estadoCls]}">${d.estado}</span>
+        <button data-close class="p-1.5 rounded-lg text-surface-400 hover:text-surface-100 hover:bg-surface-800 transition-colors" title="Cerrar">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="px-5 py-4 space-y-5">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div>
+          <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-1.5">Causa probable</div>
+          <p class="text-sm text-surface-200 leading-relaxed">${d.causa}</p>
+          <div class="mt-2 flex items-center gap-2 text-[11px] text-surface-400">
+            Confianza <b class="text-surface-200">${d.confianza}%</b>
+            <span class="h-1.5 w-20 rounded-full bg-surface-700 overflow-hidden"><i class="block h-full" style="width:${d.confianza}%;background:linear-gradient(90deg,#f59e0b,#34d399)"></i></span>
+          </div>
+        </div>
+        <div>
+          <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-1.5">Evidencia</div>
+          <ul class="space-y-1.5">${evidencia}</ul>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-2">Impacto</div>
+        <div class="flex flex-wrap gap-2">${stats}</div>
+      </div>
+
+      <div>
+        <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-2">Fuentes consultadas</div>
+        <div class="flex flex-wrap gap-1.5">${fuentes}</div>
+      </div>
+
+      ${ifaces}
+      ${clientes}
+
+      <div>
+        <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-2">Logs relacionados</div>
+        <div class="rounded-lg border border-surface-700/50 bg-surface-950/60 divide-y divide-surface-800/50">${logs}</div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 pt-3 border-t border-surface-700/50">${acciones}</div>
+      <div class="text-[10px] text-surface-600">Boceto · datos de ejemplo</div>
+    </div>`;
+
+  modal.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeEventDetail() {
+  modal.classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+modal.addEventListener('click', (ev) => {
+  if (ev.target.closest('[data-close]') || ev.target === modal || ev.target.classList.contains('bg-black/70')) closeEventDetail();
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && !modal.classList.contains('hidden')) closeEventDetail();
+});
 
 // ==================== RANGO DE TIEMPO (demo) ====================
 document.querySelectorAll('.range-btn').forEach(btn => {
