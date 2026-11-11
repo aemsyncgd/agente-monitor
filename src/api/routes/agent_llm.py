@@ -209,6 +209,10 @@ def _get_chat_agent():
     store = RuntimeConfigStore(runtime_base)
     eff = store.effective()
 
+    # Guard: el agente LLM debe estar habilitado explícitamente (llm.enabled=true).
+    if not eff.enabled:
+        raise RuntimeError("Agente LLM desactivado (llm.enabled=false)")
+
     # Check if config changed — recreate provider only
     config_mtime = os.path.getmtime(store.path) if os.path.exists(store.path) else 0
     if _chat_agent is not None and config_mtime == _chat_agent_mtime:

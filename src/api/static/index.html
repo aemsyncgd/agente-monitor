@@ -1518,7 +1518,8 @@
                         </div>
                     </div>
 
-                    <!-- LLM Agent Panel -->
+                    <!-- ===== INICIO: PANEL AGENTE LLM (COMENTADO / DESACTIVADO) =====
+                    
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
                         <div class="flex items-center justify-between mb-4">
                             <div class="flex items-center gap-2.5">
@@ -1541,7 +1542,7 @@
                             </button>
                         </div>
 
-                        <!-- Status Cards (compact with icons) -->
+                        
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-4">
                             <div class="bg-surface-800 rounded-lg px-3 py-2 flex items-center gap-2.5">
                                 <div class="w-7 h-7 rounded-md bg-brand-500/15 flex items-center justify-center flex-shrink-0">
@@ -1581,7 +1582,7 @@
                             </div>
                         </div>
 
-                        <!-- Chat Section (wider) -->
+                        
                         <div class="bg-surface-800 rounded-lg p-4 border border-surface-700/50 mb-4">
                             <h4 class="text-sm font-semibold text-surface-200 mb-3 flex items-center gap-2">
                                 <svg class="w-4 h-4 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
@@ -1606,7 +1607,7 @@
                             </div>
                         </div>
 
-                        <!-- Events Section -->
+                        
                         <div class="bg-surface-800 rounded-lg p-4 border border-surface-700/50">
                             <h4 class="text-sm font-semibold text-surface-200 mb-3 flex items-center gap-2">
                                 <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -1636,7 +1637,7 @@
                         </div>
                     </div>
 
-                    <!-- LLM Config Modal -->
+                    
                     <div v-if="showLLMConfigModal" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.7);">
                         <div class="bg-surface-900 rounded-xl border border-surface-700 p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
                             <div class="flex items-center justify-between mb-4">
@@ -1647,7 +1648,7 @@
                             </div>
 
                             <div class="space-y-4">
-                                <!-- Enabled -->
+                                
                                 <div class="flex items-center justify-between">
                                     <span class="text-sm text-surface-300">Agente LLM habilitado</span>
                                     <button @click="llmConfigDraft.enabled = !llmConfigDraft.enabled" :class="llmConfigDraft.enabled ? 'bg-brand-600' : 'bg-surface-700'" class="relative w-11 h-6 rounded-full transition-colors">
@@ -1655,7 +1656,7 @@
                                     </button>
                                 </div>
 
-                                <!-- Provider -->
+                                
                                 <div>
                                     <label class="block text-xs font-semibold text-surface-400 mb-1">Proveedor</label>
                                     <select v-model="llmConfigDraft.provider" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2 text-sm text-surface-200">
@@ -1665,7 +1666,7 @@
                                     </select>
                                 </div>
 
-                                <!-- Model -->
+                                
                                 <div>
                                     <label class="block text-xs font-semibold text-surface-400 mb-1">Modelo</label>
                                     <div class="flex gap-2">
@@ -1690,7 +1691,7 @@
                                     </p>
                                 </div>
 
-                                <!-- Mode -->
+                                
                                 <div>
                                     <label class="block text-xs font-semibold text-surface-400 mb-1">Modo de operación</label>
                                     <select v-model="llmConfigDraft.mode" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2 text-sm text-surface-200">
@@ -1705,37 +1706,37 @@
                                     </p>
                                 </div>
 
-                                <!-- Interval -->
+                                
                                 <div>
                                     <label class="block text-xs font-semibold text-surface-400 mb-1">Intervalo de ciclo (segundos)</label>
                                     <input type="number" v-model.number="llmConfigDraft.check_interval_seconds" min="60" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2 text-sm text-surface-200">
                                 </div>
 
-                                <!-- Max Tokens -->
+                                
                                 <div>
                                     <label class="block text-xs font-semibold text-surface-400 mb-1">Máximo de tokens</label>
                                     <input type="number" v-model.number="llmConfigDraft.max_tokens" min="256" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2 text-sm text-surface-200">
                                 </div>
 
-                                <!-- Temperature -->
+                                
                                 <div>
                                     <label class="block text-xs font-semibold text-surface-400 mb-1">Temperatura (0.0 - 2.0)</label>
                                     <input type="number" v-model.number="llmConfigDraft.temperature" min="0" max="2" step="0.1" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2 text-sm text-surface-200">
                                 </div>
 
-                                <!-- System Prompt -->
+                                
                                 <div>
                                     <label class="block text-xs font-semibold text-surface-400 mb-1">System Prompt</label>
                                     <textarea v-model="llmConfigDraft.system_prompt" rows="6" placeholder="Instrucciones del modelo... (vacío = prompt por defecto)" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2 text-xs text-surface-200 font-mono resize-y"></textarea>
                                 </div>
 
-                                <!-- Budget -->
+                                
                                 <div>
                                     <label class="block text-xs font-semibold text-surface-400 mb-1">Presupuesto diario (USD)</label>
                                     <input type="number" v-model.number="llmConfigDraft.daily_budget_usd" min="0" step="0.5" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2 text-sm text-surface-200">
                                 </div>
 
-                                <!-- Buttons -->
+                                
                                 <div class="flex gap-3 pt-4 border-t border-surface-700">
                                     <button @click="saveLLMConfigDraft" class="flex-1 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-lg text-sm font-medium transition-colors">Guardar</button>
                                     <button @click="testLLMConnectionDraft" class="px-4 py-2 bg-surface-700 hover:bg-surface-600 text-surface-200 rounded-lg text-sm transition-colors">{{ llmTesting ? 'Probando...' : 'Probar' }}</button>
@@ -1745,12 +1746,12 @@
                         </div>
                     </div>
 
-                    <!-- ModalDetalleEventoLLM -->
+                    
                     <div v-if="showLLMEventDetailModal && selectedLLMEvent" 
                          class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm transition-opacity"
                          @click.self="closeLLMEventDetailModal">
                         <div class="bg-surface-900 rounded-xl border border-surface-700 p-6 w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-                            <!-- Header -->
+                            
                             <div class="flex items-start justify-between pb-4 border-b border-surface-700/70 mb-4">
                                 <div class="space-y-1.5 pr-4">
                                     <div class="flex items-center gap-2 flex-wrap">
@@ -1776,13 +1777,13 @@
                                 </button>
                             </div>
 
-                            <!-- Body -->
+                            
                             <div class="flex-1 overflow-y-auto space-y-4 pr-1 text-sm">
                                 <div class="bg-surface-800/70 p-4 rounded-xl border border-surface-700/50 leading-relaxed text-surface-200 whitespace-pre-wrap font-sans">
                                     {{ selectedLLMEvent.detail }}
                                 </div>
 
-                                <!-- Extra data container if present -->
+                                
                                 <div v-if="selectedLLMEvent.extra && Object.keys(selectedLLMEvent.extra).length > 0" 
                                      class="bg-surface-950/80 p-3 rounded-lg border border-surface-800 text-xs">
                                     <div class="font-semibold text-surface-400 mb-2">Metadatos del Evento</div>
@@ -1790,7 +1791,7 @@
                                 </div>
                             </div>
 
-                            <!-- Footer -->
+                            
                             <div class="flex justify-between items-center pt-4 border-t border-surface-700/70 mt-4">
                                 <button @click="copyLLMEventDetail" class="px-3.5 py-2 bg-surface-800 hover:bg-surface-700 text-surface-200 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 border border-surface-700">
                                     <svg class="w-4 h-4 text-surface-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
@@ -1802,11 +1803,13 @@
                             </div>
                         </div>
                     </div>
+                    ===== FIN: PANEL AGENTE LLM (COMENTADO / DESACTIVADO) ===== -->
                 </div>
 
-                <!-- ==================== TAB: Configuracion ==================== -->
+                <!-- ===== INICIO: MODULO CONFIGURACION (COMENTADO / DESACTIVADO) =====
+                
                 <div v-if="activeTab === 'config'" class="slide-in space-y-6 pt-2">
-                    <!-- Health Status -->
+                    
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div class="bg-surface-900 rounded-xl p-5 border border-surface-700/50">
                             <div class="flex items-center gap-3 mb-3">
@@ -1840,7 +1843,7 @@
                         </div>
                     </div>
 
-                    <!-- Pipeline de datos (frescura de escritura por medicion) -->
+                    
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
                         <div class="flex items-center gap-2 mb-4">
                             <svg class="w-4 h-4 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
@@ -1862,7 +1865,7 @@
                         <div v-else class="text-sm text-surface-500">Cargando frescura del pipeline...</div>
                     </div>
 
-                    <!-- Config Summary -->
+                    
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
 
                         <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -1889,7 +1892,7 @@
                         </div>
                     </div>
 
-                    <!-- Actions -->
+                    
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50">
                         <div class="flex items-center justify-between p-5 cursor-pointer select-none" @click="accionesSectionExpanded = !accionesSectionExpanded">
                             <div class="flex items-center gap-2.5">
@@ -1919,7 +1922,7 @@
                         </div>
                     </div>
 
-                    <!-- Reporte Telegram Config -->
+                    
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50">
                         <div class="flex items-center justify-between p-5 cursor-pointer select-none" @click.stop="reporteSectionExpanded = !reporteSectionExpanded">
                             <div class="flex items-center gap-2.5">
@@ -1933,7 +1936,7 @@
                         </div>
                         <div v-if="reporteSectionExpanded" class="px-5 pb-5 space-y-4">
 
-                            <!-- Toggle -->
+                            
                         <div class="flex items-center justify-between mb-4 bg-surface-800 rounded-lg px-4 py-3">
                             <span class="text-sm text-surface-300">Reporte autom&aacute;tico</span>
                             <button @click="toggleReporteEnabled"
@@ -1944,7 +1947,7 @@
                             </button>
                         </div>
 
-                        <!-- Schedules -->
+                        
                         <div class="mb-4">
                             <div class="text-xs text-surface-400 mb-2">Horarios de env&iacute;o:</div>
                             <div class="flex flex-wrap gap-2">
@@ -1961,7 +1964,7 @@
                             </div>
                         </div>
 
-                        <!-- Discover button -->
+                        
                         <div class="flex gap-2 mb-4">
                             <button @click="fetchReporteDiscover(false)" class="text-xs bg-surface-800 hover:bg-surface-700 text-brand-400 px-3 py-1.5 rounded-lg transition-colors">
                                 Sincronizar hosts
@@ -1989,7 +1992,7 @@
                             {{ reporteGenerateMessage }}
                         </div>
 
-                        <!-- Status summary -->
+                        
                         <div class="text-xs text-surface-500 mb-2 flex gap-4">
                             <span>MikroTiks: {{ reporteStatus.mikrotiks_configured || 0 }}</span>
                             <span>OLTs: {{ reporteStatus.olts_configured || 0 }}</span>
@@ -2000,7 +2003,7 @@
                             <span>&#9744;</span> Marca una interfaz para evaluar su tr&aacute;fico en la ventana no-monitoreo (21:00-08:00) y generar su gr&aacute;fico.
                         </div>
 
-                        <!-- ==================== MIKROTIKS ==================== -->
+                        
                         <div class="mb-6">
                             <h4 class="text-sm font-medium text-surface-300 mb-3 flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
@@ -2033,7 +2036,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <!-- Add MikroTik -->
+                            
                             <div class="mt-2 flex gap-2">
                                 <input v-model="newMikrotikName" placeholder="Nombre del MikroTik..."
                                     class="flex-1 bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-xs text-surface-300 placeholder-surface-500 outline-none focus:border-brand-500">
@@ -2051,7 +2054,7 @@
                             </div>
                         </div>
 
-                        <!-- ==================== OLTS ==================== -->
+                        
                         <div class="mb-6">
                             <h4 class="text-sm font-medium text-surface-300 mb-3 flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
@@ -2071,7 +2074,7 @@
                                             <button @click="removeOlt(oi)" class="text-red-400 hover:text-red-300 text-xs">&times;</button>
                                         </div>
                                     </div>
-                                    <!-- GE Interfaces -->
+                                    
                                     <div class="mb-2">
                                         <div class="text-xs text-surface-500 mb-1">Interfaces GE (uplink):</div>
                                         <div class="flex flex-wrap gap-1.5">
@@ -2095,7 +2098,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <!-- Add OLT -->
+                            
                             <div class="mt-2 flex gap-2">
                                 <input v-model="newOltName" placeholder="Nombre de la OLT..."
                                     class="flex-1 bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-xs text-surface-300 placeholder-surface-500 outline-none focus:border-brand-500">
@@ -2113,7 +2116,7 @@
                             </div>
                         </div>
 
-                        <!-- Save -->
+                        
                         <div class="mt-4 flex justify-end">
                             <button @click="saveReporteConfig"
                                 class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
@@ -2123,7 +2126,7 @@
                         </div>
                     </div>
 
-                    <!-- ==================== Configuracion LLM ==================== -->
+                    
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50">
                         <div class="flex items-center justify-between p-5 cursor-pointer select-none" @click="llmConfigSectionExpanded = !llmConfigSectionExpanded">
                             <div class="flex items-center gap-2.5">
@@ -2136,7 +2139,7 @@
                             <svg :class="llmConfigSectionExpanded ? 'rotate-180' : ''" class="w-4 h-4 text-surface-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         </div>
                         <div v-if="llmConfigSectionExpanded" class="px-5 pb-5 space-y-4">
-                            <!-- Enabled Toggle -->
+                            
                             <div class="flex items-center justify-between bg-surface-800 rounded-lg px-4 py-3">
                                 <div class="flex items-center gap-3">
                                     <div class="w-8 h-8 rounded-lg flex items-center justify-center" :class="llmConfig.enabled ? 'bg-emerald-500/15' : 'bg-surface-700'">
@@ -2152,7 +2155,7 @@
                                 </button>
                             </div>
 
-                            <!-- Provider -->
+                            
                             <div>
                                 <label class="block text-xs font-semibold text-surface-400 mb-1.5">Proveedor</label>
                                 <select v-model="llmConfig.provider" @change="saveLLMConfig()" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200 focus:outline-none focus:border-brand-500 transition-colors">
@@ -2162,7 +2165,7 @@
                                 </select>
                             </div>
 
-                            <!-- Model -->
+                            
                             <div>
                                 <label class="block text-xs font-semibold text-surface-400 mb-1.5">Modelo</label>
                                 <div class="flex gap-2">
@@ -2187,7 +2190,7 @@
                                 </p>
                             </div>
 
-                            <!-- Mode -->
+                            
                             <div>
                                 <label class="block text-xs font-semibold text-surface-400 mb-1.5">Modo de operacion</label>
                                 <select v-model="llmConfig.mode" @change="saveLLMConfig()" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200 focus:outline-none focus:border-brand-500 transition-colors">
@@ -2202,38 +2205,38 @@
                                 </p>
                             </div>
 
-                            <!-- Interval -->
+                            
                             <div>
                                 <label class="block text-xs font-semibold text-surface-400 mb-1.5">Intervalo de ciclo (segundos)</label>
                                 <input type="number" v-model.number="llmConfig.check_interval_seconds" min="60" @change="saveLLMConfig()" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200 focus:outline-none focus:border-brand-500 transition-colors">
                             </div>
 
-                            <!-- Max Tokens -->
+                            
                             <div>
                                 <label class="block text-xs font-semibold text-surface-400 mb-1.5">Maximo de tokens</label>
                                 <input type="number" v-model.number="llmConfig.max_tokens" min="256" @change="saveLLMConfig()" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200 focus:outline-none focus:border-brand-500 transition-colors">
                             </div>
 
-                            <!-- Temperature -->
+                            
                             <div>
                                 <label class="block text-xs font-semibold text-surface-400 mb-1.5">Temperatura (0.0 - 2.0)</label>
                                 <input type="number" v-model.number="llmConfig.temperature" min="0" max="2" step="0.1" @change="saveLLMConfig()" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200 focus:outline-none focus:border-brand-500 transition-colors">
                             </div>
 
-                            <!-- Budget -->
+                            
                             <div>
                                 <label class="block text-xs font-semibold text-surface-400 mb-1.5">Presupuesto diario (USD)</label>
                                 <input type="number" v-model.number="llmConfig.daily_budget_usd" min="0" step="0.5" @change="saveLLMConfig()" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200 focus:outline-none focus:border-brand-500 transition-colors">
                             </div>
 
-                            <!-- System Prompt (injection) -->
+                            
                             <div>
                                 <label class="block text-xs font-semibold text-surface-400 mb-1.5">System Prompt (instrucciones del modelo)</label>
                                 <p class="text-[10px] text-surface-500 mb-2">Define las instrucciones, formato de respuesta y restricciones del modelo. Si está vacío, se usa el prompt por defecto de plantilla.</p>
                                 <textarea v-model="llmConfig.system_prompt" @change="saveLLMConfig()" rows="8" placeholder="Eres el Agente IA de monitoreo de red FTTH de VidaNet. SOLO puedes usar herramientas de SOLO LECTURA..." class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-xs text-surface-200 font-mono focus:outline-none focus:border-brand-500 transition-colors resize-y"></textarea>
                             </div>
 
-                            <!-- Action Buttons -->
+                            
                             <div class="flex gap-3 pt-3 border-t border-surface-700">
                                 <button @click="saveLLMConfig()" class="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
@@ -2246,7 +2249,7 @@
                                 </button>
                             </div>
 
-                            <!-- ==================== Operaciones del Agente ==================== -->
+                            
                             <div class="pt-4 border-t border-surface-700">
                                 <div class="flex items-center justify-between mb-3">
                                     <div class="flex items-center gap-2">
@@ -2262,7 +2265,7 @@
                                 <p v-if="opsError" class="text-xs text-red-400 mb-2">{{ opsError }}</p>
                                 <p v-if="opsLastRefresh" class="text-[10px] text-surface-600 mb-3">Actualizado: {{ opsLastRefresh }}</p>
 
-                                <!-- Servicios -->
+                                
                                 <div class="mb-4">
                                     <div class="flex items-center justify-between mb-2">
                                         <span class="text-xs font-semibold text-surface-400">Servicios del agente</span>
@@ -2286,7 +2289,7 @@
                                     </div>
                                 </div>
 
-                                <!-- Estado agente / Event bus / RAG -->
+                                
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                                     <div class="bg-surface-800 rounded-lg border border-surface-700/50 p-3">
                                         <div class="text-[10px] font-semibold text-surface-400 mb-1.5">Estado del agente</div>
@@ -2316,7 +2319,7 @@
                                     </div>
                                 </div>
 
-                                <!-- RAG -->
+                                
                                 <div class="mb-4">
                                     <div class="flex items-center justify-between mb-2">
                                         <span class="text-xs font-semibold text-surface-400">RAG (memoria del agente)</span>
@@ -2332,7 +2335,7 @@
                                     <div v-else class="text-[11px] text-surface-500">Sin datos.</div>
                                 </div>
 
-                                <!-- Auditoría -->
+                                
                                 <div>
                                     <span class="text-xs font-semibold text-surface-400">Últimas acciones de auditoría</span>
                                     <div v-if="opsAudit.length" class="mt-2 space-y-1.5">
@@ -2350,7 +2353,7 @@
                         </div>
                     </div>
 
-                    <!-- ==================== Configuracion de Instrucciones ==================== -->
+                    
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50">
                         <div class="flex items-center justify-between p-5 cursor-pointer select-none" @click="instructionsSectionExpanded = !instructionsSectionExpanded">
                             <div class="flex items-center gap-2.5">
@@ -2403,7 +2406,7 @@
                         </div>
                     </div>
 
-                    <!-- ==================== Configuracion TV (Monitoreo en Sala) ==================== -->
+                    
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50">
                         <div class="flex items-center justify-between p-5 cursor-pointer select-none" @click="tvSectionExpanded = !tvSectionExpanded">
                             <div class="flex items-center gap-2.5">
@@ -2416,16 +2419,16 @@
                         </div>
                         <div v-if="tvSectionExpanded" class="px-5 pb-5">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <!-- WAN 1 -->
+                            
                             <div>
                                 <label class="block text-xs font-semibold text-surface-400 mb-1.5">Proveedor WAN 1 (Gráfico 1)</label>
                                 <select v-model="tvConfig.wan1_interface" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200">
                                     <option v-for="iface in allMikrotikInterfaces" :key="iface" :value="iface">{{ iface }}</option>
-                                    <!-- Fallback option in case list is empty initially -->
+                                    
                                     <option v-if="!allMikrotikInterfaces.includes(tvConfig.wan1_interface)" :value="tvConfig.wan1_interface">{{ tvConfig.wan1_interface }}</option>
                                 </select>
                             </div>
-                            <!-- WAN 2 -->
+                            
                             <div>
                                 <label class="block text-xs font-semibold text-surface-400 mb-1.5">Proveedor WAN 2 (Gráfico 2)</label>
                                 <select v-model="tvConfig.wan2_interface" class="w-full bg-surface-800 border border-surface-700 rounded-lg p-2.5 text-sm text-surface-200 mb-2">
@@ -2450,7 +2453,7 @@
                             </div>
                         </div>
 
-                        <!-- Save Actions -->
+                        
                         <div class="mt-6 flex justify-end">
                             <button @click="saveTVConfig" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
@@ -2460,7 +2463,7 @@
                         </div>
                     </div>
 
-                    <!-- ==================== Monitor de PING ==================== -->
+                    
                     <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-5">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-sm font-semibold text-surface-300">Monitor de PING</h3>
@@ -2494,6 +2497,14 @@
                                 Guardar
                             </button>
                         </div>
+                    </div>
+                </div>
+                ===== FIN: MODULO CONFIGURACION (COMENTADO / DESACTIVADO) ===== -->
+                <!-- ==================== TAB: Configuracion (DESACTIVADO) ==================== -->
+                <div v-if="activeTab === 'config'" class="slide-in space-y-6 pt-2">
+                    <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-8 text-center">
+                        <div class="text-sm font-semibold text-surface-300 mb-1">Módulo de configuración desactivado temporalmente</div>
+                        <div class="text-xs text-surface-500">El contenido original fue comentado y se reactivará más adelante.</div>
                     </div>
                 </div>
 
@@ -2714,7 +2725,8 @@ createApp({
         const pingSectionExpanded = ref(false);
 
         // LLM Agent state
-        const llmConfig = ref({ enabled: true, mode: 'hybrid', provider: 'ollama', model: 'qwen2.5:3b-instruct', check_interval_seconds: 900, max_tokens: 512, temperature: 0.0, daily_budget_usd: 2.0, system_prompt: '', keep_alive: '5m', num_ctx: 4096, num_thread: 4 });
+        // LLM desactivado por defecto (config/config_ia.yaml y config/llm_config.json: enabled=false)
+        const llmConfig = ref({ enabled: false, mode: 'hybrid', provider: 'ollama', model: 'qwen2.5:3b-instruct', check_interval_seconds: 900, max_tokens: 512, temperature: 0.0, daily_budget_usd: 2.0, system_prompt: '', keep_alive: '5m', num_ctx: 4096, num_thread: 4 });
         const llmConfigDraft = ref({});
         const showLLMConfigModal = ref(false);
         const showLLMEventDetailModal = ref(false);
