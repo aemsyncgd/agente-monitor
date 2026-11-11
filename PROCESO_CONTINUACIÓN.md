@@ -35,7 +35,22 @@
 6. (Panel LLM comentado)
 
 ### "Logs" (id: anomalies)
-- Placeholder: "Módulo de Logs en preparación"
+- Placeholder: "Módulo de Logs en preparación" (dentro del dashboard Vue)
+
+### Boceto de Logs (página aparte, servida en `/logs`)
+- Archivo: `src/api/static/logs-mockup.html`; ruta en `src/api/main.py` (`/logs`),
+  mismo patrón que `/rediseno` (lee el archivo en cada request, sin caché)
+- 4 contadores filtrables por gravedad (Todos / Críticas / Altas / Advertencias)
+- Tarjetas de "Eventos importantes" por evento (no por cliente), con `×N` de repeticiones
+- Paneles MikroTik y OLT en 3 columnas: Noticias / Advertencias / Alertas (high + danger)
+- Indicadores en el menú (ítem Logs): OLT alertas (rojo), OLT advertencias (ámbar),
+  OLT noticias (celeste), MikroTik noticias (gris); tooltips con el detalle
+- Clic en una tarjeta abre modal de detalle: causa probable + confianza, evidencia,
+  impacto, fuentes consultadas, interfaces/puertos con errores, clientes involucrados
+  (tabla con PPPoE / serial ONU / Rx / estado) y logs relacionados, más acciones
+- Cierre por botón, backdrop y Escape; scroll del body bloqueado mientras está abierto
+- Datos de ejemplo; fuentes reales disponibles: `/api/v1/syslog/important`,
+  `/api/v1/syslog/summary` y `/api/v1/incidents/`
 
 ### "Configuración" (id: config)
 - Placeholder: "Módulo de configuración desactivado temporalmente"
