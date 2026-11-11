@@ -8,6 +8,28 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+
+def _load_project_env() -> None:
+    """Carga .env.ia/.env antes de importar módulos que leen el entorno.
+
+    Sin esto, un arranque manual (`uvicorn src.api.main:app` sin `source
+    .env.ia`) deja la API sin INFLUXDB_TOKEN y con la Redis por defecto, y el
+    dashboard aparece vacío aunque los collectors sí estén escribiendo datos.
+    Las variables ya presentes en el entorno tienen prioridad.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    root = Path(__file__).resolve().parents[2]
+    for name in (".env.ia", ".env"):
+        path = root / name
+        if path.is_file():
+            load_dotenv(path, override=False)
+
+
+_load_project_env()
+
 logger = logging.getLogger(__name__)
 
 # Initialize ConfigManager before importing routes
@@ -192,7 +214,8 @@ async def health():
 
 
 # ── Import & register routes ─────────────────────────────────────────────────
-from .routes import metrics, anomalies, health as health_route, nodes, devices, agent, ping, reporte, agent_llm, tv, agent_ops, traffic, clientes
+from .routes import metrics, anomalies, health as health_route, nodes, devices, agent, ping, reporte, agent_llm, tv, agent_ops, traffic, clientes, incidents
+from .routes import syslog as syslog_routes
 
 app.include_router(metrics.router, prefix="/api/v1/metrics", tags=["metrics"])
 app.include_router(anomalies.router, prefix="/api/v1/anomalies", tags=["anomalies"])
@@ -207,6 +230,8 @@ app.include_router(tv.router, tags=["tv"])
 app.include_router(agent_ops.router, tags=["agent-operations"])
 app.include_router(traffic.router, tags=["traffic"])
 app.include_router(clientes.router, tags=["clientes"])
+app.include_router(syslog_routes.router, prefix="/api/v1/syslog", tags=["syslog"])
+app.include_router(incidents.router, prefix="/api/v1/incidents", tags=["incidents"])
 
 # ── Startup log ──────────────────────────────────────────────────────────────
 @app.on_event("startup")
@@ -258,3 +283,38 @@ async def newdesign():
             },
         )
     return HTMLResponse("Not Found", status_code=404)
+
+
+@app.get("/rediseno", response_class=HTMLResponse)
+async def rediseno():
+    """Mockup temporal del rediseño de Incidencias (no forma parte del panel)."""
+    mock_file = STATIC_DIR / "rediseno.html"
+    if mock_file.exists():
+        content = mock_file.read_text(encoding="utf-8")
+        return HTMLResponse(
+            content=content,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+    return HTMLResponse("Not Found", status_code=404)
+
+
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_mockup():
+    """Mockup temporal de la seccion Logs (no forma parte del panel)."""
+    mock_file = STATIC_DIR / "logs-mockup.html"
+    if mock_file.exists():
+        content = mock_file.read_text(encoding="utf-8")
+        return HTMLResponse(
+            content=content,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+    return HTMLResponse("Not Found", status_code=404)
+
