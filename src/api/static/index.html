@@ -195,6 +195,9 @@
                         class="group w-full flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium transition-all duration-200">
                         <span class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center" :class="activeTab === item.id ? 'bg-brand-500/25 text-brand-300' : 'text-surface-500 group-hover:text-surface-300'" v-html="item.icon"></span>
                         <span v-show="sidebarOpen" class="whitespace-nowrap flex-1 text-left">{{ item.label }}</span>
+                        <span v-show="sidebarOpen && item.badges && item.badges.length" class="flex items-center gap-1 flex-shrink-0">
+                            <span v-for="b in item.badges" :key="b.title" :class="b.cls" class="text-[9px] font-bold leading-none px-1.5 py-1 rounded-full" :title="b.title">{{ b.n }}</span>
+                        </span>
                         <span v-show="sidebarOpen && item.badge" class="bg-emerald-500/20 text-emerald-400 text-xs px-1.5 py-0.5 rounded-full font-medium">{{ item.badge }}</span>
                     </button>
                 </template>
@@ -1118,10 +1121,141 @@
 
                 <!-- ==================== TAB: Logs ==================== -->
                 <div v-if="activeTab === 'anomalies'" class="slide-in space-y-6 pt-2">
-                    <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-8 text-center">
-                        <div class="text-sm font-semibold text-surface-300 mb-1">Módulo de Logs en preparación</div>
-                        <div class="text-xs text-surface-500">El análisis predictivo y las anomalías detectadas ahora están en "Clientes | Servicios".</div>
+
+                    <!-- Título + herramientas -->
+                    <div class="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <h1 class="text-2xl font-bold tracking-tight text-surface-100">Logs</h1>
+                            <p class="text-sm text-surface-400 mt-0.5">Eventos de red, seguridad y equipos · últimos {{ logsRange }} h</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <div class="flex rounded-lg border border-surface-700/60 bg-surface-900/60 p-0.5">
+                                <button v-for="r in [1, 6, 24]" :key="r" @click="logsRange = r"
+                                    :class="logsRange === r ? 'bg-brand-500/20 text-brand-300 font-semibold' : 'text-surface-400 hover:text-surface-200'"
+                                    class="px-3 py-1.5 text-xs rounded-md transition-colors">{{ r }} h</button>
+                            </div>
+                            <select v-model="logsDeviceFilter" class="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 focus:outline-none focus:border-brand-500">
+                                <option value="all">Todos los equipos</option>
+                                <option value="mikrotik">MikroTik</option>
+                                <option value="olt">OLTs</option>
+                            </select>
+                            <button @click="fetchLogs()" :disabled="logsLoading" class="p-2 rounded-lg border border-surface-700/60 text-surface-400 hover:text-surface-200 hover:bg-surface-800/60 transition-colors disabled:opacity-50" title="Actualizar logs">
+                                <svg class="w-4 h-4" :class="logsLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                            </button>
+                        </div>
                     </div>
+
+                    <!-- Error de carga -->
+                    <div v-if="logsError" class="rounded-xl border border-red-700/50 bg-red-950/20 px-4 py-3 text-sm text-red-300">{{ logsError }}</div>
+
+                    <!-- Resumen / filtros por gravedad -->
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                        <button v-for="s in logSummary" :key="s.key" @click="logsFilter = s.key"
+                            class="text-left rounded-xl border p-4 transition-all hover:border-brand-500/50"
+                            :class="[s.cls, logsFilter === s.key ? 'ring-2 ring-brand-500' : '']">
+                            <div class="text-[11px] uppercase tracking-wider text-surface-400">{{ s.label }}</div>
+                            <div class="mt-1 flex items-baseline gap-2">
+                                <span class="text-3xl font-bold" :class="s.num">{{ pad2(s.value) }}</span>
+                                <span class="text-[11px] text-surface-500">{{ s.hint }}</span>
+                            </div>
+                        </button>
+                    </div>
+
+                    <!-- Eventos importantes -->
+                    <section>
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <h2 class="text-sm font-semibold text-surface-200">Eventos importantes</h2>
+                                <span class="text-[11px] px-1.5 py-0.5 rounded-full bg-surface-800 text-surface-400">{{ filteredLogEvents.length }}</span>
+                            </div>
+                            <div class="text-xs text-surface-500">Agrupados por evento · no por cliente</div>
+                        </div>
+                        <div v-if="filteredLogEvents.length" class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
+                            <article v-for="e in filteredLogEvents" :key="e.id" @click="openLogEvent(e)"
+                                class="group relative overflow-hidden rounded-xl border p-4 cursor-pointer transition-all hover:border-brand-500/60 hover:bg-surface-800/40"
+                                :class="logSev(e.sev).card" title="Ver detalle del evento">
+                                <span class="absolute left-0 top-0 bottom-0 w-1" :class="logSev(e.sev).dot"></span>
+                                <div class="flex items-start gap-3 pl-2">
+                                    <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" :class="logSev(e.sev).icon">
+                                        <span v-html="logTypeIcon(e.type)"></span>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded border" :class="logSev(e.sev).badge">{{ logSev(e.sev).label }}</span>
+                                            <span class="text-[11px] text-surface-500">{{ e.source }}</span>
+                                            <span class="ml-auto text-[11px] text-surface-500 whitespace-nowrap">{{ e.ago }}</span>
+                                        </div>
+                                        <h3 class="mt-1.5 text-sm font-semibold text-surface-100 leading-snug">{{ e.title }}</h3>
+                                        <p class="mt-1 text-xs text-surface-400 leading-relaxed">{{ e.detail }}</p>
+                                        <div class="mt-2.5 flex items-center gap-2 text-[11px] text-surface-500">
+                                            <span class="font-mono">{{ e.time }}</span>
+                                            <span class="text-surface-700">·</span>
+                                            <span class="truncate">{{ e.device }}</span>
+                                            <span class="ml-auto text-[10px] font-semibold text-brand-300 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Ver detalle →</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </article>
+                        </div>
+                        <div v-else class="rounded-xl border border-surface-700/50 bg-surface-900/60 p-6 text-center text-sm text-surface-500">
+                            No hay eventos de esta gravedad en el período.
+                        </div>
+                    </section>
+
+                    <!-- Logs de equipos -->
+                    <section class="space-y-5">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <h2 class="text-sm font-semibold text-surface-200">Logs de equipos</h2>
+                                <span v-if="logsDeviceFocus" class="flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full bg-brand-500/15 text-brand-300 border border-brand-600/40">
+                                    {{ logsDeviceFocus }}
+                                    <button @click="clearLogsDeviceFocus" class="hover:text-brand-100" title="Quitar filtro">✕</button>
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-3 text-[11px] text-surface-500">
+                                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-sky-400"></span>Noticias</span>
+                                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-400"></span>Advertencias</span>
+                                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-orange-400"></span>Alto</span>
+                                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500"></span>Danger</span>
+                            </div>
+                        </div>
+                        <div class="space-y-5">
+                            <div v-for="g in visibleLogGroups" :key="g.key" class="rounded-xl border border-surface-700/50 bg-surface-900/60 overflow-hidden">
+                                <div class="flex items-center gap-3 px-4 py-3 border-b border-surface-700/50 bg-surface-900/80">
+                                    <div class="w-8 h-8 rounded-lg bg-brand-500/15 text-brand-300 flex items-center justify-center" v-html="g.icon"></div>
+                                    <div class="flex items-baseline gap-2">
+                                        <h3 class="text-sm font-semibold text-surface-200">{{ g.label }}</h3>
+                                        <span class="text-[11px] text-surface-500">{{ g.raw }} eventos · {{ g.families }} tipos</span>
+                                    </div>
+                                    <span class="ml-auto text-[11px] text-surface-500">ordenados por hora ↓</span>
+                                </div>
+                                <div class="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-surface-800/70">
+                                    <div v-for="c in LOG_CATS" :key="c.key" class="flex flex-col">
+                                        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-surface-800/70">
+                                            <span class="w-2 h-2 rounded-full" :class="c.dot"></span>
+                                            <h4 class="text-xs font-semibold" :class="c.head">{{ c.label }}</h4>
+                                            <span class="ml-auto text-[10px] px-1.5 py-0.5 rounded-full" :class="c.chip">{{ g.counts[c.key] }}</span>
+                                        </div>
+                                        <div class="divide-y divide-surface-800/50 max-h-[300px] overflow-y-auto">
+                                            <button v-for="(l, i) in g[c.key]" :key="c.key + i" @click="openSyslogRow(l, c.key)"
+                                                class="w-full text-left px-4 py-2.5 hover:bg-surface-800/40 transition-colors">
+                                                <div class="flex items-center gap-2 text-[11px] text-surface-500">
+                                                    <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="logSev(l.sev).dot"></span>
+                                                    <span class="font-mono text-surface-400">{{ l.time }}</span>
+                                                    <span class="px-1.5 py-0.5 rounded bg-surface-800/80 text-surface-400 font-mono text-[10px] truncate">{{ l.tag }}</span>
+                                                    <span class="ml-auto whitespace-nowrap">{{ l.device }}</span>
+                                                    <span v-if="l.repeats > 1" class="px-1.5 py-0.5 rounded bg-surface-800 text-surface-300 font-semibold">×{{ l.repeats }}</span>
+                                                </div>
+                                                <div class="mt-1 text-xs text-surface-300 leading-snug">{{ cleanLogMsg(l.message) }}</div>
+                                            </button>
+                                            <div v-if="!g[c.key].length" class="px-4 py-4 text-center text-[11px] text-surface-600">Sin eventos</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-if="logsMeta && logsMeta.truncated" class="text-[11px] text-amber-400/80">Mostrando una ventana parcial: hay más eventos de los que se pueden escanear. Reduce el rango para verlos todos.</div>
+                    </section>
                 </div>
 
                 <!-- ==================== TAB: Monitoreo de Red ==================== -->
@@ -2687,6 +2821,150 @@
         </div>
     </div>
 
+    <!-- ==================== MODAL: DETALLE DE EVENTO / LOG ==================== -->
+    <div v-if="showLogEventModal && logDetail" class="fixed inset-0 z-[2000] flex items-start justify-center p-4 sm:p-8 overflow-y-auto">
+        <div class="fixed inset-0 bg-black/70 backdrop-blur-sm" @click="closeLogEvent"></div>
+        <div class="relative w-full max-w-5xl my-4 rounded-2xl border border-surface-700/60 bg-surface-900 shadow-[0_40px_140px_-40px_rgba(0,0,0,0.9)] slide-in">
+            <!-- Encabezado -->
+            <div class="sticky top-0 z-10 flex items-start gap-3 rounded-t-2xl border-b border-surface-700/60 bg-surface-900/95 px-5 py-4 backdrop-blur">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" :class="logSev(logDetail.sev).icon">
+                    <span v-html="logTypeIcon(logDetail.type)"></span>
+                </div>
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded border" :class="logSev(logDetail.sev).badge">{{ logSev(logDetail.sev).label }}</span>
+                        <span class="text-[11px] text-surface-500">{{ logDetail.source }}</span>
+                        <span class="text-[11px] font-mono text-surface-500">{{ logDetail.id }}</span>
+                    </div>
+                    <h2 class="mt-1 text-lg font-bold text-surface-100 leading-snug break-words">{{ logDetail.title }}</h2>
+                    <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-surface-400">
+                        <span>Inicio <b class="text-surface-200">{{ logDetail.inicio }}</b></span>
+                        <span>Detectado <b class="text-surface-200">{{ logDetail.detectado }}</b></span>
+                        <span>Duración <b class="text-surface-200">{{ logDetail.duracion }}</b></span>
+                        <span>Equipo <b class="text-surface-200">{{ logDetail.device }}</b></span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <span class="text-[10px] font-bold px-2 py-1 rounded-full border" :class="logDetail.estadoCls">{{ logDetail.estado }}</span>
+                    <button @click="closeLogEvent" class="p-1.5 rounded-lg text-surface-400 hover:text-surface-100 hover:bg-surface-800 transition-colors" title="Cerrar">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="px-5 py-4 space-y-5">
+                <div v-if="logDetailLoading" class="flex items-center justify-center gap-3 py-10 text-sm text-surface-400">
+                    <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                    Cargando detalle…
+                </div>
+                <div v-else-if="logDetailError" class="rounded-lg border border-red-700/50 bg-red-950/20 px-4 py-3 text-sm text-red-300">{{ logDetailError }}</div>
+                <template v-else>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                        <div>
+                            <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-1.5">Causa probable</div>
+                            <p class="text-sm text-surface-200 leading-relaxed break-words">{{ logDetail.causa }}</p>
+                            <div v-if="logDetail.confianza !== null" class="mt-2 flex items-center gap-2 text-[11px] text-surface-400">
+                                Confianza <b class="text-surface-200">{{ logDetail.confianza }}%</b>
+                                <span class="h-1.5 w-20 rounded-full bg-surface-700 overflow-hidden"><i class="block h-full" :style="{ width: logDetail.confianza + '%', background: 'linear-gradient(90deg,#f59e0b,#34d399)' }"></i></span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-1.5">Evidencia</div>
+                            <ul class="space-y-1.5">
+                                <li v-for="(t, i) in logDetail.evidencia" :key="i" class="relative pl-4 text-xs text-surface-300 leading-relaxed break-words">
+                                    <span class="absolute left-0.5 top-1.5 w-1.5 h-1.5 rounded-full bg-brand-400"></span>{{ t }}
+                                </li>
+                                <li v-if="!logDetail.evidencia.length" class="text-xs text-surface-500">Sin evidencia registrada.</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div v-if="logDetail.impacto.length">
+                        <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-2">Impacto</div>
+                        <div class="flex flex-wrap gap-2">
+                            <div v-for="st in logDetail.impacto" :key="st.l" class="rounded-lg border border-surface-700/50 bg-surface-800/50 px-3 py-2 min-w-[92px]">
+                                <div class="text-lg font-bold leading-none text-surface-100">{{ st.n }}</div>
+                                <div class="mt-1 text-[10px] uppercase tracking-wider text-surface-500">{{ st.l }}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="logDetail.fuentes.length">
+                        <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-2">Fuentes consultadas</div>
+                        <div class="flex flex-wrap gap-1.5">
+                            <span v-for="f in logDetail.fuentes" :key="f.l" class="text-[10.5px] px-2 py-1 rounded-full border" :class="f.ok ? 'bg-emerald-500/10 border-emerald-600/25 text-emerald-300' : 'bg-surface-800/60 border-surface-700/40 text-surface-500 line-through'">{{ f.ok ? '✓ ' : '' }}{{ f.l }}</span>
+                        </div>
+                    </div>
+
+                    <div v-if="logDetail.interfaces.length">
+                        <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-2">Puertos PON involucrados</div>
+                        <div class="overflow-x-auto rounded-lg border border-surface-700/50">
+                            <table class="w-full text-xs">
+                                <thead class="bg-surface-800/60 text-[10px] uppercase tracking-wider text-surface-500">
+                                    <tr><th class="text-left px-3 py-2">Puerto</th><th class="text-left px-3 py-2">Estado</th><th class="text-left px-3 py-2">ONUs</th><th class="text-left px-3 py-2">Online</th><th class="text-left px-3 py-2">Offline</th></tr>
+                                </thead>
+                                <tbody class="divide-y divide-surface-800/60">
+                                    <tr v-for="i in logDetail.interfaces" :key="i.if" class="hover:bg-surface-800/30">
+                                        <td class="px-3 py-2 font-mono text-surface-200">{{ i.if }}</td>
+                                        <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded text-[10px] font-semibold" :class="i.st === 'down' ? 'bg-red-500/15 text-red-300' : 'bg-emerald-500/15 text-emerald-300'">{{ i.st }}</span></td>
+                                        <td class="px-3 py-2 font-mono text-surface-300">{{ i.onus }}</td>
+                                        <td class="px-3 py-2 font-mono text-emerald-300">{{ i.online }}</td>
+                                        <td class="px-3 py-2 font-mono" :class="i.offline ? 'text-red-300' : 'text-surface-400'">{{ i.offline }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div v-if="logDetail.clientes.length">
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500">Clientes involucrados</div>
+                            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-800 text-surface-400">{{ logDetail.clientesTotal }}</span>
+                        </div>
+                        <div class="overflow-x-auto rounded-lg border border-surface-700/50">
+                            <table class="w-full text-xs">
+                                <thead class="bg-surface-800/60 text-[10px] uppercase tracking-wider text-surface-500">
+                                    <tr><th class="text-left px-3 py-2">#</th><th class="text-left px-3 py-2">Cliente</th><th class="text-left px-3 py-2">CZWISP</th><th class="text-left px-3 py-2">Serial ONU</th><th class="text-left px-3 py-2">MAC</th><th class="text-left px-3 py-2">Rx</th><th class="text-left px-3 py-2">Estado</th></tr>
+                                </thead>
+                                <tbody class="divide-y divide-surface-800/60">
+                                    <tr v-for="(c, i) in logDetail.clientes" :key="i" class="hover:bg-surface-800/30">
+                                        <td class="px-3 py-2 text-surface-500">{{ i + 1 }}</td>
+                                        <td class="px-3 py-2 font-semibold text-surface-200">{{ c.n }}</td>
+                                        <td class="px-3 py-2 font-mono text-surface-300">{{ c.czwisp }}</td>
+                                        <td class="px-3 py-2 font-mono text-surface-400">{{ c.onu }}</td>
+                                        <td class="px-3 py-2 font-mono text-surface-400">{{ c.mac }}</td>
+                                        <td class="px-3 py-2 font-mono text-amber-300">{{ c.rx }}</td>
+                                        <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded text-[10px] font-semibold" :class="c.st === 'caído' ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'">{{ c.st }}</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div v-if="logDetail.clientesTotal > logDetail.clientes.length" class="mt-2 text-[11px] text-surface-500">Mostrando {{ logDetail.clientes.length }} de <b class="text-surface-300">{{ logDetail.clientesTotal }}</b> clientes.</div>
+                    </div>
+
+                    <div v-if="logDetail.logs.length">
+                        <div class="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-500 mb-2">Logs relacionados</div>
+                        <div class="rounded-lg border border-surface-700/50 bg-surface-950/60 divide-y divide-surface-800/50 max-h-64 overflow-y-auto">
+                            <div v-for="(l, i) in logDetail.logs" :key="i" class="flex items-start gap-2 px-3 py-1.5">
+                                <span class="font-mono text-[11px] text-surface-500 flex-shrink-0">{{ l.t }}</span>
+                                <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-surface-800 text-surface-400 flex-shrink-0">{{ l.tag }}</span>
+                                <span class="font-mono text-[11px] text-surface-300 break-all">{{ l.msg }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="logDetail.acciones.length" class="flex flex-wrap gap-2 pt-3 border-t border-surface-700/50">
+                        <button v-for="(a, i) in logDetail.acciones" :key="a.label" @click="runLogAction(a)" :disabled="a.busy || a.done"
+                            class="text-xs font-semibold px-3 py-1.5 rounded-lg disabled:opacity-50"
+                            :class="i === 0 ? 'bg-brand-500 text-white hover:bg-brand-600' : 'border border-surface-700 text-surface-300 hover:bg-surface-800'">
+                            {{ a.label }}
+                        </button>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notification -->
     <transition name="fade">
         <div v-if="toast.show" :class="toast.type === 'error' ? 'bg-red-500/20 border-red-500/40 text-red-300' : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'" class="fixed bottom-6 right-6 px-4 py-3 rounded-xl border text-sm font-medium shadow-xl z-50">
@@ -3009,6 +3287,589 @@ createApp({
             return !anomalyTypeFilter.value && !anomalyPredictionFilter.value;
         }
 
+        // ==================== LOGS (syslog + incidencias) ====================
+        const logsRange = ref(6);
+        const logsDeviceFilter = ref('all');
+        const logsFilter = ref('all');
+        const logsLoading = ref(false);
+        const logsError = ref('');
+        const logsIncidents = ref([]);
+        const logsPanels = ref({});
+        const logsMeta = ref(null);
+        const logsDeviceFocus = ref('');
+        const showLogEventModal = ref(false);
+        const logDetail = ref(null);
+        const logDetailLoading = ref(false);
+        const logDetailError = ref('');
+        let logDetailToken = 0;
+
+        const LOG_CATS = [
+            { key: 'news',     label: 'Noticias',     dot: 'bg-sky-400',   head: 'text-sky-300',   chip: 'bg-sky-500/15 text-sky-300' },
+            { key: 'warnings', label: 'Advertencias', dot: 'bg-amber-400', head: 'text-amber-300', chip: 'bg-amber-500/15 text-amber-300' },
+            { key: 'alerts',   label: 'Alertas',      dot: 'bg-red-500',   head: 'text-red-300',   chip: 'bg-red-500/15 text-red-300' },
+        ];
+
+        const LOG_SEV = {
+            danger:  { label: 'DANGER',      card: 'border-red-700/50 bg-red-950/20',        dot: 'bg-red-500',    icon: 'bg-red-500/15 text-red-300',       badge: 'bg-red-500/15 text-red-300 border-red-600/40' },
+            high:    { label: 'ALTO',        card: 'border-orange-700/45 bg-orange-950/15',  dot: 'bg-orange-400', icon: 'bg-orange-500/15 text-orange-300', badge: 'bg-orange-500/15 text-orange-300 border-orange-600/40' },
+            warning: { label: 'ADVERTENCIA', card: 'border-amber-700/40 bg-amber-950/15',    dot: 'bg-amber-400',  icon: 'bg-amber-500/15 text-amber-300',   badge: 'bg-amber-500/15 text-amber-300 border-amber-600/40' },
+            news:    { label: 'NOTICIA',     card: 'border-sky-700/40 bg-sky-950/15',        dot: 'bg-sky-400',    icon: 'bg-sky-500/15 text-sky-300',       badge: 'bg-sky-500/15 text-sky-300 border-sky-600/40' },
+        };
+        function logSev(sev) { return LOG_SEV[sev] || LOG_SEV.news; }
+
+        const LOG_TYPE_ICON = {
+            security: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622C17.176 19.29 21 14.591 21 9c0-1.042-.133-2.052-.382-3.016z',
+            outage:   'M18.364 5.636a9 9 0 010 12.728M5.636 18.364a9 9 0 010-12.728M12 12h.01M8 12a4 4 0 118 0',
+            optical:  'M12 3v2m0 14v2M5.6 5.6l1.4 1.4m10 10l1.4 1.4M3 12h2m14 0h2M5.6 18.4l1.4-1.4m10-10l1.4-1.4M15 12a3 3 0 11-6 0 3 3 0 016 0z',
+            traffic:  'M13 10V3L4 14h7v7l9-11h-7z',
+            software: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z',
+            network:  'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+            capacity: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4',
+            config:   'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+        };
+        function logTypeIcon(type) {
+            const d = LOG_TYPE_ICON[type] || LOG_TYPE_ICON.network;
+            return '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="' + d + '"/></svg>';
+        }
+        function pad2(n) { return String(Number(n) || 0).padStart(2, '0'); }
+        // Los mensajes de OLT llegan escapados ("PON 0\/9") por el colector.
+        // Se limpian para poder parsear el puerto PON y mostrar el texto.
+        function cleanLogMsg(msg) {
+            return String(msg || '').replace(/\\\//g, '/').replace(/\\"/g, '"');
+        }
+        function toIso(v) {
+            if (v === null || v === undefined || v === '') return '';
+            if (typeof v === 'number') return new Date(v * 1000).toISOString();
+            return String(v);
+        }
+        function timeOf(row) {
+            const iso = String((row && (row.processed_at || row.timestamp)) || '');
+            if (iso.length >= 19 && iso.includes('T')) return iso.slice(11, 19);
+            return iso.slice(0, 19) || '--:--:--';
+        }
+
+        // Nombre de equipo comparable: "OLT-SISAL2-PON2" y "OLT-SISAL-2" son
+        // el mismo equipo. El sufijo PON de las incidencias no existe en Influx.
+        function normDev(name) {
+            return String(name || '')
+                .toLowerCase()
+                .replace(/-?pon\d+$/, '')
+                .replace(/[^a-z0-9]/g, '');
+        }
+
+        // Misma normalización que usa /api/v1/syslog/panels para agrupar
+        // familias; aquí sirve para relacionar un evento con sus repeticiones.
+        function patternKey(msg) {
+            return String(msg || '')
+                .replace(/^<[0-9a-f]{3,10}>:\s*/i, '')
+                .replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, '<mac>')
+                .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '<ip>')
+                .replace(/<pppoe-[^>]+>/gi, '<pppoe>')
+                .replace(/\buser\s+\S+/gi, 'user <usuario>')
+                .replace(/\b(?=[0-9a-z]*[a-z])(?=[0-9a-z]*\d)[0-9a-z]{8,}\b/gi, '<serial>')
+                .replace(/\b\d+\b/g, '<n>')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+        }
+
+        function incidentSev(inc) {
+            const sev = String((inc && inc.severidad) || '').toLowerCase();
+            const estado = String((inc && inc.estado) || '').toLowerCase();
+            if (estado === 'resolved' || sev === 'resolved') return 'news';
+            if (sev === 'critical') return 'danger';
+            if (sev === 'warning') return 'warning';
+            return 'news';
+        }
+
+        function incidentType(inc) {
+            const text = String((inc && inc.causa) || '').toLowerCase();
+            if (/energ|gasp|apag|reinicio/.test(text)) return 'outage';
+            if (/óptic|optic|potencia|señal|senal|fibra|rx/.test(text)) return 'optical';
+            if (/seguridad|ataque|intrus|bruta|ssh/.test(text)) return 'security';
+            if (/tráfico|trafico|saturaci|ddos/.test(text)) return 'traffic';
+            if (/config|respaldo|backup/.test(text)) return 'config';
+            if (/capacidad|pool|dhcp|lease/.test(text)) return 'capacity';
+            if (/software|firmware|versión|version/.test(text)) return 'software';
+            return inc && inc.pon ? 'outage' : 'network';
+        }
+
+        function incidentInterfaces(inc) {
+            if (!inc || !inc.olt) return [];
+            const oltKey = normDev(inc.olt);
+            const byPort = {};
+            (opticalData.value || []).forEach(r => {
+                if (!r || normDev(r.olt_name) !== oltKey) return;
+                const port = r.pon_port || '—';
+                if (!byPort[port]) byPort[port] = { if: port, st: 'up', onus: 0, online: 0, offline: 0 };
+                const p = byPort[port];
+                p.onus += 1;
+                if (Number(r.status) === 3) p.online += 1;
+                else p.offline += 1;
+            });
+            let out = Object.values(byPort);
+            if (inc.pon) {
+                const target = out.find(p => normDev(p.if) === normDev(inc.pon));
+                if (target) out = [target];
+            }
+            out.forEach(p => { p.st = p.offline > p.online ? 'down' : 'up'; });
+            out.sort((a, b) => String(a.if).localeCompare(String(b.if)));
+            return out.slice(0, 12);
+        }
+
+        function ponStatsFor(device, port) {
+            if (!port) return [];
+            const key = normDev(device);
+            const rows = (opticalData.value || []).filter(r => normDev(r.olt_name) === key && String(r.pon_port || '') === String(port));
+            if (!rows.length) return [];
+            const online = rows.filter(r => Number(r.status) === 3).length;
+            const offline = rows.length - online;
+            return [{ if: port, st: offline > online ? 'down' : 'up', onus: rows.length, online, offline }];
+        }
+
+        const logEventCards = computed(() => (logsIncidents.value || []).map(inc => {
+            const sev = incidentSev(inc);
+            const iso = toIso(inc.inicio);
+            const impacto = inc.impacto || {};
+            const partes = [];
+            if (impacto.clientes) partes.push(`${impacto.clientes} clientes`);
+            if (impacto.onus_los) partes.push(`${impacto.onus_los} ONUs LOS`);
+            if (impacto.predicciones) partes.push(`${impacto.predicciones} predicciones`);
+            return {
+                kind: 'incident',
+                id: inc.id,
+                sev,
+                type: incidentType(inc),
+                source: 'OLT · Red',
+                title: inc.causa || 'Incidencia sin causa registrada',
+                detail: partes.length ? `Impacto: ${partes.join(' · ')}` : (inc.nap ? `NAP ${inc.nap}` : 'Sin impacto calculado'),
+                device: [inc.olt, inc.pon].filter(Boolean).join(' · ') || inc.nap || '—',
+                time: iso ? formatClock(iso) : '—',
+                ago: formatAgo(iso),
+                raw: inc,
+            };
+        }));
+
+        const filteredLogEvents = computed(() => {
+            const focus = normDev(logsDeviceFocus.value);
+            return logEventCards.value.filter(e => {
+                if (logsFilter.value !== 'all' && e.sev !== logsFilter.value) return false;
+                if (focus && !normDev(e.device).includes(focus)) return false;
+                return true;
+            });
+        });
+
+        const logSummary = computed(() => {
+            const events = logEventCards.value;
+            const count = k => k === 'all' ? events.length : events.filter(e => e.sev === k).length;
+            return [
+                { key: 'all',     label: 'Todos los eventos', value: count('all'),     hint: 'incidencias', cls: 'border-surface-700/50 bg-surface-900/60', num: 'text-surface-100' },
+                { key: 'danger',  label: 'Alertas críticas',  value: count('danger'),  hint: 'danger',      cls: 'border-red-700/50 bg-red-950/20',          num: 'text-red-300' },
+                { key: 'high',    label: 'Alertas altas',     value: count('high'),    hint: 'high',        cls: 'border-orange-700/45 bg-orange-950/15',    num: 'text-orange-300' },
+                { key: 'warning', label: 'Advertencias',      value: count('warning'), hint: 'warning',     cls: 'border-amber-700/40 bg-amber-950/15',      num: 'text-amber-300' },
+            ];
+        });
+
+        const logBadges = computed(() => {
+            const counts = (logsMeta.value && logsMeta.value.counts) || {};
+            const olt = counts.olt || {};
+            const mt = counts.mikrotik || {};
+            const alerts = (Number(olt.high) || 0) + (Number(olt.danger) || 0);
+            return [
+                { n: pad2(alerts),        cls: 'bg-red-500/20 text-red-300',             title: 'OLT · alertas (alto / danger)' },
+                { n: pad2(olt.warnings),  cls: 'bg-amber-500/20 text-amber-300',         title: 'OLT · advertencias' },
+                { n: pad2(olt.news),      cls: 'bg-sky-500/20 text-sky-300',             title: 'OLT · noticias' },
+                { n: pad2(mt.news),       cls: 'bg-surface-700/70 text-surface-300',     title: 'MikroTik · noticias' },
+            ];
+        });
+
+        const visibleLogGroups = computed(() => {
+            const meta = logsMeta.value || {};
+            const groups = logsPanels.value || {};
+            const counts = meta.counts || {};
+            const labels = meta.labels || {};
+            const focus = normDev(logsDeviceFocus.value);
+            const iconOlt = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>';
+            const iconMt = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>';
+            const out = [];
+            ['mikrotik', 'olt'].forEach(key => {
+                if (logsDeviceFilter.value !== 'all' && logsDeviceFilter.value !== key) return;
+                const g = groups[key] || {};
+                const c = counts[key] || {};
+                const filt = arr => (arr || []).filter(l => !focus || normDev(l.device).includes(focus));
+                out.push({
+                    key,
+                    label: labels[key] || key,
+                    icon: key === 'olt' ? iconOlt : iconMt,
+                    raw: c.raw || 0,
+                    families: c.families_total || 0,
+                    counts: c.families || { news: 0, warnings: 0, alerts: 0 },
+                    news: filt(g.news),
+                    warnings: filt(g.warnings),
+                    alerts: filt(g.alerts),
+                });
+            });
+            return out;
+        });
+
+        async function fetchLogs(notify = false) {
+            if (logsLoading.value) return;
+            logsLoading.value = true;
+            logsError.value = '';
+            try {
+                const [panelsRes, incRes] = await Promise.allSettled([
+                    apiFetch(`/api/v1/syslog/panels?minutes=${logsRange.value * 60}&per_bucket=20`),
+                    apiFetch('/api/v1/incidents/?limit=100'),
+                ]);
+                if (panelsRes.status === 'fulfilled' && panelsRes.value) {
+                    logsPanels.value = panelsRes.value.groups || {};
+                    logsMeta.value = panelsRes.value;
+                } else if (panelsRes.status === 'rejected') {
+                    logsError.value = (panelsRes.reason && panelsRes.reason.message) || 'No se pudieron cargar los logs de equipos.';
+                }
+                if (incRes.status === 'fulfilled' && incRes.value) {
+                    logsIncidents.value = incRes.value.incidents || [];
+                }
+                if (notify) showToast('Logs actualizados');
+            } catch (e) {
+                logsError.value = (e && e.message) || 'Error al cargar logs.';
+            } finally {
+                logsLoading.value = false;
+            }
+        }
+
+        function emptyIncidentDetail(card) {
+            return {
+                kind: 'incident', id: card.id, sev: card.sev, type: card.type,
+                source: card.source, title: card.title, detail: '',
+                device: card.device, inicio: card.time, detectado: '—',
+                duracion: '—', estado: 'CARGANDO',
+                estadoCls: 'bg-surface-800 text-surface-300 border-surface-600/50',
+                causa: '', confianza: null, evidencia: [], impacto: [], fuentes: [],
+                interfaces: [], clientes: [], clientesTotal: 0, logs: [], acciones: [],
+            };
+        }
+
+        function buildIncidentDetail(inc, affected, relatedLogs) {
+            const sev = incidentSev(inc);
+            const iso = toIso(inc.inicio);
+            const impacto = inc.impacto || {};
+            const fuentes = inc.fuentes || {};
+            const evidencia = (inc.evidencia || []).map(ev => {
+                if (typeof ev === 'string') return ev;
+                if (ev && ev.mensaje) return ev.mensaje;
+                const tipo = (ev && ev.tipo) || 'evidencia';
+                const valor = ev && ev.valor !== undefined && ev.valor !== null ? ev.valor : '';
+                return valor !== '' ? `${tipo}: ${valor}` : tipo;
+            });
+            const clientes = (affected || []).map(c => ({
+                n: c.cliente || '—',
+                czwisp: c.czwisp || '—',
+                onu: c.serial_onu || '—',
+                mac: c.mac || '—',
+                rx: c.rx_power !== undefined && c.rx_power !== null && c.rx_power !== ''
+                    ? (String(c.rx_power).includes('dBm') ? String(c.rx_power) : `${c.rx_power} dBm`)
+                    : '—',
+                st: String(c.estatus || '').toLowerCase() === 'up' ? 'online' : (c.estatus || '—'),
+            }));
+            const estado = String(inc.estado || '').toLowerCase();
+            return {
+                kind: 'incident',
+                id: inc.id || '—',
+                sev,
+                type: incidentType(inc),
+                source: 'OLT · Red',
+                title: inc.causa || 'Incidencia sin causa registrada',
+                detail: '',
+                device: [inc.olt, inc.pon].filter(Boolean).join(' · ') || inc.nap || '—',
+                inicio: iso ? formatClock(iso) : '—',
+                detectado: inc.detectado ? formatClock(toIso(inc.detectado)) : '—',
+                duracion: inc.duracion || (estado === 'resolved' && inc.fin ? formatClock(toIso(inc.fin)) : 'en curso'),
+                estado: estado === 'resolved' ? 'RESUELTA' : (inc.reconocida ? 'RECONOCIDA' : 'ABIERTA'),
+                estadoCls: estado === 'resolved'
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-600/40'
+                    : (sev === 'danger' ? 'bg-red-500/15 text-red-300 border-red-600/40' : 'bg-amber-500/15 text-amber-300 border-amber-600/40'),
+                causa: inc.causa || 'Sin causa registrada.',
+                confianza: inc.confianza !== undefined && inc.confianza !== null && Number(inc.confianza) > 0 ? Math.round(Number(inc.confianza)) : null,
+                evidencia,
+                impacto: [
+                    { n: impacto.clientes || 0, l: 'Clientes' },
+                    { n: impacto.onus_los || 0, l: 'ONUs LOS' },
+                    { n: impacto.predicciones || 0, l: 'Predicciones' },
+                ],
+                fuentes: [
+                    { l: 'Anomalías', ok: !!fuentes.anomalies },
+                    { l: 'Predicciones', ok: !!fuentes.predictions },
+                    { l: 'Syslog', ok: !!fuentes.syslog },
+                ],
+                interfaces: incidentInterfaces(inc),
+                clientes,
+                clientesTotal: Number(impacto.clientes) || clientes.length,
+                logs: relatedLogs || [],
+                acciones: [
+                    { label: inc.reconocida ? 'Reconocida' : 'Reconocer', kind: 'ack', busy: false, done: !!inc.reconocida },
+                    { label: 'Silenciar 1 h', kind: 'mute', hours: 1, busy: false, done: false },
+                    { label: 'Resolver', kind: 'resolve', busy: false, done: estado === 'resolved' },
+                    { label: 'Actualizar', kind: 'refresh', busy: false, done: false },
+                ],
+            };
+        }
+
+        function syslogTitle(msg, tag) {
+            const m = String(msg || '').toLowerCase();
+            if (m.includes('bip8')) return 'Errores BIP8 en ONU (calidad óptica)';
+            if (m.includes('dying gasp')) return 'ONU Dying Gasp (corte de energía)';
+            if (m.includes('offline')) return 'ONU fuera de línea';
+            if (m.includes('port los') || m.includes('link down')) return 'Pérdida de señal en puerto LAN de ONU';
+            if (m.includes('online')) return 'ONU en línea';
+            if (m.includes('authentication failed')) return 'Fallo de autenticación PPPoE';
+            if (m.includes('connection established')) return 'Sesión PPPoE establecida';
+            if (m.includes('event down')) return 'Host sin respuesta (netwatch)';
+            if (m.includes('event up')) return 'Host recuperado (netwatch)';
+            if (m.includes('logged in')) return 'Inicio de sesión en el equipo';
+            if (m.includes('logged out') || m.includes('logouted')) return 'Cierre de sesión en el equipo';
+            if (m.includes('link up')) return 'Enlace restablecido';
+            return 'Evento de ' + (tag || 'equipo');
+        }
+
+        function syslogType(msg) {
+            const m = String(msg || '').toLowerCase();
+            if (m.includes('bip8') || m.includes('óptic') || m.includes('optic') || m.includes('rx power')) return 'optical';
+            if (m.includes('dying gasp') || m.includes('offline') || m.includes('link down') || m.includes('port los')) return 'outage';
+            if (m.includes('authentication failed') || m.includes('attack') || m.includes('login failed')) return 'security';
+            if (m.includes('pppoe') || m.includes('logged') || m.includes('online') || m.includes('event up')) return 'network';
+            return 'software';
+        }
+
+        function buildSyslogDetail(row, bucket) {
+            const msg = cleanLogMsg(row.message);
+            const repeats = Number(row.repeats) || 1;
+            const device = row.device || row.device_ip || '—';
+            const isOlt = String(row.device_type || '').toLowerCase() === 'olt';
+            const serialMatch = msg.match(/\bsn\s+([0-9a-z]{6,})\b/i);
+            const ponMatch = msg.match(/\bpon\s+(\d+\/\d+)/i);
+            const ponPort = ponMatch ? 'GPON' + ponMatch[1] : '';
+            const sev = row.sev || (bucket === 'alerts' ? 'high' : bucket === 'warnings' ? 'warning' : 'news');
+            const evidencia = [
+                `Repeticiones en la ventana: ${repeats}`,
+                `Primera vez: ${row.first_seen ? formatClock(toIso(row.first_seen)) : '—'}`,
+                `Tag: ${row.tag || row.program || '—'}`,
+                row.host ? `Origen: ${row.host}` : '',
+                row.facility ? `Facility: ${row.facility}` : '',
+                row.event_at ? `Hora del equipo: ${formatClock(toIso(row.event_at))}` : '',
+                serialMatch ? `Serial ONU: ${serialMatch[1]}` : '',
+                ponPort ? `Puerto PON: ${ponPort}` : '',
+            ].filter(Boolean);
+            return {
+                kind: 'syslog',
+                id: 'SYSLOG-' + String(row.time || '').replace(/:/g, '') + '-' + String(row.tag || 'evt').replace(/[^a-z0-9]/gi, '').slice(0, 10).toUpperCase(),
+                sev,
+                type: syslogType(msg),
+                source: isOlt ? 'OLT' : 'MikroTik',
+                title: syslogTitle(msg, row.tag),
+                detail: msg,
+                device,
+                inicio: row.time || '—',
+                detectado: row.time || '—',
+                duracion: '—',
+                estado: 'EVENTO',
+                estadoCls: 'bg-surface-800 text-surface-300 border-surface-600/50',
+                causa: msg || 'Sin mensaje registrado.',
+                confianza: null,
+                evidencia,
+                impacto: [
+                    { n: repeats, l: 'Repeticiones' },
+                    { n: isOlt ? 'OLT' : 'MT', l: 'Origen' },
+                ],
+                fuentes: [
+                    { l: 'Syslog', ok: true },
+                    { l: 'Métricas', ok: !!(opticalData.value && opticalData.value.length) },
+                    { l: 'Clientes', ok: false },
+                ],
+                interfaces: isOlt ? ponStatsFor(device, ponPort) : [],
+                clientes: [],
+                clientesTotal: 0,
+                logs: [],
+                acciones: [{ label: 'Actualizar', kind: 'refresh', busy: false, done: false }],
+            };
+        }
+
+        async function loadRelatedIncidentLogs(inc) {
+            if (!inc || !inc.olt) return [];
+            const oltKey = normDev(inc.olt);
+            const pon = String(inc.pon || '');
+            // El syslog escribe "PON 0/9"; la incidencia guarda "GPON0/9".
+            const ponNum = pon.replace(/^GPON\s*/i, '').trim();
+            try {
+                const res = await apiFetch(`/api/v1/syslog/recent?minutes=${logsRange.value * 60}&device_type=olt&limit=600`);
+                const rows = (res && res.events) || [];
+                const sameOlt = rows.filter(r => normDev(r.device_name) === oltKey);
+                const samePon = ponNum ? sameOlt.filter(r => {
+                    const msg = cleanLogMsg(r.message);
+                    return msg.includes('PON ' + ponNum) || msg.includes('pon ' + ponNum) || msg.includes(pon);
+                }) : sameOlt;
+                const use = (samePon.length ? samePon : sameOlt).slice(0, 40);
+                use.sort((a, b) => String(b.processed_at || b.timestamp || '').localeCompare(String(a.processed_at || a.timestamp || '')));
+                return use.map(r => ({ t: timeOf(r), tag: r.tag || r.program || '', msg: cleanLogMsg(r.message) }));
+            } catch (e) { return []; }
+        }
+
+        async function loadRelatedSyslogLogs(row) {
+            if (!row) return [];
+            try {
+                const params = new URLSearchParams({ minutes: String(logsRange.value * 60), limit: '300' });
+                if (row.device_ip) params.set('device_ip', row.device_ip);
+                else if (row.device) params.set('device_name', row.device);
+                const res = await apiFetch('/api/v1/syslog/recent?' + params.toString());
+                const rows = (res && res.events) || [];
+                const key = patternKey(cleanLogMsg(row.message));
+                // Primero la misma familia de mensaje (mismo tipo de evento).
+                const family = rows.filter(r => patternKey(cleanLogMsg(r.message)) === key);
+                // Si no hay repeticiones de la familia, los eventos del mismo
+                // dispositivo con el mismo tag son el contexto más cercano.
+                const sameDev = rows.filter(r => row.device_ip && String(r.device_ip) === String(row.device_ip) && String(r.tag) === String(row.tag));
+                const use = (family.length ? family : (sameDev.length ? sameDev : rows)).slice(0, 30);
+                use.sort((a, b) => String(b.processed_at || b.timestamp || '').localeCompare(String(a.processed_at || a.timestamp || '')));
+                return use.map(r => ({ t: timeOf(r), tag: r.tag || r.program || '', msg: cleanLogMsg(r.message) }));
+            } catch (e) { return []; }
+        }
+
+        async function loadSyslogClient(row) {
+            const msg = cleanLogMsg((row && row.message) || '');
+            const m = msg.match(/\bsn\s+([0-9a-z]{6,})\b/i) || msg.match(/\b(?:vsol|gpon|monu|hwtc|adcg|oemt|zicg)[0-9a-z]{6,}\b/i);
+            if (!m) return [];
+            const serial = m[1] || m[0];
+            try {
+                const res = await apiFetch('/api/clientes/vital/batch', {
+                    method: 'POST',
+                    body: JSON.stringify({ queries: [serial], include_history: false, include_infra: false }),
+                });
+                const hit = res && res.results && res.results[0];
+                if (!hit || !hit.found || !hit.ficha) return [];
+                const f = hit.ficha;
+                const estado = Number(f.estado_onu);
+                return [{
+                    n: f.nombre || f.usuario_pppoe || serial,
+                    czwisp: f.documento || '—',
+                    onu: f.serial_onu || serial,
+                    mac: f.mac || '—',
+                    rx: f.rx_power !== undefined && f.rx_power !== null && f.rx_power !== '' ? `${f.rx_power} dBm` : '—',
+                    st: estado === 3 ? 'online' : (estado >= 0 ? 'caído' : '—'),
+                }];
+            } catch (e) { return []; }
+        }
+
+        async function openLogEvent(card) {
+            if (!card) return;
+            if (card.kind === 'syslog') { openSyslogRow(card.row, card.bucket); return; }
+            showLogEventModal.value = true;
+            logDetail.value = emptyIncidentDetail(card);
+            logDetailError.value = '';
+            logDetailLoading.value = true;
+            const token = ++logDetailToken;
+            try {
+                const [detRes, affRes] = await Promise.allSettled([
+                    apiFetch(`/api/v1/incidents/${encodeURIComponent(card.id)}`),
+                    apiFetch(`/api/v1/incidents/${encodeURIComponent(card.id)}/affected`),
+                ]);
+                if (token !== logDetailToken) return;
+                if (detRes.status !== 'fulfilled') throw new Error((detRes.reason && detRes.reason.message) || 'No se pudo cargar la incidencia.');
+                const inc = detRes.value || {};
+                const affected = affRes.status === 'fulfilled' ? ((affRes.value && affRes.value.clientes) || []) : [];
+                const related = await loadRelatedIncidentLogs(inc);
+                if (token !== logDetailToken) return;
+                logDetail.value = buildIncidentDetail(inc, affected, related);
+            } catch (e) {
+                if (token === logDetailToken) logDetailError.value = (e && e.message) || 'Error al cargar el detalle.';
+            } finally {
+                if (token === logDetailToken) logDetailLoading.value = false;
+            }
+        }
+
+        async function openSyslogRow(row, bucket) {
+            if (!row) return;
+            showLogEventModal.value = true;
+            logDetailError.value = '';
+            logDetailLoading.value = true;
+            logDetail.value = buildSyslogDetail(row, bucket);
+            const token = ++logDetailToken;
+            try {
+                const [logs, clientes] = await Promise.all([
+                    loadRelatedSyslogLogs(row),
+                    loadSyslogClient(row),
+                ]);
+                if (token !== logDetailToken) return;
+                const det = buildSyslogDetail(row, bucket);
+                det.logs = logs;
+                if (clientes.length) {
+                    det.clientes = clientes;
+                    det.clientesTotal = clientes.length;
+                    det.fuentes = det.fuentes.map(f => f.l === 'Clientes' ? { l: 'Clientes', ok: true } : f);
+                }
+                logDetail.value = det;
+            } catch (e) {
+                // El detalle básico ya está pintado; el fallo solo afecta al enriquecimiento.
+            } finally {
+                if (token === logDetailToken) logDetailLoading.value = false;
+            }
+        }
+
+        async function refreshLogDetail() {
+            const det = logDetail.value;
+            if (!det || det.kind !== 'incident') return;
+            const token = ++logDetailToken;
+            logDetailLoading.value = true;
+            logDetailError.value = '';
+            try {
+                const [detRes, affRes] = await Promise.allSettled([
+                    apiFetch(`/api/v1/incidents/${encodeURIComponent(det.id)}`),
+                    apiFetch(`/api/v1/incidents/${encodeURIComponent(det.id)}/affected`),
+                ]);
+                if (token !== logDetailToken) return;
+                if (detRes.status !== 'fulfilled') throw new Error((detRes.reason && detRes.reason.message) || 'No se pudo actualizar la incidencia.');
+                const inc = detRes.value || {};
+                const affected = affRes.status === 'fulfilled' ? ((affRes.value && affRes.value.clientes) || []) : [];
+                const related = await loadRelatedIncidentLogs(inc);
+                if (token !== logDetailToken) return;
+                logDetail.value = buildIncidentDetail(inc, affected, related);
+            } catch (e) {
+                if (token === logDetailToken) logDetailError.value = (e && e.message) || 'Error al actualizar.';
+            } finally {
+                if (token === logDetailToken) logDetailLoading.value = false;
+            }
+        }
+
+        async function runLogAction(action) {
+            if (!action || action.busy || action.done) return;
+            const det = logDetail.value;
+            if (!det) return;
+            if (action.kind === 'refresh') { await refreshLogDetail(); return; }
+            if (det.kind !== 'incident') return;
+            action.busy = true;
+            try {
+                let url = `/api/v1/incidents/${encodeURIComponent(det.id)}/${action.kind}`;
+                if (action.kind === 'mute') url += `?hours=${action.hours || 1}`;
+                await apiFetch(url, { method: 'POST' });
+                showToast(action.kind === 'ack' ? 'Incidencia reconocida' : action.kind === 'mute' ? 'Incidencia silenciada 1 h' : 'Incidencia resuelta');
+                await fetchLogs();
+                await refreshLogDetail();
+            } catch (e) {
+                showToast('Error: ' + ((e && e.message) || 'no se pudo ejecutar la acción'), 'error');
+            } finally {
+                action.busy = false;
+            }
+        }
+
+        function closeLogEvent() {
+            logDetailToken++;
+            showLogEventModal.value = false;
+            logDetail.value = null;
+            logDetailError.value = '';
+            logDetailLoading.value = false;
+        }
+
+        function clearLogsDeviceFocus() { logsDeviceFocus.value = ''; }
+
         // Network tab (ping)
         const pingStatus = ref([]);
         const pingFilter = ref('all');
@@ -3132,7 +3993,7 @@ createApp({
             { id: 'devices', label: 'Dispositivos', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>' },
             { id: 'network', label: 'Red', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>' },
             { id: 'agent', label: 'Clientes | Servicios', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>' },
-            { id: 'anomalies', label: 'Logs', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>', badge: anomalySummary.value.total_anomalies > 0 ? anomalySummary.value.total_anomalies : null },
+            { id: 'anomalies', label: 'Logs', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>', badges: logBadges.value },
             { id: 'config', label: 'Configuracion', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>' },
         ]);
 
@@ -3602,6 +4463,10 @@ createApp({
                     fetchOltMetrics();
                     fetchClientLocations();
                 }
+
+                // Los 4 indicadores del menú Logs se alimentan aunque el
+                // operador esté en otra pestaña; no bloquea el refresco.
+                fetchLogs();
 
                 await nextTick();
                 updateCharts();
@@ -4889,7 +5754,14 @@ createApp({
                     initDeviceMap();
                 }
             }
+            if (tab === 'anomalies') {
+                fetchLogs();
+            }
         });
+
+        // El rango (1/6/24 h) solo aplica a los paneles de equipos y a los
+        // logs relacionados del modal; las incidencias se recargan igual.
+        watch(logsRange, () => { fetchLogs(); });
 
         // Apply anomaly filters
         watch([anomalyOltFilter, anomalyTypeFilter], async () => {
@@ -5481,6 +6353,12 @@ createApp({
             // Network (ping)
             pingStatus, pingFilter, filteredPingTargets, pingConfig, refreshDevice, refreshingDevice,
             fetchPingConfig, savePingConfig,
+            // Logs (syslog + incidencias)
+            logsRange, logsDeviceFilter, logsFilter, logsLoading, logsError, logsMeta,
+            logsDeviceFocus, clearLogsDeviceFocus, logBadges, logSummary, filteredLogEvents,
+            visibleLogGroups, LOG_CATS, logSev, logTypeIcon, pad2, cleanLogMsg,
+            fetchLogs, openLogEvent, openSyslogRow, closeLogEvent,
+            showLogEventModal, logDetail, logDetailLoading, logDetailError, runLogAction,
             // Computed
             navItems, currentTitle, summaryCards, allOltNames, totalInterfaces, filteredDevices,
             deviceView, deviceLegend, mapSelection, selectedMapNode,
