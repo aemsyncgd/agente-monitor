@@ -78,6 +78,7 @@
 - `normDev()` normaliza `OLT-SISAL2-PON2` → `oltsisal2` y `OLT-SISAL-2` → `oltsisal2`
   para casar la OLT de las incidencias con la de Influx y el syslog
 - Los mensajes de syslog de OLT llegan escapados (`PON 0\/9`); `cleanLogMsg()`
+- Slice Logs v2 (2026-11-11): backend `/api/v1/syslog/events` agrupa eventos por equipo+puerto+tipo; frontend muestra tarjetas compactas con nombres canónicos ("OLT SISAL-2 · Puerto GPON 0/9"), modal con clientes reales (scroll), y evidencias del evento. Incidencias semilla de prueba borradas de Redis.
   los normaliza a `PON 0/9` antes de parsear el puerto PON y de mostrarlos
 - Los "logs relacionados" del modal agrupan por familia de mensaje (`patternKey()`:
   MAC / IP / usuario / serial / números enmascarados), no por dispositivo completo
