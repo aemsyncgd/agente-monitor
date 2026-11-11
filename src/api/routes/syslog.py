@@ -271,6 +271,314 @@ def _pattern_key(event: dict) -> tuple:
     return (tag, msg)
 
 
+# ==================== EVENTOS (tarjetas del dashboard) ====================
+
+# Los mensajes traen escapes del colector ("PON 0\/9"); se limpian antes de
+# interpretar el puerto, la ONU y el serial.
+_SLASH_RE = re.compile(r"\\([/\"])")
+
+# Tipos de evento recognized por su texto. El orden importa: el patrón más
+# específico va primero ("Port Los ... LINK DOWN" es Port LOS, no link down).
+_EVENT_TYPES = (
+    ("bip8", "Errores BIP8 en ONU", r"\bbip8\b"),
+    ("dying_gasp", "Corte de energía en ONU (Dying Gasp)", r"dying\s+gasp"),
+    ("port_los", "Pérdida de señal en puerto de ONU (Port LOS)", r"port\s+los"),
+    ("offline", "ONU fuera de línea", r"\boffline\b"),
+    ("online", "ONU en línea", r"\bonline\b"),
+    ("link_down", "Enlace caído", r"link\s+down"),
+    ("link_up", "Enlace restablecido", r"link\s+up"),
+    ("auth_fail", "Fallo de autenticación PPPoE", r"authentication\s+failed"),
+    ("netwatch_down", "Host sin respuesta (netwatch)", r"event\s+down"),
+    ("netwatch_up", "Host recuperado (netwatch)", r"event\s+up"),
+    ("pppoe_conn", "Sesión PPPoE establecida", r"connection\s+established|:\s*connected"),
+    ("pppoe_auth", "Autenticación PPPoE completada", r":\s*authenticated"),
+    ("pppoe_close", "Cierre de sesión PPPoE", r"terminating|closed|disconnected"),
+    ("deregister", "ONU desregistrada", r"\bderegister\b"),
+    ("register", "ONU registrada", r"\bregister\b"),
+    ("config_change", "Cambio de configuración en el equipo", r"config\s+changed"),
+    ("login", "Inicio de sesión en el equipo", r"logged\s+in"),
+    ("logout", "Cierre de sesión en el equipo", r"logged\s+out|logouted"),
+)
+
+_PON_RE = re.compile(r"\bpon\s+(\d+\s*/\s*\d+)", re.I)
+_ONU_RE = re.compile(r"\bonu\s+(\d+)\b", re.I)
+_SN_RE = re.compile(r"\bsn\s+([0-9a-z]{6,})\b", re.I)
+_HOST_RE = re.compile(r"\bhost:\s*([0-9a-z\.\-]+)", re.I)
+_PPPOE_USER_RE = re.compile(r"\buser\s+([^\s]+)", re.I)
+_VALUE_RE = re.compile(r"\bvalue\s+(-?\d+)", re.I)
+
+_TYPE_TITLES = {tid: title for tid, title, _ in _EVENT_TYPES}
+
+
+def _clean_message(message: str) -> str:
+    """Quita los escapes del colector ("PON 0\\/9" -> "PON 0/9")."""
+    return _SLASH_RE.sub(r"\1", str(message or ""))
+
+
+def _event_type(message: str) -> str:
+    """Tipo canónico del evento según su texto ("bip8", "dying_gasp"...)."""
+    text = _clean_message(message).lower()
+    for tid, _title, pattern in _EVENT_TYPES:
+        if re.search(pattern, text):
+            return tid
+    return ""
+
+
+def _event_subject(event: dict, etype: str) -> str:
+    """Sujeto del evento en equipos que no son OLT: host vigilado o usuario.
+
+    Es lo que hace accionable el evento: "host 10.0.20.154 sin respuesta" o
+    "usuario PENGCONGC1 fallando la autenticación".
+    """
+    text = _clean_message(event.get("message") or "")
+    if etype in ("netwatch_down", "netwatch_up"):
+        m = _HOST_RE.search(text)
+        if m:
+            return m.group(1)
+    if etype in ("auth_fail", "login", "logout"):
+        m = _PPPOE_USER_RE.search(text)
+        if m:
+            return m.group(1)
+    return ""
+
+
+def _event_facts(event: dict, etype: str) -> dict:
+    """Datos concretos del evento: puerto PON, ONU, serial, host y usuario."""
+    text = _clean_message(event.get("message") or "")
+    facts = {"pon_port": "", "onu_index": "", "onu_serial": "", "host": "", "user": ""}
+    m = _PON_RE.search(text)
+    if m:
+        facts["pon_port"] = "GPON" + re.sub(r"\s+", "", m.group(1))
+    m = _ONU_RE.search(text)
+    if m:
+        facts["onu_index"] = m.group(1)
+    m = _SN_RE.search(text)
+    if m:
+        facts["onu_serial"] = m.group(1).upper()
+    m = _HOST_RE.search(text)
+    if m:
+        facts["host"] = m.group(1)
+    m = _PPPOE_USER_RE.search(text)
+    if m:
+        facts["user"] = m.group(1)
+    return facts
+
+
+def _event_key(event: dict, etype: str, facts: dict) -> tuple:
+    """Clave que agrupa el mismo problema real.
+
+    - OLT: equipo + puerto PON + tipo de evento (las ONUs van dentro del
+      evento, porque un puerto con varias ONUs caídas es un solo problema).
+    - MikroTik: equipo + tipo + sujeto (host vigilado o usuario PPPoE).
+    """
+    group = _event_group(event)
+    device = event.get("device_name") or event.get("device_ip") or ""
+    if group == "olt":
+        return (group, device, facts.get("pon_port") or "", etype)
+    subject = _event_subject(event, etype)
+    return (group, device, etype, subject)
+
+
+def _scan_events(minutes: int) -> list:
+    """Lee los eventos del ZSET dentro de la ventana (más recientes primero)."""
+    r = _get_redis()
+    now = time.time()
+    cutoff = now - minutes * 60
+    try:
+        items = r.zrevrangebyscore("syslog:recent", now, cutoff, start=0, num=_SCAN_LIMIT)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    events = []
+    for raw in items:
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        _with_effective_severity(d)
+        events.append(d)
+    return events
+
+
+def _aggregate_events(events: list) -> tuple:
+    """Agrupa eventos en "eventos" reales y calcula los conteos por bucket.
+
+    Devuelve ``(groups, counts)`` donde ``groups`` mapea clave -> evento
+    agregado y ``counts`` mantiene el volumen crudo (indicadores del menú) y
+    el número de eventos distintos por bucket (tarjetas).
+    """
+    groups = {}
+    counts = {
+        g: {
+            "news": 0, "warnings": 0, "alerts": 0,
+            "high": 0, "danger": 0,
+            "families": {"news": 0, "warnings": 0, "alerts": 0},
+            "families_total": 0,
+            "raw": 0,
+        }
+        for g in _GROUP_LABELS
+    }
+    for d in events:
+        group = _event_group(d)
+        sev = _panel_severity(d)
+        bucket = _panel_bucket(sev)
+        message = _clean_message(d.get("message") or "")
+        etype = _event_type(message)
+        facts = _event_facts(d, etype)
+        received = d.get("processed_at") or d.get("timestamp") or ""
+
+        counts[group]["raw"] += 1
+        counts[group][bucket] += 1
+        if sev in ("high", "danger"):
+            counts[group][sev] += 1
+
+        key = _event_key(d, etype, facts)
+        item = groups.get(key)
+        if item is None:
+            tag = str(d.get("tag") or d.get("program") or "")
+            title = _TYPE_TITLES.get(etype) or ("Evento de " + (tag or "equipo"))
+            item = {
+                "key": "|".join(str(k) for k in key),
+                "kind": "syslog",
+                "group": group,
+                "type": etype or "generic",
+                "title": title,
+                "sev": sev,
+                "bucket": bucket,
+                "device": d.get("device_name") or d.get("device_ip") or "",
+                "device_ip": d.get("device_ip") or "",
+                "device_type": d.get("device_type") or "",
+                "host": d.get("host") or d.get("fromhost_ip") or d.get("device_ip") or "",
+                "facility": d.get("facility") or "",
+                "program": d.get("program") or "",
+                "tag": tag,
+                "pon_port": facts["pon_port"],
+                "onu_index": facts["onu_index"],
+                "onu_serials": [],
+                "subject": _event_subject(d, etype),
+                "user": facts["user"],
+                "count": 0,
+                "first_seen": received,
+                "last_seen": received,
+                "last_time": _iso_time(received),
+                "sample": message,
+                "values": [],
+            }
+            groups[key] = item
+            counts[group]["families"][bucket] += 1
+            counts[group]["families_total"] += 1
+
+        item["count"] += 1
+        if received and (not item["first_seen"] or received < item["first_seen"]):
+            item["first_seen"] = received
+        if received and (not item["last_seen"] or received > item["last_seen"]):
+            item["last_seen"] = received
+            item["last_time"] = _iso_time(received)
+            item["sample"] = message
+        serial = facts["onu_serial"]
+        if serial and serial not in item["onu_serials"]:
+            item["onu_serials"].append(serial)
+        m = _VALUE_RE.search(message)
+        if m and m.group(1) not in item["values"]:
+            item["values"].append(m.group(1))
+    return groups, counts
+
+
+_SEV_RANK = {"danger": 0, "high": 1, "warning": 2, "news": 3}
+
+
+def _sorted_events(groups: dict) -> list:
+    """Eventos ordenados: primero los graves, luego los más repetidos."""
+    items = list(groups.values())
+    items.sort(key=lambda e: (
+        _SEV_RANK.get(e.get("sev"), 9),
+        -int(e.get("count") or 0),
+        str(e.get("last_seen") or ""),
+    ), reverse=False)
+    return items
+
+
+@router.get("/events")
+def get_syslog_events(
+    minutes: int = Query(360, ge=1, le=10080),
+    limit: int = Query(400, ge=1, le=2000),
+):
+    """Eventos agrupados por problema real (equipo + puerto + tipo).
+
+    Cada evento es una tarjeta del dashboard: un problema concreto que un
+    operador puede recorrer con nombre de equipo, puerto, ONU y número de
+    repeticiones. Las repeticiones del mismo problema se colapsan en un solo
+    evento con su ``count`` y su primer/último avistamiento.
+    """
+    events = _scan_events(minutes)
+    groups, counts = _aggregate_events(events)
+    items = _sorted_events(groups)
+    return {
+        "ok": True,
+        "window_minutes": minutes,
+        "scanned": len(events),
+        "truncated": len(events) >= _SCAN_LIMIT,
+        "labels": _GROUP_LABELS,
+        "counts": counts,
+        "events": items[:limit],
+        "events_total": len(items),
+    }
+
+
+@router.get("/event")
+def get_syslog_event(
+    minutes: int = Query(360, ge=1, le=10080),
+    device_ip: str = Query("", alias="device_ip"),
+    type: str = Query("", alias="type"),
+    pon_port: str = Query("", alias="pon_port"),
+    subject: str = Query("", alias="subject"),
+    limit: int = Query(200, ge=1, le=1000),
+):
+    """Ocurrencias concretas de un evento (las líneas que lo componen).
+
+    Se filtran por equipo, tipo, puerto PON y sujeto; así el modal puede
+    mostrar el historial real del problema, no una familia difusa.
+    """
+    events = _scan_events(minutes)
+    out = []
+    for d in events:
+        message = _clean_message(d.get("message") or "")
+        etype = _event_type(message)
+        facts = _event_facts(d, etype)
+        if device_ip and str(d.get("device_ip") or "") != str(device_ip):
+            continue
+        if type and (etype or "generic") != type:
+            continue
+        if pon_port and facts["pon_port"] != pon_port:
+            continue
+        if subject and _event_subject(d, etype) != subject:
+            continue
+        received = d.get("processed_at") or d.get("timestamp") or ""
+        out.append({
+            "time": _iso_time(received),
+            "received_at": received,
+            "event_at": d.get("timestamp"),
+            "message": message,
+            "tag": d.get("tag") or d.get("program") or "",
+            "program": d.get("program") or "",
+            "device": d.get("device_name") or d.get("device_ip") or "",
+            "device_ip": d.get("device_ip") or "",
+            "pon_port": facts["pon_port"],
+            "onu_index": facts["onu_index"],
+            "onu_serial": facts["onu_serial"],
+            "host": facts["host"],
+            "user": facts["user"],
+            "value": (_VALUE_RE.search(message).group(1) if _VALUE_RE.search(message) else ""),
+        })
+    out.sort(key=lambda e: str(e.get("received_at") or ""), reverse=True)
+    return {
+        "ok": True,
+        "window_minutes": minutes,
+        "count": len(out),
+        "truncated": len(out) > limit,
+        "occurrences": out[:limit],
+    }
+
+
 @router.get("/panels")
 def get_syslog_panels(
     minutes: int = Query(360, ge=1, le=10080),
