@@ -1118,99 +1118,9 @@
 
                 <!-- ==================== TAB: Logs ==================== -->
                 <div v-if="activeTab === 'anomalies'" class="slide-in space-y-6 pt-2">
-                    <!-- Tarjetas de KPIs -->
-                    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                        <div v-for="kpi in anomalyKpis" :key="kpi.key" class="relative overflow-hidden rounded-xl bg-surface-900/60 border border-surface-700/50 p-4">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="min-w-0">
-                                    <div class="text-[11px] uppercase tracking-wider text-surface-400">{{ kpi.label }}</div>
-                                    <div class="mt-1 flex items-baseline gap-2">
-                                        <span class="text-3xl font-bold text-surface-100">{{ kpi.value }}</span>
-                                        <span :class="kpi.trendClass" class="text-[11px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap">{{ kpi.trendText }}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div :id="'spark-' + kpi.key" class="absolute inset-x-0 bottom-0 h-10"></div>
-                        </div>
-                    </div>
-
-                    <!-- Filtros -->
-                    <div class="flex flex-wrap gap-3">
-                        <select v-model="anomalyOltFilter" class="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 focus:outline-none focus:border-brand-500">
-                            <option value="">Todas las OLTs</option>
-                            <option v-for="olt in allOltNames" :key="olt" :value="olt">{{ olt }}</option>
-                        </select>
-                        <select v-model="anomalyTypeFilter" class="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 focus:outline-none focus:border-brand-500">
-                            <option value="">Todos los tipos</option>
-                            <option value="critical">Criticas</option>
-                            <option value="warning">Advertencias</option>
-                        </select>
-                        <select v-model="anomalyPredictionFilter" class="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 focus:outline-none focus:border-brand-500">
-                            <option value="">Prediccion</option>
-                            <option value="prediction">Solo con prediccion</option>
-                        </select>
-                    </div>
-
-                    <!-- Panel Analisis Predictivo -->
-                    <div class="w-full rounded-xl border border-teal-700/60 bg-teal-950/20 p-5">
-                        <div class="flex items-center gap-2 mb-3">
-                            <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
-                            <h3 class="text-sm font-semibold text-teal-300">Analisis Predictivo</h3>
-                        </div>
-                        <div v-if="aiQuotes.length === 0" class="text-sm text-surface-500">Sin predicciones activas en este momento.</div>
-                        <div v-else class="space-y-2">
-                            <div v-for="q in aiQuotes" :key="q.olt_name + '|' + q.onu_serial" class="text-sm leading-relaxed">
-                                <span class="font-mono font-bold text-teal-400">[EQUIPO {{ q.olt_name }}]</span>
-                                <span class="text-surface-300"> ONU {{ q.onu_serial }} · RX {{ q.current_power }} dBm · tendencia {{ q.trend_db_per_hour }} dB/h · fallo estimado en {{ q.hours_to_failure }} h · confianza {{ (q.confidence * 100).toFixed(0) }}%</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Lista de Logs / Anomalias Detectadas -->
-                    <div>
-                        <h3 class="text-sm font-semibold text-surface-300 mb-3">Anomalias Detectadas</h3>
-                        <div class="flex flex-col gap-4">
-                            <div v-if="visibleAnomalies.length === 0" class="bg-surface-900 rounded-xl border border-surface-700/50 p-8 text-center text-surface-500 text-sm">Sin anomalias en el periodo seleccionado</div>
-                            <div v-for="(a, i) in visibleAnomalies" :key="historyKey(a)" class="overflow-hidden rounded-xl bg-surface-900 border border-surface-700/50 border-l-4" :class="a.anomaly_type === 'critical' ? 'border-l-red-500' : 'border-l-amber-500'">
-                                <div class="grid grid-cols-1 xl:grid-cols-12">
-                                    <!-- Bloque izquierdo: info + detalles tecnicos -->
-                                    <div class="xl:col-span-5 flex flex-col gap-2.5 p-4">
-                                        <div class="flex items-center gap-2 flex-wrap">
-                                            <span :class="a.anomaly_type === 'critical' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'" class="text-[10px] uppercase px-2 py-0.5 rounded-full font-semibold">{{ a.anomaly_type }}</span>
-                                            <span class="text-sm font-bold text-surface-100">{{ a.olt_name }}</span>
-                                            <span class="text-surface-600">|</span>
-                                            <span class="font-mono text-xs text-surface-500">{{ a.onu_index }} · {{ a.onu_serial }} · PON {{ a.pon_port }}</span>
-                                        </div>
-                                        <div class="flex items-baseline justify-between gap-3">
-                                            <span class="text-sm text-surface-400">{{ anomalyMessage(a) }}</span>
-                                            <span :class="a.anomaly_type === 'critical' ? 'text-red-400' : 'text-amber-400'" class="text-2xl font-bold font-mono whitespace-nowrap">{{ anomalyValue(a) }}</span>
-                                        </div>
-                                        <div class="mt-auto">
-                                            <div class="text-[10px] uppercase tracking-wider text-surface-500 mb-1.5">Detalles Tecnicos</div>
-                                            <div class="grid grid-cols-4 gap-2">
-                                                <div v-for="cell in anomalyGrid(a, i)" :key="cell.label" class="rounded-lg border border-surface-700/50 bg-surface-800 px-2 py-1.5">
-                                                    <div class="text-[10px] text-surface-500">{{ cell.label }}</div>
-                                                    <div class="text-sm font-mono font-semibold" :class="cell.color">{{ cell.value }}</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <!-- Bloque derecho: historicos 24h -->
-                                    <div class="xl:col-span-7 border-t border-surface-700/50 p-3 xl:border-l xl:border-t-0">
-                                        <div class="flex h-full flex-row gap-2">
-                                            <div class="min-w-0 flex-1">
-                                                <div class="mb-1 text-[10px] text-surface-500">Historial 24h - Rx</div>
-                                                <div :id="'hist-rx-' + i" class="h-24"></div>
-                                            </div>
-                                            <div class="min-w-0 flex-1">
-                                                <div class="mb-1 text-[10px] text-surface-500">Historial 24h - Rx/Tx</div>
-                                                <div :id="'hist-rxtx-' + i" class="h-24"></div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="bg-surface-900 rounded-xl border border-surface-700/50 p-8 text-center">
+                        <div class="text-sm font-semibold text-surface-300 mb-1">Módulo de Logs en preparación</div>
+                        <div class="text-xs text-surface-500">El análisis predictivo y las anomalías detectadas ahora están en "Clientes | Servicios".</div>
                     </div>
                 </div>
 
@@ -1367,6 +1277,101 @@
                         <div v-else-if="!clientSearchLoading && !clientSearchError && clientSearch" class="text-center py-4 text-surface-500 text-sm">No se encontraron clientes</div>
                     </div>
 
+                    <!-- ===== Analisis Predictivo (movido desde Logs) ===== -->
+                    <!-- Panel Analisis Predictivo -->
+                    <div class="w-full rounded-xl border border-teal-700/60 bg-teal-950/20 p-5">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
+                            <h3 class="text-sm font-semibold text-teal-300">Analisis Predictivo</h3>
+                        </div>
+                        <div v-if="aiQuotes.length === 0" class="text-sm text-surface-500">Sin predicciones activas en este momento.</div>
+                        <div v-else class="space-y-2">
+                            <div v-for="q in aiQuotes" :key="q.olt_name + '|' + q.onu_serial" class="text-sm leading-relaxed">
+                                <span class="font-mono font-bold text-teal-400">[EQUIPO {{ q.olt_name }}]</span>
+                                <span class="text-surface-300"> ONU {{ q.onu_serial }} · RX {{ q.current_power }} dBm · tendencia {{ q.trend_db_per_hour }} dB/h · fallo estimado en {{ q.hours_to_failure }} h · confianza {{ (q.confidence * 100).toFixed(0) }}%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ===== Anomalias Detectadas (movido desde Logs) ===== -->
+                    <div>
+                        <h3 class="text-sm font-semibold text-surface-300 mb-3">Anomalías detectadas</h3>
+                        <!-- Tarjetas de KPIs -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                            <div v-for="kpi in anomalyKpis" :key="kpi.key" @click="applyAnomalyKpiFilter(kpi.key)" class="relative overflow-hidden rounded-xl bg-surface-900/60 border border-surface-700/50 p-4 cursor-pointer transition-all hover:border-brand-500/60" :class="anomalyKpiActive(kpi.key) ? 'ring-2 ring-brand-500 border-brand-500/60' : ''">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <div class="text-[11px] uppercase tracking-wider text-surface-400">{{ kpi.label }}</div>
+                                        <div class="mt-1 flex items-baseline gap-2">
+                                            <span class="text-3xl font-bold text-surface-100">{{ kpi.value }}</span>
+                                            <span :class="kpi.trendClass" class="text-[11px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap">{{ kpi.trendText }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div :id="'spark-' + kpi.key" class="absolute inset-x-0 bottom-0 h-10"></div>
+                            </div>
+                        </div>
+
+                        <!-- Filtros -->
+                        <div class="flex flex-wrap gap-3">
+                            <select v-model="anomalyOltFilter" class="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 focus:outline-none focus:border-brand-500">
+                                <option value="">Todas las OLTs</option>
+                                <option v-for="olt in allOltNames" :key="olt" :value="olt">{{ olt }}</option>
+                            </select>
+                            <select v-model="anomalyTypeFilter" class="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 focus:outline-none focus:border-brand-500">
+                                <option value="">Todos los tipos</option>
+                                <option value="critical">Criticas</option>
+                                <option value="warning">Advertencias</option>
+                            </select>
+                            <select v-model="anomalyPredictionFilter" class="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-surface-200 focus:outline-none focus:border-brand-500">
+                                <option value="">Prediccion</option>
+                                <option value="prediction">Solo con prediccion</option>
+                            </select>
+                        </div>
+
+                            <div class="flex flex-col gap-4">
+                                <div v-if="visibleAnomalies.length === 0" class="bg-surface-900 rounded-xl border border-surface-700/50 p-8 text-center text-surface-500 text-sm">Sin anomalias en el periodo seleccionado</div>
+                                <div v-for="(a, i) in visibleAnomalies" :key="historyKey(a)" class="overflow-hidden rounded-xl bg-surface-900 border border-surface-700/50 border-l-4" :class="a.anomaly_type === 'critical' ? 'border-l-red-500' : 'border-l-amber-500'">
+                                    <div class="grid grid-cols-1 xl:grid-cols-12">
+                                        <!-- Bloque izquierdo: info + detalles tecnicos -->
+                                        <div class="xl:col-span-5 flex flex-col gap-2.5 p-4">
+                                            <div class="flex items-center gap-2 flex-wrap">
+                                                <span :class="a.anomaly_type === 'critical' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'" class="text-[10px] uppercase px-2 py-0.5 rounded-full font-semibold">{{ a.anomaly_type }}</span>
+                                                <span class="text-sm font-bold text-surface-100">{{ a.olt_name }}</span>
+                                                <span class="text-surface-600">|</span>
+                                                <span class="font-mono text-xs text-surface-500">{{ a.onu_index }} · {{ a.onu_serial }} · PON {{ a.pon_port }}</span>
+                                            </div>
+                                            <div class="flex items-baseline justify-between gap-3">
+                                                <span class="text-sm text-surface-400">{{ anomalyMessage(a) }}</span>
+                                                <span :class="a.anomaly_type === 'critical' ? 'text-red-400' : 'text-amber-400'" class="text-2xl font-bold font-mono whitespace-nowrap">{{ anomalyValue(a) }}</span>
+                                            </div>
+                                            <div class="mt-auto">
+                                                <div class="text-[10px] uppercase tracking-wider text-surface-500 mb-1.5">Detalles Tecnicos</div>
+                                                <div class="grid grid-cols-4 gap-2">
+                                                    <div v-for="cell in anomalyGrid(a, i)" :key="cell.label" class="rounded-lg border border-surface-700/50 bg-surface-800 px-2 py-1.5">
+                                                        <div class="text-[10px] text-surface-500">{{ cell.label }}</div>
+                                                        <div class="text-sm font-mono font-semibold" :class="cell.color">{{ cell.value }}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- Bloque derecho: historicos 24h -->
+                                        <div class="xl:col-span-7 border-t border-surface-700/50 p-3 xl:border-l xl:border-t-0">
+                                            <div class="flex h-full flex-row gap-2">
+                                                <div class="min-w-0 flex-1">
+                                                    <div class="mb-1 text-[10px] text-surface-500">Historial 24h - Rx</div>
+                                                    <div :id="'hist-rx-' + i" class="h-24"></div>
+                                                </div>
+                                                <div class="min-w-0 flex-1">
+                                                    <div class="mb-1 text-[10px] text-surface-500">Historial 24h - Rx/Tx</div>
+                                                    <div :id="'hist-rxtx-' + i" class="h-24"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                    </div>
                     <!-- Client Detail Modal -->
                     <div v-if="showClientDetailModal && clientDetail" @click.self="closeClientDetail" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.7);">
                         <div class="bg-surface-900 rounded-xl border border-surface-700 p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -2989,6 +2994,20 @@ createApp({
         // Anomaly filters v2
         const anomalyPredictionFilter = ref('');
         const anomalyHistoryCache = ref({});
+
+        // Las 4 tarjetas KPI funcionan como botones de filtro rápido
+        function applyAnomalyKpiFilter(key) {
+            if (key === 'critical') { anomalyTypeFilter.value = 'critical'; anomalyPredictionFilter.value = ''; }
+            else if (key === 'warning') { anomalyTypeFilter.value = 'warning'; anomalyPredictionFilter.value = ''; }
+            else if (key === 'prediction') { anomalyPredictionFilter.value = 'prediction'; anomalyTypeFilter.value = ''; }
+            else { anomalyTypeFilter.value = ''; anomalyPredictionFilter.value = ''; }
+        }
+        function anomalyKpiActive(key) {
+            if (key === 'critical') return anomalyTypeFilter.value === 'critical';
+            if (key === 'warning') return anomalyTypeFilter.value === 'warning';
+            if (key === 'prediction') return anomalyPredictionFilter.value === 'prediction';
+            return !anomalyTypeFilter.value && !anomalyPredictionFilter.value;
+        }
 
         // Network tab (ping)
         const pingStatus = ref([]);
@@ -4800,12 +4819,12 @@ createApp({
 
         // Re-fetch data when switching tabs
         watch(activeTab, async (tab) => {
-            if (tab !== 'anomalies') {
+            if (tab !== 'agent') {
                 destroySparklines();
                 destroyAnomalyCharts();
                 anomalyHistoryCache.value = {};
             }
-            if (tab === 'anomalies') {
+            if (tab === 'agent') {
                 try {
                     const [fullAnom, sumRes, predsRes] = await Promise.allSettled([
                         apiFetch('/api/v1/anomalies/?hours=24&limit=200'),
@@ -5424,6 +5443,7 @@ createApp({
             nodes, allDevices, oltMetrics, opticalData, interfaceData,
             recentAnomalies, anomalies, predictions, anomalySummary,
             anomalyPredictionFilter, visibleAnomalies, anomalyKpis, aiQuotes,
+            applyAnomalyKpiFilter, anomalyKpiActive,
             anomalyMessage, anomalyValue, anomalyGrid, historyKey,
             mikrotikMetrics, mikrotikTemps, mikrotikInterfaces,
             mikrotikLoading, mikrotikLastUpdated,
