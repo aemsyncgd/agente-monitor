@@ -161,7 +161,7 @@ class OpenRouterProvider(LLMProvider):
 
 
 class OllamaProvider(LLMProvider):
-    """Ollama — local models via /api/chat (tools supported)."""
+    """Ollama — local models via OpenAI-compatible /v1/chat/completions."""
 
     name = "ollama"
 
@@ -170,7 +170,7 @@ class OllamaProvider(LLMProvider):
 
     @staticmethod
     def _normalize_messages(messages: List[Dict]) -> List[Dict]:
-        """Convert OpenAI-style messages to Ollama's /api/chat format."""
+        """Normalize messages to OpenAI-style format for compatibility."""
         out: List[Dict] = []
         for msg in messages:
             role = msg.get("role")
@@ -184,10 +184,24 @@ class OllamaProvider(LLMProvider):
                             args = json.loads(args) if args.strip() else {}
                         except json.JSONDecodeError:
                             args = {}
-                    calls.append({"function": {"name": fn.get("name", ""),
-                                               "arguments": args}})
-                out.append({"role": "assistant", "content": "",
-                            "tool_calls": calls})
+                    if not isinstance(args, dict):
+                        args = {}
+                    calls.append({
+                        "id": tc.get("id") or f"ollama_{time.time()}",
+                        "type": "function",
+                        "function": {
+                            "name": fn.get("name", ""),
+                            "arguments": json.dumps(args) if isinstance(args, dict) else "{}",
+                        },
+                    })
+                out.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
+                continue
+            if role == "tool":
+                out.append({
+                    "role": "tool",
+                    "tool_call_id": msg.get("tool_call_id", ""),
+                    "content": msg.get("content") or "",
+                })
                 continue
             out.append(msg)
         return out
@@ -197,29 +211,24 @@ class OllamaProvider(LLMProvider):
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": self._normalize_messages(messages),
-            "options": {
-                "num_predict": max_tokens,
-                "num_ctx": self.num_ctx,
-                "num_thread": self.num_thread,
-                "temperature": temperature,
-            },
-            "keep_alive": self.keep_alive,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
             "stream": False,
         }
         if tools:
             payload["tools"] = tools
 
         try:
-            logger.info(f"Ollama request: model={self.model}, base_url={self.base_url}")
+            logger.info(f"Ollama request (openai-compat): model={self.model}, base_url={self.base_url}")
             resp = requests.post(
-                f"{self.base_url}/api/chat",
+                f"{self.base_url}/v1/chat/completions",
                 headers=self._headers(),
                 json=payload,
                 timeout=self.timeout,
             )
             logger.info(f"Ollama response: {resp.status_code}")
             if resp.status_code != 200:
-                logger.error(f"Ollama error body: {resp.text[:500]}")
+                logger.error(f"Ollama error body: {resp.text[:800]}")
             resp.raise_for_status()
             return self._parse(resp.json())
         except requests.exceptions.Timeout:
@@ -229,6 +238,33 @@ class OllamaProvider(LLMProvider):
             return LLMResult(error=f"Ollama error: {e}", ok=False)
 
     def _parse(self, data: Dict) -> LLMResult:
+        if "choices" in data:
+            choice = (data.get("choices") or [{}])[0]
+            message = choice.get("message", {}) or {}
+            content = message.get("content")
+            result = LLMResult(
+                text=(content or "").strip(),
+                model=data.get("model", self.model),
+                usage=data.get("usage", {}),
+            )
+            tool_calls = message.get("tool_calls") or []
+            for tc in tool_calls:
+                fn = tc.get("function", {}) or {}
+                args = fn.get("arguments", {})
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args) if args.strip() else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                if not isinstance(args, dict):
+                    args = {}
+                result.tool_calls.append(LLMToolCall(
+                    id=tc.get("id") or f"ollama_{time.time()}",
+                    name=fn.get("name", ""),
+                    arguments=args,
+                ))
+            return result
+
         message = data.get("message", {}) or {}
         content = message.get("content")
         result = LLMResult(
@@ -243,6 +279,11 @@ class OllamaProvider(LLMProvider):
         for tc in tool_calls:
             fn = tc.get("function", {}) or {}
             args = fn.get("arguments", {}) or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args) if args.strip() else {}
+                except json.JSONDecodeError:
+                    args = {}
             result.tool_calls.append(LLMToolCall(
                 id=tc.get("id") or f"ollama_{time.time()}",
                 name=fn.get("name", ""),
@@ -251,6 +292,23 @@ class OllamaProvider(LLMProvider):
         return result
 
     def list_models(self) -> List[Dict[str, Any]]:
+        try:
+            resp = requests.get(
+                f"{self.base_url}/v1/models",
+                headers=self._headers(),
+                timeout=self.timeout,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                models = data.get("data") or []
+                if models:
+                    return [
+                        {"id": m.get("id", ""), "name": m.get("id", "")}
+                        for m in models
+                    ]
+        except Exception as e:
+            logger.debug(f"Ollama /v1/models failed, falling back to /api/tags: {e}")
+
         try:
             resp = requests.get(
                 f"{self.base_url}/api/tags",

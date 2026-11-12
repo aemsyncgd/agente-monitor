@@ -1,0 +1,18 @@
+services:
+  syslog-server:
+    image: docker.io/rsyslog/rsyslog:latest
+    container_name: mikrotik-syslog
+    networks:
+      - agente-monitor
+    ports:
+      - "514:514/udp"
+      - "514:514/tcp"
+    volumes:
+      - ./config/rsyslog.conf:/etc/rsyslog.conf:ro
+      - ./logs:/var/log/mikrotik:Z
+    restart: unless-stopped
+
+networks:
+  agente-monitor:
+    external: true
+    name: agente-monitor_default

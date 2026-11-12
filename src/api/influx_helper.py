@@ -188,7 +188,14 @@ _health_check_cache = {"t": 0.0, "ok": True}
 
 def _check_connection() -> bool:
     """Ping real a InfluxDB, cacheado ~10s para que el polling de /health (~30s)
-    no dispare una query contra InfluxDB en cada request."""
+    no dispare una query contra InfluxDB en cada request.
+
+    Se consulta el catálogo de buckets (metadata) en vez de leer datos con
+    `range(start: -1m)`: esa lectura recorre todas las series del bucket y con
+    alta cardinalidad tarda >20s, agotando el límite de 6s del endpoint /health
+    y reportando "unreachable" aunque InfluxDB esté sano. La consulta de
+    metadata valida conexión y token en milisegundos.
+    """
     now = time.monotonic()
     with _DASH_LOCK:
         if now - _health_check_cache["t"] < _HEALTH_CHECK_TTL:
@@ -196,11 +203,11 @@ def _check_connection() -> bool:
     ok = False
     try:
         api = _get_query_api()
-        api.query(
-            f'from(bucket: "{INFLUX_BUCKET}") |> range(start: -1m) |> limit(n: 1)',
+        tables = api.query(
+            f'buckets() |> filter(fn: (r) => r.name == "{INFLUX_BUCKET}")',
             org=INFLUX_ORG,
         )
-        ok = True
+        ok = any(len(table.records) > 0 for table in tables)
     except Exception:
         ok = False
     with _DASH_LOCK:

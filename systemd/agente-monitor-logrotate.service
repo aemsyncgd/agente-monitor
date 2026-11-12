@@ -1,0 +1,11 @@
+[Unit]
+Description=Agente Monitor - Rotación de all.jsonl (MikroTik/OLTs)
+Documentation=file:///home/server/agente-monitor/scripts/rotate_mikrotik_log.sh
+After=agente-monitor-compose.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/server/agente-monitor
+ExecStart=/home/server/agente-monitor/scripts/rotate_mikrotik_log.sh
+Nice=10
+IOSchedulingClass=idle

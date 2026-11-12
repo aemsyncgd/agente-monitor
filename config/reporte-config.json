@@ -141,7 +141,12 @@
     },
     {
       "name": "OLT-SISAL-3",
-      "ge_interfaces": [],
+      "ge_interfaces": [
+        {
+          "name": "GE0/7",
+          "analyze": false
+        }
+      ],
       "pon_monitoring": true
     }
   ]

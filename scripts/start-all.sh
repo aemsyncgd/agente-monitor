@@ -28,7 +28,7 @@ else
 fi
 
 wait_for_influxdb() {
-    log "Esperando a que InfluxDB esté healthy (unit influxdb-ia.service)..."
+    log "Esperando a que InfluxDB esté healthy (contenedor influxdb-ia)..."
     local max_attempts=60
     local attempt=0
     
@@ -42,7 +42,7 @@ wait_for_influxdb() {
         sleep 2
     done
     
-    log "ERROR: InfluxDB no respondió tras ${max_attempts} intentos. ¿Está activo el unit influxdb-ia.service?"
+    log "ERROR: InfluxDB no respondió tras ${max_attempts} intentos. ¿Está arriba el contenedor influxdb-ia? (systemctl --user status agente-monitor-compose.service)"
     return 1
 }
 
@@ -89,7 +89,11 @@ start_component "api" "${VENV_PYTHON} -m uvicorn src.api.main:app --host 0.0.0.0
 sleep 2
 start_component "ai-agent" "${VENV_PYTHON} -m src.ai.main"
 sleep 2
-start_component "llm-agent" "${VENV_PYTHON} -m src.ai.llm_agent.main"
+# DESHABILITADO TEMPORALMENTE (host sin recursos para el modelo LLM).
+# El panel "Agente LLM" del dashboard queda visible pero inactivo.
+# Reactivar: descomentar esta línea y poner llm.enabled: true en
+# config/config_ia.yaml + config/llm_config.json.
+# start_component "llm-agent" "${VENV_PYTHON} -m src.ai.llm_agent.main"
 
 log "Todos los componentes iniciados. Esperando señales..."
 

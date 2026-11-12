@@ -337,11 +337,11 @@ la ruta real del proyecto.
 | Scheduler | `agente-monitor-scheduler.service` | `python3 -m src.scheduler_cli` |
 | Bot Telegram | `agente-monitor-bot.service` | `python3 -m src.telegram_bot` |
 
-Los contenedores de InfluxDB y Redis, si decides correrlos como quadlet de
-Podman (en vez de `podman-compose`), tienen sus archivos en
-**`~/.config/containers/systemd/`** (`influxdb-ia.container`,
-`redis-ia.container`) y generan las units `influxdb-ia.service` y
-`redis-ia.service`.
+Los contenedores (InfluxDB, Redis y mikrotik-syslog) se definen **solo** en
+`compose.yml` y comparten la red `agente-monitor-net`. El arranque automático lo
+gestiona la unit de usuario **`agente-monitor-compose.service`**
+(`podman-compose down && up -d`), de la que depende `agente-monitor.service`.
+No se usan quadlets en `~/.config/containers/systemd/`.
 
 ### Instalar / habilitar / arrancar
 

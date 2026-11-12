@@ -346,6 +346,7 @@ class EventBusConfig:
     retry_backoff_seconds: float = 1.0
     dlq_stream: str = "wisp:events:dlq"
     legacy_direct_write: bool = False
+    stream_maxlen: int = 10000
 
 
 # === Configuración RAG ===
@@ -760,7 +761,8 @@ def load_config_ia(path: str) -> ConfigIA:
             max_retries=eb.get("max_retries", 3),
             retry_backoff_seconds=eb.get("retry_backoff_seconds", 1.0),
             dlq_stream=eb.get("dlq_stream", "wisp:events:dlq"),
-            legacy_direct_write=eb.get("legacy_direct_write", False)
+            legacy_direct_write=eb.get("legacy_direct_write", False),
+            stream_maxlen=eb.get("stream_maxlen", 10000)
         )
 
     if "rag" in raw:

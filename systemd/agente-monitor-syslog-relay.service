@@ -1,0 +1,16 @@
+[Unit]
+Description=Agente Monitor - Relay syslog del host (conserva la IP de origen)
+Documentation=file://@PROJECT_DIR@/scripts/syslog_relay.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_DIR@
+ExecStart=/usr/bin/python3 @PROJECT_DIR@/scripts/syslog_relay.py
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

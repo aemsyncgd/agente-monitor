@@ -1,0 +1,10 @@
+[Unit]
+Description=Agente Monitor - Rotación diaria de all.jsonl
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

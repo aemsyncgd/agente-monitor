@@ -47,10 +47,14 @@ agent:
   instructions_path: config/instructions.json
   model_lightweight: true
 llm:
-  enabled: true
+  # DESHABILITADO TEMPORALMENTE: el host no tiene recursos para correr el
+  # modelo LLM. El panel "Agente LLM" del dashboard queda visible pero
+  # inactivo. Reactivar: poner enabled: true acá y en config/llm_config.json,
+  # y descomentar la línea llm-agent en scripts/start-all.sh.
+  enabled: false
   mode: hybrid
   provider: ollama
-  model: qwen2.5:3b-instruct
+  model: qwen2.5:3b
   base_url: http://localhost:11434
   api_key_env: OPENROUTER_API_KEY
   check_interval_seconds: 900
@@ -95,6 +99,7 @@ event_bus:
   retry_backoff_seconds: 1.0
   dlq_stream: wisp:events:dlq
   legacy_direct_write: false
+  stream_maxlen: 10000
 rag:
   enabled: true
   collection_name: wisp_knowledge

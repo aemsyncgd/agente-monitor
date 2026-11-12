@@ -11,6 +11,9 @@ effect immediately.
 """
 import time
 import logging
+import redis
+import json
+import os
 from typing import Dict, List, Optional, Any, Callable, Tuple
 
 logger = logging.getLogger(__name__)
@@ -313,6 +316,7 @@ class ToolRegistry:
 
     # instruction_id -> list of tool names it gates
     RULE_GATES = {
+        "syslog_monitor": ["get_syslog_events", "get_syslog_by_device", "get_syslog_summary"],
         "detect_anomaly": ["get_anomalies"],
         "predict_failure": ["predict_failures"],
         "check_ping_status": ["get_ping_status"],
@@ -326,7 +330,7 @@ class ToolRegistry:
         "send_telegram": ["send_alert"],
     }
     # Tools always available (agent infrastructure/memory)
-    ALWAYS = ["get_recent_events"]
+    ALWAYS = ["get_recent_events", "get_syslog_events", "get_syslog_summary"]
 
     def __init__(self, reader: InfluxReader, client_lookup, event_store,
                  alert_sender, client_search=None):
@@ -495,6 +499,113 @@ class ToolRegistry:
             logger.warning(f"group_analysis falló: {e}")
             return {"ok": False, "error": f"group_analysis falló: {e}"}
 
+
+    # ---------------------------- SYSLOG TOOLS ----------------------------
+
+    def _get_redis_syslog(self):
+        try:
+            return redis.Redis(host='127.0.0.1', port=6380, db=0, decode_responses=True)
+        except Exception as e:
+            logger.warning(f'No se pudo conectar a redis-syslog: {e}')
+            return None
+
+    def _get_syslog_events(self, device_ip: Optional[str] = None,
+                           device_name: Optional[str] = None,
+                           device_type: Optional[str] = None,
+                           site: Optional[str] = None,
+                           severity: Optional[str] = None,
+                           minutes: int = 60,
+                           limit: int = 100,
+                           search: Optional[str] = None) -> Dict:
+        r = self._get_redis_syslog()
+        if not r:
+            return {"ok": False, "error": "redis-syslog no disponible"}
+        try:
+            now = time.time()
+            cutoff = now - minutes * 60
+            items = r.zrangebyscore('syslog:recent', cutoff, now)
+            out = []
+            for s in items:
+                try:
+                    d = json.loads(s)
+                except Exception:
+                    continue
+                if device_ip and str(d.get('device_ip')) != str(device_ip):
+                    continue
+                if device_name:
+                    dn = str(d.get('device_name','')).lower()
+                    if str(device_name).lower() not in dn and dn != str(device_name).lower():
+                        continue
+                if device_type and str(d.get('device_type')) != str(device_type):
+                    continue
+                if site and str(d.get('site','')).lower() != str(site).lower():
+                    continue
+                if severity and str(d.get('severity','')).lower() != str(severity).lower():
+                    continue
+                if search:
+                    st = search.lower()
+                    blob = ' '.join([str(d.get('message','')), str(d.get('tag','')), str(d.get('program',''))]).lower()
+                    if st not in blob:
+                        continue
+                out.append(d)
+            out = sorted(out, key=lambda x: x.get('timestamp',''), reverse=True)
+            return {"ok": True, "count": len(out[:limit]), "events": out[:limit], "window_minutes": minutes}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def _get_syslog_by_device(self, device_ip: Optional[str] = None,
+                              device_name: Optional[str] = None,
+                              minutes: int = 120,
+                              limit: int = 200) -> Dict:
+        r = self._get_redis_syslog()
+        if not r:
+            return {"ok": False, "error": "redis-syslog no disponible"}
+        try:
+            now = time.time()
+            cutoff = now - minutes * 60
+            items = r.zrangebyscore('syslog:recent', cutoff, now)
+            out = []
+            for s in items:
+                try:
+                    d = json.loads(s)
+                except Exception:
+                    continue
+                if device_ip and str(d.get('device_ip')) != str(device_ip):
+                    continue
+                if device_name and str(device_name).lower() not in str(d.get('device_name','')).lower():
+                    continue
+                out.append(d)
+            out = sorted(out, key=lambda x: x.get('timestamp',''), reverse=True)
+            return {"ok": True, "device_ip": device_ip, "device_name": device_name, "count": len(out[:limit]), "events": out[:limit]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def _get_syslog_summary(self, minutes: int = 60, limit: int = 30) -> Dict:
+        r = self._get_redis_syslog()
+        if not r:
+            return {"ok": False, "error": "redis-syslog no disponible"}
+        try:
+            now = time.time()
+            cutoff = now - minutes * 60
+            items = r.zrangebyscore('syslog:recent', cutoff, now)
+            events = []
+            for s in items:
+                try:
+                    events.append(json.loads(s))
+                except Exception:
+                    continue
+            by_sev = {}
+            by_dev = {}
+            for e in events:
+                sev = e.get('severity') or 'unknown'
+                by_sev[sev] = by_sev.get(sev, 0) + 1
+                dn = e.get('device_name') or e.get('device_ip') or 'unknown'
+                by_dev[dn] = by_dev.get(dn, 0) + 1
+            recent = sorted(events, key=lambda x: x.get('timestamp',''), reverse=True)[:limit]
+            return {"ok": True, "window_minutes": minutes, "total": len(events), "by_severity": by_sev, "by_device": by_dev, "recent": recent}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     def _send_alert(self, title: str, severity: str = "warning",
                     message: str = "", channel: str = "telegram") -> Dict:
         if not title:
@@ -562,6 +673,9 @@ class ToolRegistry:
             "clients_by_zone": self._clients_by_zone,
             "mismatched_locations": self._mismatched_locations,
             "group_analysis": self._group_analysis,
+            "get_syslog_events": self._get_syslog_events,
+            "get_syslog_by_device": self._get_syslog_by_device,
+            "get_syslog_summary": self._get_syslog_summary,
         }
         return handlers.get(name)
 
@@ -636,6 +750,22 @@ _TOOL_DESCRIPTIONS = {
         "afectados con direccion, perdida de senal (loss), baja potencia "
         "(low_power) y distribucion de estados. Usalo cuando haya varias ONUs "
         "cayendo juntas para saber cuantos clientes y quienes estan afectados."
+    ),
+    "get_syslog_events": (
+        "Obtiene eventos recientes de syslog de MikroTik/OLTs (enriquecidos con "
+        "nombre del equipo, tipo, sitio). Permite filtrar por device_ip, device_name, "
+        "device_type (mikrotik/olt), severity, desde hace N minutos, limite y busqueda "
+        "por texto en mensaje/tag. Usalo para investigar incidentes o responder "
+        "'¿Qué ha pasado?' por equipo/red."
+    ),
+    "get_syslog_by_device": (
+        "Eventos syslog recientes de un dispositivo concreto (por IP o nombre). "
+        "Ideal para ver el histórico detallado de un MikroTik/OLT específico."
+    ),
+    "get_syslog_summary": (
+        "Resumen de eventos syslog en los últimos minutos: conteo por severidad, "
+        "por equipo, top mensajes y últimos eventos relevantes. Úsalo para tener "
+        "visión rápida de actividad/alertas."
     ),
 }
 
@@ -741,5 +871,37 @@ _TOOL_PARAMS: Dict[str, Dict] = {
             "nap": {"type": "string", "description": "NAP (caja de distribucion, ej. I01313)"},
         },
         "required": [],
+    },
+    "get_syslog_events": {
+        "type": "object",
+        "properties": {
+            "device_ip": {"type": "string"},
+            "device_name": {"type": "string"},
+            "device_type": {"type": "string", "enum": ["mikrotik", "olt", "unknown"]},
+            "site": {"type": "string"},
+            "severity": {"type": "string"},
+            "minutes": {"type": "integer", "description": "Minutos hacia atrás (default 60)"},
+            "limit": {"type": "integer", "description": "Máximo resultados (default 100)"},
+            "search": {"type": "string", "description": "Buscar en message/tag/program"}
+        },
+        "required": []
+    },
+    "get_syslog_by_device": {
+        "type": "object",
+        "properties": {
+            "device_ip": {"type": "string"},
+            "device_name": {"type": "string"},
+            "minutes": {"type": "integer", "description": "Minutos hacia atrás (default 120)"},
+            "limit": {"type": "integer", "description": "Máximo resultados (default 200)"}
+        },
+        "required": []
+    },
+    "get_syslog_summary": {
+        "type": "object",
+        "properties": {
+            "minutes": {"type": "integer", "description": "Minutos hacia atrás (default 60)"},
+            "limit": {"type": "integer", "description": "Límite de eventos recientes (default 30)"}
+        },
+        "required": []
     },
 }

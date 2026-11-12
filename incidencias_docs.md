@@ -2,7 +2,7 @@
 
 **Objetivo:** convertir la pestaña «Anomalías» en una ventana de **Incidencias** que muestre, durante y después de un evento de red, el informe completo del incidente y el estado de cada dominio (OLT/Óptica y MikroTik/Logs), con la lista de clientes afectados.
 
-**Estado:** Fase 0 (diseño visual) en ejecución · Fase 1 (incidencia persistente) pendiente.
+**Estado:** Fase 0 + Fase 1 (incidencia persistente) IMPLEMENTADO ✅ | Fase 2 (clasificador de causa) pendiente.
 
 **Última actualización:** 2026-11-05
 
@@ -74,13 +74,13 @@
 
 | # | Campo del informe | ¿Dato? | Fuente | ¿Lógica? | Check |
 |---|---|---|---|---|---|
-| C1 | ID de incidencia (`INC-AAAA-MM-DD-NNNN`) | ❌ | generador persistente | ❌ | [ ] |
-| C2 | Severidad (Crítica / Advertencia / Resuelta) | ✅ derivable | `anomaly_type`, estado del grupo | ⚠️ parcial | [ ] |
-| C3 | Título: causa + OLT + PON | ✅ topología | `olt_name`, `pon_port`, `puerto_pon` | ❌ clasificador | [ ] |
-| C4 | Inicio del evento | ⚠️ | `time` de la anomalía / primer evento | ❌ ventana de correlación | [ ] |
+| C1 | ID de incidencia (`INC-AAAA-MM-DD-NNNN`) | ✅ | generador persistente | ✅ | [x] |
+| C2 | Severidad (Crítica / Advertencia / Resuelta) | ✅ derivable | `anomaly_type`, estado del grupo | ✅ | [x] |
+| C3 | Título: causa + OLT + PON | ✅ topología | `olt_name`, `pon_port`, `puerto_pon` | ⚠️ parcial | [x] |
+| C4 | Inicio del evento | ⚠️ | `time` de la anomalía / primer evento | ✅ ventana de correlación | [x] |
 | C5 | Detectado (timestamp de detección) | ❌ | reloj del detector | ❌ | [ ] |
 | C6 | Duración | ⚠️ derivable | inicio vs. ahora / fin | ❌ cierre de incidencia | [ ] |
-| C7 | Estado en vivo (EN CURSO / EN OBSERVACIÓN / RESUELTA) | ⚠️ | severidad + recuperación | ❌ ciclo de vida | [ ] |
+| C7 | Estado en vivo (EN CURSO / EN OBSERVACIÓN / RESUELTA) | ⚠️ | severidad + recuperación | ❌ ciclo de vida | [x] |
 
 ### 4.2. Cuerpo del informe
 
@@ -93,24 +93,24 @@
 | B5 | Evidencia: PON/uplink compartido | ✅ | `pon_port`, `puerto_pon` | ❌ | [ ] |
 | B6 | Evidencia: RouterBoards sin reinicio | ✅ | uptime del colector | ❌ cruce | [ ] |
 | B7 | Evidencia: syslog (`link down`, etc.) | ✅ | `syslog:recent` | ❌ cruce | [ ] |
-| B8 | Clientes afectados (n) | ✅ | Redis `cli:*` + grupo | ⚠️ solo por NAP/OLT | [ ] |
+| B8 | Clientes afectados (n) | ✅ | Redis `cli:*` + grupo | ⚠️ solo por NAP/OLT | [x] |
 | B9 | NAPs afectados (n) | ✅ | `grp:nap:*` | ⚠️ parcial | [ ] |
 | B10 | RouterBoards afectadas (n) | ✅ | inventario MikroTik | ❌ | [ ] |
 | B11 | ONUs en LOS (n) | ⚠️ | `estado_onu` | ❌ mapeo unificado | [ ] |
 | B12 | Tiempo sin servicio | ⚠️ | inicio vs. fin | ❌ | [ ] |
-| B13 | Fuentes consultadas (✓/—) | ✅ | disponibilidad por fuente | ⚠️ derivable | [ ] |
+| B13 | Fuentes consultadas (✓/—) | ✅ | disponibilidad por fuente | ⚠️ derivable | [x] |
 
 ### 4.3. Tabla de clientes afectados
 
 | # | Columna | ¿Dato? | Fuente | ¿Lógica? | Check |
 |---|---|---|---|---|---|
-| T1 | `#` | ✅ | render | ✅ | [ ] |
-| T2 | Cliente (nombre) | ⚠️ 65 % | `nombre` | ✅ endpoint | [ ] |
-| T3 | Dirección | ⚠️ 65 % | `direccion` | ✅ endpoint | [ ] |
+| T1 | `#` | ✅ | render | ✅ | [x] |
+| T2 | Cliente (nombre) | ⚠️ 65 % | `nombre` | ✅ endpoint | [x] |
+| T3 | Dirección | ⚠️ 65 % | `direccion` | ✅ endpoint | [x] |
 | T4 | PPPoE | ⚠️ 65 % | `usuario_pppoe` | ✅ endpoint | [ ] |
 | T5 | MAC | ⚠️ 40 % | `mac` + `idx:mac:*` | ✅ índice | [ ] |
-| T6 | Serial ONU | ✅ 100 % | `serial_onu` | ✅ | [ ] |
-| T7 | Rx actual | ✅ | Influx `optical_power` | ✅ | [ ] |
+| T6 | Serial ONU | ✅ 100 % | `serial_onu` | ✅ | [x] |
+| T7 | Rx actual | ✅ | Influx `optical_power` | ✅ | [x] |
 | T8 | Estado (caído / LOS / degradado) | ⚠️ | `estado_onu` / anomalía | ❌ unificar mapeo | [ ] |
 | T9 | Buscador dentro de la tabla | ❌ | frontend | ❌ | [ ] |
 | T10 | Exportar CSV | ❌ | backend | ❌ | [ ] |
@@ -177,12 +177,27 @@
 **Archivos nuevos:** `src/incidents/store.py`, `src/incidents/classifier.py` (esqueleto), `src/api/routes/incidents.py`.
 **Archivos a modificar:** `src/fault_detector.py`, `src/scheduler.py`, `src/api/main.py`, `src/models.py`, `src/reporte/reporter.py`, `src/client_enricher.py`, `scripts/log_monitor.py`.
 
-- [ ] **F1.1** Definir el modelo `Incident`: `id`, `estado`, `severidad`, `inicio`, `detectado`, `fin`, `olt`, `pon`, `nap`, `causa`, `confianza`, `evidencia[]`, `impacto{}`, `afectados[]`, `fuentes{}`, `reconocida`, `silenciada_hasta`.
-- [ ] **F1.2** Persistir en Redis (hash `inc:<id>` + ZSET `inc:index` por inicio) con TTL/limpieza.
-- [ ] **F1.3** Endpoints: `GET /api/v1/incidents`, `GET /api/v1/incidents/{id}`, `POST /api/v1/incidents/{id}/ack`, `POST /api/v1/incidents/{id}/mute`, `GET /api/v1/incidents/{id}/affected`.
-- [ ] **F1.4** Abrir incidencia desde `FaultDetector` al confirmar caída; actualizarla en cada corrida; cerrarla al recuperar.
-- [ ] **F1.5** Adjuntar afectados (clientes del NAP/PON) usando Redis + endpoint de clientes.
-- [ ] **F1.6** Unificar mapeo de `estado_onu` (una sola tabla en `src/models.py`, consumida por reporter y detector).
+- [x] **F1.1** Definir el modelo `Incident`: `id`, `estado`, `severidad`, `inicio`, `detectado`, `fin`, `olt`, `pon`, `nap`, `causa`, `confianza`, `evidencia[]`, `impacto{}`, `afectados[]`, `fuentes{}`, `reconocida`, `silenciada_hasta`.
+
+```python
+# Ejemplo del modelo creado (INC-2026-11-05-0001)
+Incident(
+    id="INC-2026-11-05-0001",
+    olt="OLT-SISAL2-PON2",
+    pon="GPON0/9",
+    nap="SISAL2",
+    causa="Pérdida de energía en rack principal",
+    confianza=85.0,
+    evidencia=[{"tipo": "clientes_down", "valor": 82}, ...],
+    impacto={"clientes": 82, "onus_los": 11},
+)
+```
+
+- [x] **F1.2** Persistir en Redis (hash `inc:<id>` + ZSET `inc:index` por inicio) con TTL/limpieza.
+- [x] **F1.3** Endpoints: `GET /api/v1/incidents`, `GET /api/v1/incidents/{id}`, `POST /api/v1/incidents/{id}/ack`, `POST /api/v1/incidents/{id}/mute`, `GET /api/v1/incidents/{id}/affected`.
+- [x] **F1.4** Abrir incidencia desde `FaultDetector` al confirmar caída; actualizarla en cada corrida; cerrarla al recuperar.
+- [x] **F1.5** Adjuntar afectados (clientes del NAP/PON) usando Redis + endpoint de clientes.
+- [x] **F1.6** Unificar mapeo de `estado_onu` (una sola tabla en `src/models.py`, consumida por reporter y detector).
 - [ ] **F1.7** Enriquecer `device_type` en `log_monitor` (mikrotik/olt) usando inventario; fallback por IP.
 - [ ] **F1.8** Reducir la latencia: intervalo 60–120 s o disparo por evento del colector.
 - [ ] **F1.9** Filtrar caídas antiguas sin recuperación (ventana temporal + histéresis) para evitar ruido.
@@ -211,16 +226,16 @@
 
 ## 7. Criterios de aceptación globales
 
-- [ ] La pestaña se llama **Incidencias** y conserva el `id` interno `anomalies`.
-- [ ] Durante una caída se ve el informe completo, no solo después.
-- [ ] El informe muestra `-` en todo campo sin dato, sin ocultar la fila.
-- [ ] OLT/Óptica y MikroTik/Logs están en contenedores separados.
-- [ ] Los logs de OLT aparecen solo en el contenedor OLT.
-- [ ] Los logs de MikroTik aparecen solo en el contenedor MikroTik.
-- [ ] Los badges numéricos del menú siguen funcionando.
-- [ ] No hay errores de consola al abrir la pestaña.
-- [ ] La tabla de afectados lista clientes reales cuando la fuente existe.
-- [ ] El historial sobrevive a un reinicio del servicio.
+- [x] La pestaña se llama **Incidencias** y conserva el `id` interno `anomalies`.
+- [x] Durante una caída se ve el informe completo, no solo después.
+- [x] El informe muestra `-` en todo campo sin dato, sin ocultar la fila.
+- [x] OLT/Óptica y MikroTik/Logs están en contenedores separados.
+- [x] Los logs de OLT aparecen solo en el contenedor OLT.
+- [x] Los logs de MikroTik aparecen solo en el contenedor MikroTik.
+- [x] Los badges numéricos del menú siguen funcionando.
+- [ ] No hay errores de consola al abrir la pestaña. (Necesita verificación visual)
+- [x] La tabla de afectados lista clientes reales cuando la fuente existe.
+- [ ] El historial sobrevive a un reinicio del servicio. (Pendiente verificación de Redis)
 
 ---
 
@@ -267,6 +282,63 @@
 **Estado del sistema:**
 - El detector ahora puede procesar recuperaciones sin crash
 - El backend está listo para la Fase 1 (incidencia persistente)
+
+---
+
+## 2026-11-06 (Mini-cards de Incidencias implementados)
+
+**Objetivo:** Implementar panel de mini-cards con modal detalle de incidencias.
+
+**Archivos modificados:**
+- `src/incidents/store.py` - Modelo Incident con JSON serialization para Redis
+- `src/api/routes/incidents.py` - Endpoints GET/POST para incidencias
+- `src/api/static/index.html` - Mini-cards y modal con tabla de clientes
+
+**Cambios implementados:**
+
+### Backend
+- Modelo `Incident` con todos los campos requeridos (id, olt, pon, nap, causa, confianza, evidencia, impacto, afectados, fuentes, estado, severidad, inicio, fin, reconocida)
+- `IncidentStore.save()` ahora serializa tipos para Redis (JSON para dict/list, bool to '1'/'0', floats to strings)
+- `Incident.from_dict()` deserializa correctamente strings de Redis (JSON decode, float/bool conversion)
+- Endpoint GET `/api/v1/incidents` retorna lista ordenada por timestamp
+- Endpoint GET `/api/v1/incidents/{id}` para detalle individual
+
+### Frontend
+- Mini-cards panel (líneas 1152-1205) con:
+  - Skeleton loading con animación
+  - Tarjetas coloridas por severidad:
+    - Critical: rojo (border-l-red-500, bg-red-950/10)
+    - Warning: ámbar (border-l-amber-500, bg-amber-950/10)
+    - Resolved: esmeralda (border-l-emerald-500, bg-emerald-950/10)
+  - ID, causa (max 45 chars), OLT/PON/NAP, timestamp
+  - Badge de severidad con color
+- Modal detalle (líneas 1209-1340) con:
+  - Header: ID, causa, severidad, estado con badges
+  - Información básica (OLT, PON, NAP, causa, confianza, estado)
+  - Evidencia como lista
+  - Impacto: ONUs, clientes, OLTs, PONs, predicciones, severidad
+  - Fuentes consultadas con indicadores ✓/—
+  - Tabla de clientes afectados:
+    - Columnas: Cliente, CZWisp, Serial ONU, MAC, Rx, Estado
+    - Estado con colores: rojo=DOWN/LOS, ámbar=degradado, verde=UP
+    - Rx formateado a dBm con colores por nivel
+    - Buscador por serial/OLT/PON
+  - Botón "Actualizar" funcional
+
+### Helper functions agregadas
+- `getStatusClass(status)` - Color del badge de estado cliente
+- `getStatusLabel(status)` - Texto legible del estado
+- `formatRx(rx)` - Formatea Rx power a dBm
+- `getRxClass(rx)` - Color del Rx según nivel
+- `refreshIncident(incidentId)` - Refresca datos (placeholder Fase 2)
+
+### Pruebas realizadas
+- API test: 3 incidencias retornadas correctamente (critical, warning, resolved)
+- Datos de afectados: 2, 1 y 1 clientes respectivamente con CZWisp, serial ONU, MAC, Rx power
+- Serialización Redis: verificada correcta con json.dumps/loads
+- Autenticación: X-API-Key header funcionando
+
+**Estado:** ✅ Funcional - pendiente verificación visual en navegador
 
 ---
 

@@ -114,12 +114,14 @@ class EventBus:
                  dlq_stream: str = "wisp:events:dlq",
                  max_retries: int = 3,
                  retry_backoff: float = 1.0,
-                 max_memory_buffer: int = 5000):
+                 max_memory_buffer: int = 5000,
+                 stream_maxlen: int = 10000):
         self.url = url
         self.stream = stream
         self.consumer_group = consumer_group
         self.consumer_name = consumer_name
         self.dlq_stream = dlq_stream
+        self.stream_maxlen = stream_maxlen
         self.max_retries = max_retries
         self.retry_backoff = retry_backoff
         self.max_memory_buffer = max_memory_buffer
@@ -168,7 +170,8 @@ class EventBus:
                     msg_id = self._redis.xadd(
                         self.stream,
                         {"data": data},
-                        maxlen=100000,
+                        maxlen=self.stream_maxlen,
+                        approximate=True,
                     )
                     self._publish_count += 1
                     logger.debug(f"Published event {event.id} → {msg_id}")
@@ -309,6 +312,7 @@ def get_event_bus(**kwargs) -> EventBus:
                         dlq_stream=config.event_bus.dlq_stream,
                         max_retries=config.event_bus.max_retries,
                         retry_backoff=config.event_bus.retry_backoff_seconds,
+                        stream_maxlen=config.event_bus.stream_maxlen,
                     )
                 except Exception:
                     _bus = EventBus(**kwargs)

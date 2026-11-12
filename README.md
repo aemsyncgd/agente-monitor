@@ -219,13 +219,12 @@ agente-monitor/
 │   ├── reporte-config.json      # Qué hosts/interfaces entran al reporte
 │   └── telegram-report-format.conf
 ├── systemd/                     # Units de usuario (7 servicios + unidad unificada)
-├── scripts/                     # manage-services.sh · start-all.sh · seed_rag.py
+├── scripts/                     # manage-services.sh · mantenimiento.sh · start-all.sh · rotate_mikrotik_log.sh · seed_rag.py
 ├── tests/                       # Suite pytest (333 tests)
 ├── assets/                      # Banner del README
 ├── docs/                        # Especificaciones y planes de diseño (por sesión)
 ├── compose.yml                  # InfluxDB + Redis
 ├── Dockerfile*                  # Imágenes por componente (api, ai, collector)
-├── mantenimiento.sh             # Atajos de systemctl --user
 ├── requirements.txt             # Dependencias base
 └── requirements-ia.txt          # Dependencias IA / API / test
 ```
@@ -366,10 +365,14 @@ O serviço por servicio:
 Atajos equivalentes:
 
 ```bash
-./mantenimiento.sh --ready    # iniciar todo y esperar a que esté operativo
-./mantenimiento.sh --status   # estado
-./mantenimiento.sh --now      # detener todo
+./scripts/mantenimiento.sh --start              # iniciar todo y esperar a que esté operativo
+./scripts/mantenimiento.sh --status             # estado de todo el stack
+./scripts/mantenimiento.sh --stop               # detener todo (infra + app)
+./scripts/mantenimiento.sh --restart            # parar y volver a iniciar
+./scripts/mantenimiento.sh --start --with-llm   # incluir el agente LLM (wisp-agent)
 ```
+
+> Alias heredados: `--ready` = `--start` y `--now` = `--stop`.
 
 > `start-all.sh` y los units usan `.env.ia` para los secretos y aplican los `defaults`
 > de rutas (`CONFIG_PATH`, `NODES_PATH`, `MODEL_PATH`, `INSTRUCTIONS_PATH`).
@@ -448,8 +451,15 @@ Proyecto publicado bajo la **GNU General Public License v3.0** — ver [LICENSE]
 
 ## Syslog MikroTik/OLTs + Redis aislado para logs
 
-- **Receptor syslog**: `mikrotik-syslog` (rsyslog) escucha UDP/TCP 5514. Configuración en `mikrotik-syslog/config/rsyslog.conf`. Logs JSONL en `mikrotik-syslog/logs/all.jsonl` con rotación diaria/logrotate (retención 365 días).
-- **Procesador en tiempo real**: `scripts/log_monitor.py` lee el JSONL, filtra eventos relevantes y envía a cola Redis `cola_logs_para_llm` (LPUSH).
+- **Receptor syslog**: `mikrotik-syslog` (rsyslog) escucha UDP/TCP en `127.0.0.1:5515`. Configuración en `mikrotik-syslog/config/rsyslog.conf`. Logs JSONL en `mikrotik-syslog/logs/all.jsonl`.
+- **Relay del host (IP de origen)**: `scripts/syslog_relay.py` escucha el `5514` público (donde apuntan los MikroTik) y reenvía al contenedor por `127.0.0.1:5515`. El NAT de podman rootless perdía la IP del router (`fromip` siempre era `10.89.6.x`), así que el relay antepone `__SRCIP__=<ip real>` al mensaje; `log_monitor.py` la extrae como `device_ip`, `srcip` y `fromhost_ip`, y borra la marca del texto mostrado. Servicio: `agente-monitor-syslog-relay.service` (usuario, sin root).
+- **Atribución**: los eventos nuevos llevan la IP real del equipo (p. ej. `172.16.126.1`) y la de `host`. Los eventos históricos anteriores al relay conservan `10.89.6.x`; caducan solos del panel según `minutes`.
+- **Marca en el JSONL crudo**: `mikrotik-syslog/logs/all.jsonl` guarda el mensaje tal como lo reenvía el relay, es decir **con** `__SRCIP__=<ip>`. La marca se elimina al construir el evento de Redis/API, que es lo que ve el panel. Si se reprocesa el JSONL a mano, hay que quitarla igual que hace `log_monitor.py`.
+- **Filtro de ruido**: rsyslog descarta los tópicos `...,debug` con severidad `notice`/`info`/`debug` (paquetes PPPoE/DHCP). Se conservan `warning` o peor y los tópicos no-debug (`pppoe,info`, `pppoe,ppp,error`, `netwatch,info`, etc.). Cubre a todos los equipos y es reversible.
+- **Rotación**: `scripts/rotate_mikrotik_log.sh` rota `all.jsonl` dentro del contenedor cuando supera 1 GiB, comprime y conserva 3 rotaciones. Se ejecuta a diario con `agente-monitor-logrotate.timer`.
+- **Procesador en tiempo real**: `scripts/log_monitor.py` lee el JSONL, descarta el ruido de debug, filtra eventos relevantes y envía a cola Redis `cola_logs_para_llm` (LPUSH) solo si el LLM está habilitado.
+- **Severidad real**: RouterOS envía `severity=notice` en casi todo y codifica el nivel en el tag (`script,error`, `system,error,critical`, `pppoe,ppp,error`). `src/syslog_severity.py` deriva `severity_effective` y lo usan el monitor, la API y el panel; por eso un `/log error` aparece en "Errores" aunque su campo `severity` sea `notice`.
+- **Panel sin ruido**: `/api/v1/syslog/important` separa noticias/warnings/errores y aplica el límite por columna, además de agrupar reintentos idénticos (el `×N` del panel muestra las repeticiones) para que una tormenta de eventos informativos no oculte una alerta real.
 - **Redis aislado**: `redis-syslog` en `127.0.0.1:6380` (solo loopback), maxmemory 64MB, `allkeys-lru`, sin AOF/saves. Comparte red `agente-monitor-net` con el resto.
 - **Servicio systemd**: `~/.config/systemd/user/agente-log-monitor.service` ejecuta el monitor como usuario. Se inicia con `systemctl --user start/enable agente-log-monitor`.
 - **Redis original**: `redis-ia` permanece íntegro para el cache de clientes (`ClientStore`). No comparte instancia con la cola de syslog.

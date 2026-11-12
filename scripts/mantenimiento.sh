@@ -1,30 +1,65 @@
 #!/usr/bin/env bash
 #
-# mantenimiento.sh — Atajos prácticos para el agente-monitor.
+# mantenimiento.sh — Arranque/parada ordenada de todo el stack agente-monitor.
 #
 # Uso:
-#   ./mantenimiento.sh --now     Detener TODO el agente (incluidos InfluxDB y Redis).
-#   ./mantenimiento.sh --ready   Iniciar TODO el agente (incluidos InfluxDB y Redis)
-#                                y esperar a que quede operativo.
-#   ./mantenimiento.sh --status  Mostrar el estado de todos los servicios
-#                               (agente unificado, extras, InfluxDB y Redis).
-#   ./mantenimiento.sh --help    Mostrar esta ayuda.
+#   ./scripts/mantenimiento.sh --start   [--with-llm]  Iniciar todo y esperar.
+#   ./scripts/mantenimiento.sh --stop                 Detener todo.
+#   ./scripts/mantenimiento.sh --restart [--with-llm] Parar y volver a iniciar.
+#   ./scripts/mantenimiento.sh --status               Estado de todo el stack.
+#   ./scripts/mantenimiento.sh --help                 Mostrar esta ayuda.
 #
-# Todo se maneja con systemctl a nivel de usuario (systemctl --user),
-# por lo que NO se requieren permisos de administrador.
+# Alias heredados: --ready = --start, --now = --stop.
+#
+# El stack tiene dos capas:
+#   1) Infraestructura: agente-monitor-compose.service (podman-compose)
+#      -> influxdb-ia, redis-ia, redis-syslog, mikrotik-syslog
+#      + relay syslog del host (agente-monitor-syslog-relay.service), que conserva
+#        la IP real de cada router al reenviar al contenedor.
+#   2) Aplicación: agente-monitor (collector+API+ai-agent), log-monitor,
+#      scheduler y bot. El agente LLM (wisp-agent) es opcional (--with-llm).
+#
+# Todo se maneja con systemctl a nivel de usuario: NO requiere root.
 #
 set -uo pipefail
 
-SERVICE_AGENTE="agente-monitor.service"          # unidad unificada (collector+api+ai+llm)
-SERVICE_INFLUX="influxdb-ia.service"
-SERVICE_REDIS="redis-ia.service"
+PROJECT_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 
-# Servicios que corren por separado de la unidad unificada.
-EXTRA_SERVICES=(
-    "agente-monitor-wisp-agent.service"
+COMPOSE_UNIT="agente-monitor-compose.service"
+
+# Relay syslog del host: recibe el 5514 de los MikroTik y reenvía al contenedor
+# por 127.0.0.1:5515 conservando la IP real del equipo en el mensaje.
+RELAY_UNIT="agente-monitor-syslog-relay.service"
+RELAY_PORT="5514"
+
+# Orden de arranque: primero la app principal, luego los auxiliares.
+APP_CORE="agente-monitor.service"
+APP_AUX=(
+    "agente-log-monitor.service"
     "agente-monitor-scheduler.service"
     "agente-monitor-bot.service"
 )
+
+# Orden de parada: consumidores primero, app principal después.
+APP_STOP=(
+    "agente-monitor-bot.service"
+    "agente-monitor-scheduler.service"
+    "agente-log-monitor.service"
+    "agente-monitor.service"
+)
+
+LLM_UNIT="agente-monitor-wisp-agent.service"
+LLM_CONFIG="${PROJECT_DIR}/config/llm_config.json"
+
+CONTAINERS=(
+    "influxdb-ia"
+    "redis-ia"
+    "redis-syslog"
+    "mikrotik-syslog"
+)
+
+WITH_LLM=0
+CMD=""
 
 log() {
     echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -37,133 +72,240 @@ check_systemctl() {
     fi
 }
 
+unit_active() {
+    systemctl --user is-active "$1" >/dev/null 2>&1
+}
+
+container_running() {
+    [ "$(podman inspect -f '{{.State.Running}}' "$1" 2>/dev/null || echo false)" = "true" ]
+}
+
+redis_ping() {
+    podman exec "$1" redis-cli ping 2>/dev/null | grep -q "PONG"
+}
+
+http_code() {
+    python3 - "$1" <<'PY' 2>/dev/null || echo "000"
+import sys, urllib.request, urllib.error
+try:
+    with urllib.request.urlopen(sys.argv[1], timeout=3) as r:
+        print(r.status)
+except urllib.error.HTTPError as e:
+    print(e.code)
+except Exception:
+    print("000")
+PY
+}
+
+llm_enabled() {
+    [ -f "${LLM_CONFIG}" ] || return 1
+    grep -Eq '"enabled"[[:space:]]*:[[:space:]]*true' "${LLM_CONFIG}"
+}
+
 usage() {
     cat <<'EOF'
-mantenimiento.sh — Atajos prácticos para el agente-monitor.
+mantenimiento.sh — Arranque/parada ordenada de todo el stack agente-monitor.
 
 Uso:
-  ./mantenimiento.sh --now     Detener TODO el agente (incluidos InfluxDB y Redis).
-  ./mantenimiento.sh --ready   Iniciar TODO el agente (incluidos InfluxDB y Redis)
-                               y esperar a que quede operativo.
-  ./mantenimiento.sh --status  Mostrar el estado de todos los servicios
-                               (agente unificado, extras, InfluxDB y Redis).
-  ./mantenimiento.sh --help    Mostrar esta ayuda.
+  ./scripts/mantenimiento.sh --start   [--with-llm]  Iniciar todo y esperar.
+  ./scripts/mantenimiento.sh --stop                 Detener todo.
+  ./scripts/mantenimiento.sh --restart [--with-llm] Parar y volver a iniciar.
+  ./scripts/mantenimiento.sh --status               Estado de todo el stack.
+  ./scripts/mantenimiento.sh --help                 Mostrar esta ayuda.
 
-Todo se maneja con systemctl a nivel de usuario (systemctl --user),
-por lo que NO se requieren permisos de administrador.
+Alias heredados: --ready = --start, --now = --stop.
+
+El stack tiene dos capas:
+  1) Infraestructura: agente-monitor-compose.service (podman-compose)
+     -> influxdb-ia, redis-ia, redis-syslog, mikrotik-syslog
+     + relay syslog del host (agente-monitor-syslog-relay.service): recibe el
+       5514 de los routers y reenvía al contenedor conservando la IP real.
+  2) Aplicación: agente-monitor (collector+API+ai-agent), log-monitor,
+     scheduler y bot. El agente LLM (wisp-agent) es opcional (--with-llm).
+
+Todo se maneja con systemctl a nivel de usuario: NO requiere root.
 EOF
-    exit 0
 }
 
 do_status() {
-    log "Estado de los servicios:"
-    echo "--------------------------------------------------"
-    systemctl --user is-active "${SERVICE_INFLUX}" >/dev/null 2>&1 \
-        && echo "  ${SERVICE_INFLUX}  -> ACTIVO" \
-        || echo "  ${SERVICE_INFLUX}  -> INACTIVO"
-    systemctl --user is-active "${SERVICE_AGENTE}" >/dev/null 2>&1 \
-        && echo "  ${SERVICE_AGENTE}  -> ACTIVO" \
-        || echo "  ${SERVICE_AGENTE}  -> INACTIVO"
-    local svc
-    for svc in "${EXTRA_SERVICES[@]}"; do
-        systemctl --user is-active "${svc}" >/dev/null 2>&1 \
-            && echo "  ${svc}  -> ACTIVO" \
-            || echo "  ${svc}  -> INACTIVO"
-    done
-    systemctl --user is-active "${SERVICE_REDIS}" >/dev/null 2>&1 \
-        && echo "  ${SERVICE_REDIS}  -> ACTIVO" \
-        || echo "  ${SERVICE_REDIS}  -> INACTIVO"
-    echo "--------------------------------------------------"
+    log "Estado del stack agente-monitor"
+    echo "--- Infraestructura (podman-compose) ---"
+    if unit_active "${COMPOSE_UNIT}"; then
+        echo "  ${COMPOSE_UNIT} -> ACTIVO"
+    else
+        echo "  ${COMPOSE_UNIT} -> INACTIVO"
+    fi
 
-    local influx_ok=no
-    if curl -s -m 3 "http://localhost:8086/health" 2>/dev/null | grep -q '"status":"pass"'; then
-        influx_ok=si
+    local c
+    for c in "${CONTAINERS[@]}"; do
+        if container_running "${c}"; then
+            echo "  contenedor ${c} -> UP"
+        else
+            echo "  contenedor ${c} -> DOWN"
+        fi
+    done
+
+    local influx_ok="no"
+    [ "$(http_code 'http://127.0.0.1:8086/health')" = "200" ] && influx_ok="si"
+    echo "  InfluxDB (8086)        -> healthy: ${influx_ok}"
+
+    local redis_ok="no"
+    redis_ping "redis-ia" && redis_ok="si"
+    echo "  Redis-ia (6379)        -> PING: ${redis_ok}"
+
+    local rusyslog_ok="no"
+    redis_ping "redis-syslog" && rusyslog_ok="si"
+    echo "  Redis-syslog (6380)    -> PING: ${rusyslog_ok}"
+
+    if unit_active "${RELAY_UNIT}"; then
+        echo "  relay syslog (${RELAY_PORT})   -> ACTIVO (IP de origen preservada)"
+    else
+        echo "  relay syslog (${RELAY_PORT})   -> INACTIVO (los eventos llegan como IP del contenedor)"
     fi
-    echo "  InfluxDB (8086)      -> healthy: ${influx_ok}"
-    local redis_ok=no
-    if redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q "PONG"; then
-        redis_ok=si
-    elif podman exec redis-ia redis-cli ping 2>/dev/null | grep -q "PONG"; then
-        redis_ok=si
+
+    echo "--- Aplicación ---"
+    local u
+    for u in "${APP_CORE}" "${APP_AUX[@]}" "${LLM_UNIT}"; do
+        local extra=""
+        if [ "${u}" = "${LLM_UNIT}" ]; then
+            if llm_enabled; then extra=" (config LLM: habilitado)"; else extra=" (config LLM: deshabilitado)"; fi
+        fi
+        if unit_active "${u}"; then
+            echo "  ${u} -> ACTIVO${extra}"
+        else
+            echo "  ${u} -> INACTIVO${extra}"
+        fi
+    done
+
+    local api_code
+    api_code="$(http_code 'http://127.0.0.1:8000/health')"
+    if [ "${api_code}" = "200" ]; then
+        echo "  API (8000)             -> respondiendo: si (${api_code})"
+    else
+        echo "  API (8000)             -> respondiendo: no (${api_code})"
     fi
-    echo "  Redis (6379)         -> PING: ${redis_ok}"
-    local api_ok=no
-    if curl -s -m 3 -o /dev/null -w "%{http_code}" "http://localhost:8000/api/reporte/status" 2>/dev/null | grep -q "200"; then
-        api_ok=si
-    fi
-    echo "  API (8000)           -> respondiendo: ${api_ok}"
 }
 
-do_stop() {
-    log "Deteniendo el agente-monitor..."
-    systemctl --user stop "${SERVICE_AGENTE}" || echo "  aviso: fallo al detener ${SERVICE_AGENTE}"
-    local svc
-    for svc in "${EXTRA_SERVICES[@]}"; do
-        systemctl --user stop "${svc}" 2>/dev/null || true
-    done
-    log "Deteniendo InfluxDB..."
-    systemctl --user stop "${SERVICE_INFLUX}" || echo "  aviso: fallo al detener ${SERVICE_INFLUX}"
-    log "Deteniendo Redis..."
-    systemctl --user stop "${SERVICE_REDIS}" 2>/dev/null || echo "  aviso: ${SERVICE_REDIS} no está gestionado por systemd"
-    log "Detenido. Revisa el estado con ./mantenimiento.sh --status"
-}
-
-do_start() {
-    log "Iniciando InfluxDB..."
-    systemctl --user start "${SERVICE_INFLUX}" || { echo "ERROR: no se pudo iniciar ${SERVICE_INFLUX}" >&2; exit 1; }
-
-    log "Esperando a que InfluxDB esté healthy..."
+wait_infra() {
+    log "Esperando a que la infraestructura esté lista..."
     local attempts=0
-    until curl -s -m 3 "http://localhost:8086/health" 2>/dev/null | grep -q '"status":"pass"'; do
+    until [ "$(http_code 'http://127.0.0.1:8086/health')" = "200" ] \
+        && redis_ping "redis-ia" \
+        && redis_ping "redis-syslog" \
+        && container_running "mikrotik-syslog"; do
         attempts=$((attempts + 1))
         if [ "${attempts}" -ge 60 ]; then
-            echo "ERROR: InfluxDB no respondió tras 60 intentos" >&2
+            echo "ERROR: la infraestructura no quedó lista tras 120s" >&2
             exit 1
         fi
         sleep 2
     done
-    log "InfluxDB healthy."
+    log "Infraestructura lista (Influx, Redis-ia, Redis-syslog, syslog)."
+}
 
-    log "Iniciando Redis (ClientStore)..."
-    systemctl --user start "${SERVICE_REDIS}" 2>/dev/null \
-        || podman start redis-ia 2>/dev/null \
-        || echo "  aviso: no se pudo iniciar Redis (el buscador caerá a InfluxDB)"
-
-    log "Iniciando agente-monitor..."
-    systemctl --user start "${SERVICE_AGENTE}" || { echo "ERROR: no se pudo iniciar ${SERVICE_AGENTE}" >&2; exit 1; }
-
+wait_api() {
     log "Esperando a que la API responda..."
     local attempts=0
-    until curl -s -m 3 -o /dev/null -w "%{http_code}" "http://localhost:8000/api/reporte/status" 2>/dev/null | grep -q "200"; do
+    until [ "$(http_code 'http://127.0.0.1:8000/health')" = "200" ]; do
         attempts=$((attempts + 1))
         if [ "${attempts}" -ge 90 ]; then
-            echo "ERROR: la API no respondió tras 90 intentos" >&2
+            echo "ERROR: la API no respondió tras 180s" >&2
             exit 1
         fi
         sleep 2
     done
     log "API lista."
+}
 
-    local svc
-    for svc in "${EXTRA_SERVICES[@]}"; do
-        systemctl --user start "${svc}" 2>/dev/null \
-            || echo "  aviso: no se pudo iniciar ${svc} (instala con manage-services.sh install all)"
+do_start() {
+    log "Iniciando relay syslog del host (${RELAY_UNIT})..."
+    systemctl --user start "${RELAY_UNIT}" 2>/dev/null \
+        || echo "  aviso: no se pudo iniciar ${RELAY_UNIT} (manage-services.sh install syslog-relay)"
+
+    log "Iniciando infraestructura (podman-compose)..."
+    systemctl --user start "${COMPOSE_UNIT}" \
+        || { echo "ERROR: no se pudo iniciar ${COMPOSE_UNIT}" >&2; exit 1; }
+    wait_infra
+
+    log "Iniciando aplicación (collector+API+ai-agent)..."
+    systemctl --user start "${APP_CORE}" \
+        || { echo "ERROR: no se pudo iniciar ${APP_CORE}" >&2; exit 1; }
+    wait_api
+
+    local u
+    for u in "${APP_AUX[@]}"; do
+        systemctl --user start "${u}" 2>/dev/null \
+            || echo "  aviso: no se pudo iniciar ${u} (revisa manage-services.sh install all)"
     done
+    log "Auxiliares iniciados (log-monitor, scheduler, bot)."
+
+    if [ "${WITH_LLM}" = "1" ]; then
+        if llm_enabled; then
+            systemctl --user start "${LLM_UNIT}" 2>/dev/null \
+                || echo "  aviso: no se pudo iniciar ${LLM_UNIT}"
+            log "Agente LLM iniciado (${LLM_UNIT})."
+        else
+            systemctl --user start "${LLM_UNIT}" 2>/dev/null \
+                || echo "  aviso: no se pudo iniciar ${LLM_UNIT}"
+            log "AVISO: ${LLM_UNIT} iniciado, pero config/llm_config.json tiene enabled=false."
+        fi
+    else
+        log "Agente LLM no iniciado (usa --with-llm para incluirlo)."
+    fi
 
     log "Todo iniciado."
     do_status
 }
 
+do_stop() {
+    log "Deteniendo agente LLM (si estaba activo)..."
+    systemctl --user stop "${LLM_UNIT}" 2>/dev/null || true
+
+    log "Deteniendo aplicación y consumidores..."
+    local u
+    for u in "${APP_STOP[@]}"; do
+        systemctl --user stop "${u}" 2>/dev/null \
+            || echo "  aviso: fallo al detener ${u}"
+    done
+
+    log "Deteniendo infraestructura (podman-compose)..."
+    systemctl --user stop "${COMPOSE_UNIT}" 2>/dev/null \
+        || echo "  aviso: ${COMPOSE_UNIT} no estaba activo"
+
+    log "Deteniendo relay syslog del host..."
+    systemctl --user stop "${RELAY_UNIT}" 2>/dev/null || true
+
+    log "Detenido. Revisa el estado con ./scripts/mantenimiento.sh --status"
+}
+
 main() {
     check_systemctl
-    case "${1:-}" in
-        --now)    do_stop ;;
-        --ready)  do_start ;;
-        --status) do_status ;;
-        --help|-h|help) usage ;;
+
+    local arg
+    for arg in "$@"; do
+        case "${arg}" in
+            --start|--ready) CMD="start" ;;
+            --stop|--now)    CMD="stop" ;;
+            --restart)       CMD="restart" ;;
+            --status)        CMD="status" ;;
+            --with-llm)      WITH_LLM=1 ;;
+            --help|-h|help)  usage; exit 0 ;;
+            *)
+                echo "Argumento no reconocido: ${arg}" >&2
+                echo "Prueba './scripts/mantenimiento.sh --help'." >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    case "${CMD}" in
+        start)   do_start ;;
+        stop)    do_stop ;;
+        restart) do_stop; do_start ;;
+        status)  do_status ;;
         *)
-            echo "Uso: ./mantenimiento.sh {--now | --ready | --status | --help}" >&2
-            echo "Prueba './mantenimiento.sh --help' para más detalle." >&2
+            echo "Uso: ./scripts/mantenimiento.sh {--start|--stop|--restart|--status} [--with-llm]" >&2
+            echo "Prueba './scripts/mantenimiento.sh --help'." >&2
             exit 1
             ;;
     esac

@@ -62,11 +62,40 @@ services:
     restart: unless-stopped
     # rsyslog corre como usuario "syslog" (no root): usamos 5514 también
     # dentro del contenedor para no necesitar el puerto privilegiado 514.
+    #
+    # El puerto público 5514 lo ocupa ahora scripts/syslog_relay.py en el host
+    # (para conservar la IP real del router). El contenedor solo escucha en
+    # loopback:5515, donde el relay reenvía añadiendo la marca __SRCIP__.
     ports:
-      - "5514:5514/udp"
-      - "5514:5514/tcp"
+      - "127.0.0.1:5515:5514/udp"
+      - "127.0.0.1:5515:5514/tcp"
     volumes:
       - ./mikrotik-syslog/config/rsyslog.conf:/etc/rsyslog.conf:ro
       - ./mikrotik-syslog/logs:/var/log/mikrotik:Z
     networks:
       - agente-monitor-net
+
+  # --- REDIS SYSLOG (aislado para logs MikroTik/OLTs) ---
+  redis-syslog:
+    image: docker.io/library/redis:7-alpine
+    container_name: redis-syslog
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6380:6379"
+    command: >
+      redis-server
+      --maxmemory 64mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    volumes:
+      - ./redis-syslog/data:/data
+    networks:
+      - agente-monitor-net
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s

@@ -235,6 +235,7 @@ install_units() {
         install_one wisp-agent || true
         install_one scheduler || true
         install_one bot || true
+        install_one syslog-relay || true
     fi
 
     # La unidad unificada (collector+api+ai+llm) no está en la lista anterior:
