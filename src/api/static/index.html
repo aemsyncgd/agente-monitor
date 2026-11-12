@@ -195,6 +195,7 @@
                     <span>InfluxDB: {{ systemHealth }}</span>
                 </div>
                 <div class="text-xs text-surface-500">Actualiza en {{ refreshCountdown }}s</div>
+                <div class="text-[10px] text-surface-600 font-mono hidden md:block" title="Versión del dashboard">build __BUILD_HASH__</div>
                 <button @click="fetchAll" class="p-2 rounded-full hover:bg-surface-800/60 text-surface-400 hover:text-surface-200 transition-colors" :class="{ 'animate-spin': loading }">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 </button>
@@ -3573,10 +3574,10 @@ createApp({
             const mt = counts.mikrotik || {};
             const alerts = (Number(olt.high) || 0) + (Number(olt.danger) || 0);
             return [
-                { n: pad2(alerts),        cls: 'bg-red-500/20 text-red-300',             title: 'OLT · alertas (alto / danger)' },
-                { n: pad2(olt.warnings),  cls: 'bg-amber-500/20 text-amber-300',         title: 'OLT · advertencias' },
-                { n: pad2(olt.news),      cls: 'bg-sky-500/20 text-sky-300',             title: 'OLT · noticias' },
-                { n: pad2(mt.news),       cls: 'bg-surface-700/70 text-surface-300',     title: 'MikroTik · noticias' },
+                { n: String(Number(alerts) || 0),       cls: 'bg-red-500/20 text-red-300',             title: 'OLT · alertas (alto / danger)' },
+                { n: String(Number(olt.warnings) || 0), cls: 'bg-amber-500/20 text-amber-300',         title: 'OLT · advertencias' },
+                { n: String(Number(olt.news) || 0),     cls: 'bg-sky-500/20 text-sky-300',             title: 'OLT · noticias' },
+                { n: String(Number(mt.news) || 0),      cls: 'bg-surface-700/70 text-surface-300',     title: 'MikroTik · noticias' },
             ];
         });
 
@@ -3596,7 +3597,6 @@ createApp({
         const visibleLogGroups = computed(() => {
             const meta = logsMeta.value || {};
             const groups = logsPanels.value || {};
-            const counts = meta.counts || {};
             const labels = meta.labels || {};
             const focus = normDev(logsDeviceFocus.value);
             const sevFilter = logsFilter.value;
@@ -3606,22 +3606,32 @@ createApp({
             ['mikrotik', 'olt'].forEach(key => {
                 if (logsDeviceFilter.value !== 'all' && logsDeviceFilter.value !== key) return;
                 const g = groups[key] || {};
-                const c = counts[key] || {};
                 const filt = arr => (arr || [])
                     .filter(l => !focus || normDev(l.device).includes(focus))
                     .filter(l => sevFilter === 'all' || l.sev === sevFilter)
                     .map(l => ({ ...l, deviceLabel: deviceLabelFor(key, l) }));
+                // Los chips y el encabezado cuentan solo lo que se ve: si hay
+                // un filtro activo (o un equipo enfocado), no deben mostrar el
+                // total del grupo, porque parecería que faltan eventos.
+                const repeats = arr => arr.reduce((acc, l) => acc + (Number(l.repeats) || 1), 0);
+                const news = filt(g.news);
+                const warnings = filt(g.warnings);
+                const alerts = filt(g.alerts);
                 out.push({
                     key,
                     label: labels[key] || key,
                     icon: key === 'olt' ? iconOlt : iconMt,
-                    raw: c.raw || 0,
-                    families: c.families_total || 0,
-                    counts: c.families || { news: 0, warnings: 0, alerts: 0 },
-                    events: c,
-                    news: filt(g.news),
-                    warnings: filt(g.warnings),
-                    alerts: filt(g.alerts),
+                    raw: repeats(news) + repeats(warnings) + repeats(alerts),
+                    families: news.length + warnings.length + alerts.length,
+                    counts: { news: news.length, warnings: warnings.length, alerts: alerts.length },
+                    events: {
+                        news: repeats(news),
+                        warnings: repeats(warnings),
+                        alerts: repeats(alerts),
+                    },
+                    news,
+                    warnings,
+                    alerts,
                 });
             });
             return out;

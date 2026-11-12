@@ -200,11 +200,17 @@ def _panel_severity(event: dict) -> str:
     msg = str(event.get("message") or "").lower()
     tag = str(event.get("tag") or event.get("program") or "").lower()
     if _event_group(event) == "olt":
+        # LOS (pérdida de señal) es la falla más grave de la red FTTH: el
+        # cliente se queda sin servicio. Va a "Alertas críticas".
+        if "port los" in msg:
+            return "danger"
         if "bip8" in msg:
             return "high"
+        # Dying Gasp (corte de energía en la ONU) y ONU offline son
+        # advertencias: el equipo puede recuperarse solo.
         if "dying gasp" in msg or "offline" in msg:
             return "warning"
-        if "port los" in msg or "link down" in msg:
+        if "link down" in msg:
             return "warning"
         if "online" in msg:
             return "news"

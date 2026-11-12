@@ -150,6 +150,9 @@ async def dashboard():
     if index_file.exists():
         content = index_file.read_text(encoding="utf-8")
         content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+        # Marca de versión visible en la cabecera: permite confirmar si el
+        # navegador está mostrando esta versión o una copia vieja en caché.
+        content = content.replace("__BUILD_HASH__", content_hash)
         # Cache-busting de las librerías locales (vendorizadas para que el
         # dashboard no dependa de CDNs externos y nunca quede en blanco).
         for asset in (
