@@ -3288,515 +3288,587 @@ createApp({
         }
 
         // ==================== LOGS (syslog + incidencias) ====================
-const logsRange = ref(6);
-const logsDeviceFilter = ref('all');
-const logsFilter = ref('all'); // filtro de tipo (BIP8, Port LOS, etc.)
-const logsLoading = ref(false);
-const logsError = ref('');
-const { experiment } = window.__flags || {};
+        const logsRange = ref(6);
+        const logsDeviceFilter = ref('all');
+        const logsFilter = ref('all');
+        const logsLoading = ref(false);
+        const logsError = ref('');
+        const logsIncidents = ref([]);
+        const logsPanels = ref({});
+        const logsMeta = ref(null);
+        const logsDeviceFocus = ref('');
+        const showLogEventModal = ref(false);
+        const logDetail = ref(null);
+        const logDetailLoading = ref(false);
+        const logDetailError = ref('');
+        let logDetailToken = 0;
 
-// Mapeo de tipos de evento a títulos legibles (igual que backend)
-const _TYPE_TITLES = {
-  bip8: 'Errores BIP8 en ONU',
-  dying_gasp: 'Corte de energía en ONU (Dying Gasp)',
-  port_los: 'Pérdida de señal en puerto de ONU (Port LOS)',
-  offline: 'ONU fuera de línea',
-  online: 'ONU en línea',
-  link_down: 'Enlace caído',
-  link_up: 'Enlace restablecido',
-  auth_fail: 'Fallo de autenticación PPPoE',
-  netwatch_down: 'Host sin respuesta (netwatch)',
-  netwatch_up: 'Host recuperado (netwatch)',
-  pppoe_conn: 'Sesión PPPoE establecida',
-  pppoe_auth: 'Autenticación PPPoE completada',
-  pppoe_close: 'Cierre de sesión PPPoE',
-  deregister: 'ONU desregistrada',
-  register: 'ONU registrada',
-  config_change: 'Cambio de configuración en el equipo',
-  login: 'Inicio de sesión en el equipo',
-  logout: 'Cierre de sesión en el equipo',
-  generic: 'Evento genérico',
-};
+        const LOG_CATS = [
+            { key: 'news',     label: 'Noticias',     dot: 'bg-sky-400',   head: 'text-sky-300',   chip: 'bg-sky-500/15 text-sky-300' },
+            { key: 'warnings', label: 'Advertencias', dot: 'bg-amber-400', head: 'text-amber-300', chip: 'bg-amber-500/15 text-amber-300' },
+            { key: 'alerts',   label: 'Alertas',      dot: 'bg-red-500',   head: 'text-red-300',   chip: 'bg-red-500/15 text-red-300' },
+        ];
 
-// Normalizar mensaje del colector (quitar escapes tipo PON 0\/9)
-const _SLASH_RE = /\\\([/\\"]\)/g;
-const _cleanMessage = (message) => String(message || '').replace(_SLASH_RE, '$1');
+        const LOG_SEV = {
+            danger:  { label: 'DANGER',      card: 'border-red-700/50 bg-red-950/20',        dot: 'bg-red-500',    icon: 'bg-red-500/15 text-red-300',       badge: 'bg-red-500/15 text-red-300 border-red-600/40' },
+            high:    { label: 'ALTO',        card: 'border-orange-700/45 bg-orange-950/15',  dot: 'bg-orange-400', icon: 'bg-orange-500/15 text-orange-300', badge: 'bg-orange-500/15 text-orange-300 border-orange-600/40' },
+            warning: { label: 'ADVERTENCIA', card: 'border-amber-700/40 bg-amber-950/15',    dot: 'bg-amber-400',  icon: 'bg-amber-500/15 text-amber-300',   badge: 'bg-amber-500/15 text-amber-300 border-amber-600/40' },
+            news:    { label: 'NOTICIA',     card: 'border-sky-700/40 bg-sky-950/15',        dot: 'bg-sky-400',    icon: 'bg-sky-500/15 text-sky-300',       badge: 'bg-sky-500/15 text-sky-300 border-sky-600/40' },
+        };
+        function logSev(sev) { return LOG_SEV[sev] || LOG_SEV.news; }
 
-// Detectar tipo de evento por su texto
-const _eventType = (message) => {
-  const text = _cleanMessage(message).lower();
-  if (!text) return '';
-  const patterns = {
-    bip8: /\bbip8\b/,
-    dying_gasp: /dying\s+gasp/,
-    port_los: /port\s+los/,
-    offline: /\boffline\b/,
-    online: /\bonline\b/,
-    link_down: /link\s+down/,
-    link_up: /link\s+up/,
-    auth_fail: /authentication\s+failed/,
-    netwatch_down: /event\s+down/,
-    netwatch_up: /event\s+up/,
-    pppoe_conn: /connection\s+established|\:\s*connected/,
-    pppoe_auth: /\:\s*authenticated/,
-    pppoe_close: /terminating|closed|disconnected/,
-    deregister: /\bderegister\b/,
-    register: /\bregister\b/,
-    config_change: /config\s+changed/,
-    login: /logged\s+in/,
-    logout: /logged\s+out|logouted/,
-  };
-  for (const [type, pattern] of Object.entries(patterns)) {
-    if (pattern.test(text)) return type;
-  }
-  return 'generic';
-};
+        const LOG_TYPE_ICON = {
+            security: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622C17.176 19.29 21 14.591 21 9c0-1.042-.133-2.052-.382-3.016z',
+            outage:   'M18.364 5.636a9 9 0 010 12.728M5.636 18.364a9 9 0 010-12.728M12 12h.01M8 12a4 4 0 118 0',
+            optical:  'M12 3v2m0 14v2M5.6 5.6l1.4 1.4m10 10l1.4 1.4M3 12h2m14 0h2M5.6 18.4l1.4-1.4m10-10l1.4-1.4M15 12a3 3 0 11-6 0 3 3 0 016 0z',
+            traffic:  'M13 10V3L4 14h7v7l9-11h-7z',
+            software: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z',
+            network:  'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+            capacity: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4',
+            config:   'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+        };
+        function logTypeIcon(type) {
+            const d = LOG_TYPE_ICON[type] || LOG_TYPE_ICON.network;
+            return '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="' + d + '"/></svg>';
+        }
+        function pad2(n) { return String(Number(n) || 0).padStart(2, '0'); }
+        // Los mensajes de OLT llegan escapados ("PON 0\/9") por el colector.
+        // Se limpian para poder parsear el puerto PON y mostrar el texto.
+        function cleanLogMsg(msg) {
+            return String(msg || '').replace(/\\\//g, '/').replace(/\\"/g, '"');
+        }
+        function toIso(v) {
+            if (v === null || v === undefined || v === '') return '';
+            if (typeof v === 'number') return new Date(v * 1000).toISOString();
+            return String(v);
+        }
+        function timeOf(row) {
+            const iso = String((row && (row.processed_at || row.timestamp)) || '');
+            if (iso.length >= 19 && iso.includes('T')) return iso.slice(11, 19);
+            return iso.slice(0, 19) || '--:--:--';
+        }
 
-// Extraer hechos del evento: PON, ONU, serial, host, usuario
-const _PON_RE = /\bonu\s+(\d+)\b/i; // simplified - actual backend uses more precise
-const _ONU_RE = /ONU\s+(\d+)\s+sn\s+([0-9a-z]{6,})/i;
-const _SN_RE = /\bsn\s+([0-9a-z]{6,})\b/i;
-const _HOST_RE = /\bhost:\s*([0-9.a-z\-]+)/i;
-const _PPPOE_USER_RE = /\buser\s+([^\s]+)/i;
-const _VALUE_RE = /\bvalue\s+(-?\d+)/i;
+        // Nombre de equipo comparable: "OLT-SISAL2-PON2" y "OLT-SISAL-2" son
+        // el mismo equipo. El sufijo PON de las incidencias no existe en Influx.
+        function normDev(name) {
+            return String(name || '')
+                .toLowerCase()
+                .replace(/-?pon\d+$/, '')
+                .replace(/[^a-z0-9]/g, '');
+        }
 
-const _factsFromEvent = (event) => {
-  const text = _cleanMessage(event.message || '');
-  const facts = { pon_port: '', onu_index: '', onu_serial: '', host: '', user: '' };
-  
-  // Extraer PON del mensaje (buscar "PON 0/9" o similar)
-  const ponMatch = text.match(/\bPON\s+(\d+\s*\/\\s*\d+)/i);
-  if (ponMatch) {
-    facts.pon_port = 'GPON' + ponMatch[1].replace(/\s+/g, '');
-  }
-  
-  // Extraer ONU index y serial
-  const onuMatch = text.match(_ONU_RE);
-  if (onuMatch) {
-    facts.onu_index = onuMatch[1];
-    facts.onu_serial = onuMatch[2].toUpperCase();
-  } else {
-    const snMatch = text.match(_SN_RE);
-    if (snMatch) facts.onu_serial = snMatch[1].toUpperCase();
-  }
-  
-  // Extraer host
-  const hostMatch = text.match(_HOST_RE);
-  if (hostMatch) facts.host = hostMatch[1];
-  
-  // Extraer usuario PPPoE
-  const pppoeMatch = text.match(_PPPOE_USER_RE);
-  if (pppoeMatch) facts.user = pppoeMatch[1];
-  
-  return facts;
-};
+        // Misma normalización que usa /api/v1/syslog/panels para agrupar
+        // familias; aquí sirve para relacionar un evento con sus repeticiones.
+        function patternKey(msg) {
+            return String(msg || '')
+                .replace(/^<[0-9a-f]{3,10}>:\s*/i, '')
+                .replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, '<mac>')
+                .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '<ip>')
+                .replace(/<pppoe-[^>]+>/gi, '<pppoe>')
+                .replace(/\buser\s+\S+/gi, 'user <usuario>')
+                .replace(/\b(?=[0-9a-z]*[a-z])(?=[0-9a-z]*\d)[0-9a-z]{8,}\b/gi, '<serial>')
+                .replace(/\b\d+\b/g, '<n>')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+        }
 
-// Formatear hora ISO a HH:MM:SS
-const _isoTime = (value) => {
-  const text = String(value || '');
-  if (text.includes('T') && text.length >= 19) return text.substring(11, 19);
-  return text.substring(0, 19) || '--:--:--';
-};
+        function incidentSev(inc) {
+            const sev = String((inc && inc.severidad) || '').toLowerCase();
+            const estado = String((inc && inc.estado) || '').toLowerCase();
+            if (estado === 'resolved' || sev === 'resolved') return 'news';
+            if (sev === 'critical') return 'danger';
+            if (sev === 'warning') return 'warning';
+            return 'news';
+        }
 
-// Estado de severidad → clase CSS
-const logSev = (sev) => {
-  const map = {
-    danger: { icon: '⚠️', class: 'text-red-400', bg: 'bg-red-100/20' },
-    high: { icon: '🔴', class: 'text-orange-400', bg: 'bg-orange-100/20' },
-    warning: { icon: '🟡', class: 'text-yellow-300', bg: 'bg-yellow-100/20' },
-    news: { icon: 'ℹ️', class: 'text-sky-300', bg: 'bg-sky-100/20' },
-  };
-  return map[sev] || map.news;
-};
+        function incidentType(inc) {
+            const text = String((inc && inc.causa) || '').toLowerCase();
+            if (/energ|gasp|apag|reinicio/.test(text)) return 'outage';
+            if (/óptic|optic|potencia|señal|senal|fibra|rx/.test(text)) return 'optical';
+            if (/seguridad|ataque|intrus|bruta|ssh/.test(text)) return 'security';
+            if (/tráfico|trafico|saturaci|ddos/.test(text)) return 'traffic';
+            if (/config|respaldo|backup/.test(text)) return 'config';
+            if (/capacidad|pool|dhcp|lease/.test(text)) return 'capacity';
+            if (/software|firmware|versión|version/.test(text)) return 'software';
+            return inc && inc.pon ? 'outage' : 'network';
+        }
 
-// Icono por tipo de evento
-const logTypeIcon = (type) => {
-  const map = {
-    bip8: '📡',
-    dying_gasp: '⚡',
-    port_los: '🔌',
-    offline: '💻',
-    online: '🌐',
-    link_down: '↘️',
-    link_up: '↗️',
-    auth_fail: '🔐',
-    netwatch_down: '🔍',
-    netwatch_up: '🔎',
-    pppoe_conn: '📶',
-    pppoe_auth: '✅',
-    pppoe_close: '🚪',
-    deregister: '↩️',
-    register: '↪️',
-    config_change: ⚙️',
-    login: '👤',
-    logout: '👋',
-    generic: 'ℹ️',
-  };
-  return map[type] || map.generic;
-};
+        function incidentInterfaces(inc) {
+            if (!inc || !inc.olt) return [];
+            const oltKey = normDev(inc.olt);
+            const byPort = {};
+            (opticalData.value || []).forEach(r => {
+                if (!r || normDev(r.olt_name) !== oltKey) return;
+                const port = r.pon_port || '—';
+                if (!byPort[port]) byPort[port] = { if: port, st: 'up', onus: 0, online: 0, offline: 0 };
+                const p = byPort[port];
+                p.onus += 1;
+                if (Number(r.status) === 3) p.online += 1;
+                else p.offline += 1;
+            });
+            let out = Object.values(byPort);
+            if (inc.pon) {
+                const target = out.find(p => normDev(p.if) === normDev(inc.pon));
+                if (target) out = [target];
+            }
+            out.forEach(p => { p.st = p.offline > p.online ? 'down' : 'up'; });
+            out.sort((a, b) => String(a.if).localeCompare(String(b.if)));
+            return out.slice(0, 12);
+        }
 
-// Fetch de eventos del backend (agrupados por problema real)
-const apiFetch = async (url, options = {}) => {
-  const key = localStorage.getItem('api_key') || '';
-  const defaultOpts = {
-    headers: {
-      'X-API-Key': key,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    timeout: 20000,
-  };
-  const res = await fetch(url, defaultOpts);
-  if (res.status === 401) {
-    logsError.value = 'Clave API inválida o expirada';
-    // Limpiar y pedir nueva
-    localStorage.removeItem('api_key');
-    // promptForKey(true); // disponible en el entorno original
-    throw new Error('401 - Clave API inválida');
-  }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-};
+        function ponStatsFor(device, port) {
+            if (!port) return [];
+            const key = normDev(device);
+            const rows = (opticalData.value || []).filter(r => normDev(r.olt_name) === key && String(r.pon_port || '') === String(port));
+            if (!rows.length) return [];
+            const online = rows.filter(r => Number(r.status) === 3).length;
+            const offline = rows.length - online;
+            return [{ if: port, st: offline > online ? 'down' : 'up', onus: rows.length, online, offline }];
+        }
 
-// Cargar eventos reales
-let unsubscribe = null;
+        const logEventCards = computed(() => (logsIncidents.value || []).map(inc => {
+            const sev = incidentSev(inc);
+            const iso = toIso(inc.inicio);
+            const impacto = inc.impacto || {};
+            const partes = [];
+            if (impacto.clientes) partes.push(`${impacto.clientes} clientes`);
+            if (impacto.onus_los) partes.push(`${impacto.onus_los} ONUs LOS`);
+            if (impacto.predicciones) partes.push(`${impacto.predicciones} predicciones`);
+            return {
+                kind: 'incident',
+                id: inc.id,
+                sev,
+                type: incidentType(inc),
+                source: 'OLT · Red',
+                title: inc.causa || 'Incidencia sin causa registrada',
+                detail: partes.length ? `Impacto: ${partes.join(' · ')}` : (inc.nap ? `NAP ${inc.nap}` : 'Sin impacto calculado'),
+                device: [inc.olt, inc.pon].filter(Boolean).join(' · ') || inc.nap || '—',
+                time: iso ? formatClock(iso) : '—',
+                ago: formatAgo(iso),
+                raw: inc,
+            };
+        }));
 
-const fetchAll = async (notify = false) => {
-  if (logsLoading.value) return;
-  logsLoading.value = true;
-  logsError.value = '';
-  try {
-    const data = await apiFetch(`/api/v1/syslog/events?minutes=${logsRange.value}&limit=500`);
-    if (!data.ok) throw new Error(data.detail || 'Error desconocido');
-    
-    // Procesar eventos para el grid
-    const events = data.events || [];
-    
-    // Agrupar por tipo y dispositivo para el grid
-    let gridItems = [];
-    const counts = data.counts || { olt: { raw: 0, news: 0, warnings: 0, alerts: 0, high: 0, danger: 0 }, mikrotik: { raw: 0, news: 0, warnings: 0, alerts: 0, high: 0, danger: 0 } };
-    
-    // Para cada evento, crear ítem del grid
-    const seenKeys = new Set();
-    
-    for (const ev of events) {
-      const type = ev.type || 'generic';
-      const title = _TYPE_TITLES[type] || `Evento: ${type}`;
-      const device = ev.device || ev.device_ip || 'Equipo desconocido';
-      const pon = ev.pon_port || '';
-      const sev = ev.sev || 'news';
-      const key = `${device}|${pon}|${type}|${sev}`;
-      
-      if (seenKeys.has(key)) continue;
-      seenKeys.add(key);
-      
-      // Contar ONUs con evidencia
-      let onuCount = 0;
-      let onuList = [];
-      if (ev.onu_serials && ev.onu_serials.length) {
-        onuCount = ev.onu_serials.length;
-        onuList = ev.onu_serials.slice(0, 4); // máximo 4 para mostrar
-      }
-      
-      // Contar eventos relacionados (repeticiones)
-      let eventCount = ev.count || 1;
-      
-      gridItems.push({
-        id: key,
-        title,
-        device,
-        pon,
-        sev,
-        count: eventCount,
-        onuCount,
-        onuList,
-        sample: ev.sample || '',
-        lastSeen: ev.last_time || '--:--:--',
-        key, // para filtrado
-      });
-    }
-    
-    // Ordenar: primero los graves, luego los más repetidos
-    const sevRank = { danger: 0, high: 1, warning: 2, news: 3 };
-    gridItems.sort((a, b) => {
-      const sa = sevRank[a.sev] || 3;
-      const sb = sevRank[b.sev] || 3;
-      if (sa !== sb) return sa - sb;
-      return (b.count || 0) - (a.count || 0);
-    });
-    
-    logsEvents.value = gridItems;
-    logsCounts.value = counts;
-    logsLoading.value = false;
-    
-    // Notificar si es necesario
-    if (notify && window.__flags?.onLogsUpdate) window.__flags.onLogsUpdate(data);
-    
-  } catch (err) {
-    logsError.value = err.message || 'Error al cargar logs';
-    logsLoading.value = false;
-    console.error('fetchLogs error:', err);
-  }
-};
+        const filteredLogEvents = computed(() => {
+            const focus = normDev(logsDeviceFocus.value);
+            return logEventCards.value.filter(e => {
+                if (logsFilter.value !== 'all' && e.sev !== logsFilter.value) return false;
+                if (focus && !normDev(e.device).includes(focus)) return false;
+                return true;
+            });
+        });
 
-// Window event para rangos de tiempo
-const rangeButtons = [
-  { label: '1h', minutes: 1 },
-  { label: '6h', minutes: 6 },
-  { label: '24h', minutes: 24 },
-  { label: '7d', minutes: 7 * 24 },
-];
+        const logSummary = computed(() => {
+            const events = logEventCards.value;
+            const count = k => k === 'all' ? events.length : events.filter(e => e.sev === k).length;
+            return [
+                { key: 'all',     label: 'Todos los eventos', value: count('all'),     hint: 'incidencias', cls: 'border-surface-700/50 bg-surface-900/60', num: 'text-surface-100' },
+                { key: 'danger',  label: 'Alertas críticas',  value: count('danger'),  hint: 'danger',      cls: 'border-red-700/50 bg-red-950/20',          num: 'text-red-300' },
+                { key: 'high',    label: 'Alertas altas',     value: count('high'),    hint: 'high',        cls: 'border-orange-700/45 bg-orange-950/15',    num: 'text-orange-300' },
+                { key: 'warning', label: 'Advertencias',      value: count('warning'), hint: 'warning',     cls: 'border-amber-700/40 bg-amber-950/15',      num: 'text-amber-300' },
+            ];
+        });
 
-// Watchers para actualización automática
-watch(logsRange, (newRange, oldRange) => {
-  if (newRange !== oldRange) {
-    fetchAll(true).catch(() => {});
-  }
-});
+        const logBadges = computed(() => {
+            const counts = (logsMeta.value && logsMeta.value.counts) || {};
+            const olt = counts.olt || {};
+            const mt = counts.mikrotik || {};
+            const alerts = (Number(olt.high) || 0) + (Number(olt.danger) || 0);
+            return [
+                { n: pad2(alerts),        cls: 'bg-red-500/20 text-red-300',             title: 'OLT · alertas (alto / danger)' },
+                { n: pad2(olt.warnings),  cls: 'bg-amber-500/20 text-amber-300',         title: 'OLT · advertencias' },
+                { n: pad2(olt.news),      cls: 'bg-sky-500/20 text-sky-300',             title: 'OLT · noticias' },
+                { n: pad2(mt.news),       cls: 'bg-surface-700/70 text-surface-300',     title: 'MikroTik · noticias' },
+            ];
+        });
 
-// Si hay experimento de watch activo, suscribirse
-if (experiment?.logsWatch) {
-  unsubscribe = watch('activeTab', (tab) => {
-    if (tab === 'logs') fetchAll();
-  });
-}
+        const visibleLogGroups = computed(() => {
+            const meta = logsMeta.value || {};
+            const groups = logsPanels.value || {};
+            const counts = meta.counts || {};
+            const labels = meta.labels || {};
+            const focus = normDev(logsDeviceFocus.value);
+            const iconOlt = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>';
+            const iconMt = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>';
+            const out = [];
+            ['mikrotik', 'olt'].forEach(key => {
+                if (logsDeviceFilter.value !== 'all' && logsDeviceFilter.value !== key) return;
+                const g = groups[key] || {};
+                const c = counts[key] || {};
+                const filt = arr => (arr || []).filter(l => !focus || normDev(l.device).includes(focus));
+                out.push({
+                    key,
+                    label: labels[key] || key,
+                    icon: key === 'olt' ? iconOlt : iconMt,
+                    raw: c.raw || 0,
+                    families: c.families_total || 0,
+                    counts: c.families || { news: 0, warnings: 0, alerts: 0 },
+                    news: filt(g.news),
+                    warnings: filt(g.warnings),
+                    alerts: filt(g.alerts),
+                });
+            });
+            return out;
+        });
 
-// Estado reactivo
-const logsEvents = ref([]);
-const logsCounts = ref({
-  olt: { raw: 0, news: 0, warnings: 0, alerts: 0, high: 0, danger: 0 },
-  mikrotik: { raw: 0, news: 0, warnings: 0, alerts: 0, high: 0, danger: 0 },
-});
+        async function fetchLogs(notify = false) {
+            if (logsLoading.value) return;
+            logsLoading.value = true;
+            logsError.value = '';
+            try {
+                const [panelsRes, incRes] = await Promise.allSettled([
+                    apiFetch(`/api/v1/syslog/panels?minutes=${logsRange.value * 60}&per_bucket=20`),
+                    apiFetch('/api/v1/incidents/?limit=100'),
+                ]);
+                if (panelsRes.status === 'fulfilled' && panelsRes.value) {
+                    logsPanels.value = panelsRes.value.groups || {};
+                    logsMeta.value = panelsRes.value;
+                } else if (panelsRes.status === 'rejected') {
+                    logsError.value = (panelsRes.reason && panelsRes.reason.message) || 'No se pudieron cargar los logs de equipos.';
+                }
+                if (incRes.status === 'fulfilled' && incRes.value) {
+                    logsIncidents.value = incRes.value.incidents || [];
+                }
+                if (notify) showToast('Logs actualizados');
+            } catch (e) {
+                logsError.value = (e && e.message) || 'Error al cargar logs.';
+            } finally {
+                logsLoading.value = false;
+            }
+        }
 
-// Cerrar el modal de detalle de evento/log
-function closeLogEvent() {
-  logDetailToken++;
-  showLogEventModal.value = false;
-  logDetail.value = null;
-  logDetailError.value = '';
-  logDetailLoading.value = false;
-}
+        function emptyIncidentDetail(card) {
+            return {
+                kind: 'incident', id: card.id, sev: card.sev, type: card.type,
+                source: card.source, title: card.title, detail: '',
+                device: card.device, inicio: card.time, detectado: '—',
+                duracion: '—', estado: 'CARGANDO',
+                estadoCls: 'bg-surface-800 text-surface-300 border-surface-600/50',
+                causa: '', confianza: null, evidencia: [], impacto: [], fuentes: [],
+                interfaces: [], clientes: [], clientesTotal: 0, logs: [], acciones: [],
+            };
+        }
 
-// Cerrar modal de detalle de evento
-function closeLogEvent() {
-  logDetailToken++;
-  showLogEventModal.value = false;
-  logDetail.value = null;
-  logDetailError.value = '';
-  logDetailLoading.value = false;
-}
+        function buildIncidentDetail(inc, affected, relatedLogs) {
+            const sev = incidentSev(inc);
+            const iso = toIso(inc.inicio);
+            const impacto = inc.impacto || {};
+            const fuentes = inc.fuentes || {};
+            const evidencia = (inc.evidencia || []).map(ev => {
+                if (typeof ev === 'string') return ev;
+                if (ev && ev.mensaje) return ev.mensaje;
+                const tipo = (ev && ev.tipo) || 'evidencia';
+                const valor = ev && ev.valor !== undefined && ev.valor !== null ? ev.valor : '';
+                return valor !== '' ? `${tipo}: ${valor}` : tipo;
+            });
+            const clientes = (affected || []).map(c => ({
+                n: c.cliente || '—',
+                czwisp: c.czwisp || '—',
+                onu: c.serial_onu || '—',
+                mac: c.mac || '—',
+                rx: c.rx_power !== undefined && c.rx_power !== null && c.rx_power !== ''
+                    ? (String(c.rx_power).includes('dBm') ? String(c.rx_power) : `${c.rx_power} dBm`)
+                    : '—',
+                st: String(c.estatus || '').toLowerCase() === 'up' ? 'online' : (c.estatus || '—'),
+            }));
+            const estado = String(inc.estado || '').toLowerCase();
+            return {
+                kind: 'incident',
+                id: inc.id || '—',
+                sev,
+                type: incidentType(inc),
+                source: 'OLT · Red',
+                title: inc.causa || 'Incidencia sin causa registrada',
+                detail: '',
+                device: [inc.olt, inc.pon].filter(Boolean).join(' · ') || inc.nap || '—',
+                inicio: iso ? formatClock(iso) : '—',
+                detectado: inc.detectado ? formatClock(toIso(inc.detectado)) : '—',
+                duracion: inc.duracion || (estado === 'resolved' && inc.fin ? formatClock(toIso(inc.fin)) : 'en curso'),
+                estado: estado === 'resolved' ? 'RESUELTA' : (inc.reconocida ? 'RECONOCIDA' : 'ABIERTA'),
+                estadoCls: estado === 'resolved'
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-600/40'
+                    : (sev === 'danger' ? 'bg-red-500/15 text-red-300 border-red-600/40' : 'bg-amber-500/15 text-amber-300 border-amber-600/40'),
+                causa: inc.causa || 'Sin causa registrada.',
+                confianza: inc.confianza !== undefined && inc.confianza !== null && Number(inc.confianza) > 0 ? Math.round(Number(inc.confianza)) : null,
+                evidencia,
+                impacto: [
+                    { n: impacto.clientes || 0, l: 'Clientes' },
+                    { n: impacto.onus_los || 0, l: 'ONUs LOS' },
+                    { n: impacto.predicciones || 0, l: 'Predicciones' },
+                ],
+                fuentes: [
+                    { l: 'Anomalías', ok: !!fuentes.anomalies },
+                    { l: 'Predicciones', ok: !!fuentes.predictions },
+                    { l: 'Syslog', ok: !!fuentes.syslog },
+                ],
+                interfaces: incidentInterfaces(inc),
+                clientes,
+                clientesTotal: Number(impacto.clientes) || clientes.length,
+                logs: relatedLogs || [],
+                acciones: [
+                    { label: inc.reconocida ? 'Reconocida' : 'Reconocer', kind: 'ack', busy: false, done: !!inc.reconocida },
+                    { label: 'Silenciar 1 h', kind: 'mute', hours: 1, busy: false, done: false },
+                    { label: 'Resolver', kind: 'resolve', busy: false, done: estado === 'resolved' },
+                    { label: 'Actualizar', kind: 'refresh', busy: false, done: false },
+                ],
+            };
+        }
 
-// Inicializar al cargar
-fetchAll(false).catch(() => {});
- user: '' };
-  
-  // Extraer PON del mensaje (buscar "PON 0/9" o similar)
-  const ponMatch = text.match(/\bPON\s+(\d+\s*\/\\s*\d+)/i);
-  if (ponMatch) {
-    facts.pon_port = 'GPON' + ponMatch[1].replace(/\s+/g, '');
-  }
-  
-  // Extraer ONU index y serial
-  const onuMatch = text.match(_ONU_RE);
-  if (onuMatch) {
-    facts.onu_index = onuMatch[1];
-    facts.onu_serial = onuMatch[2].toUpperCase();
-  } else {
-    const snMatch = text.match(_SN_RE);
-    if (snMatch) facts.onu_serial = snMatch[1].toUpperCase();
-  }
-  
-  // Extraer host
-  const hostMatch = text.match(_HOST_RE);
-  if (hostMatch) facts.host = hostMatch[1];
-  
-  // Extraer usuario PPPoE
-  const pppoeMatch = text.match(_PPPOE_USER_RE);
-  if (pppoeMatch) facts.user = pppoeMatch[1];
-  
-  return facts;
-};
+        function syslogTitle(msg, tag) {
+            const m = String(msg || '').toLowerCase();
+            if (m.includes('bip8')) return 'Errores BIP8 en ONU (calidad óptica)';
+            if (m.includes('dying gasp')) return 'ONU Dying Gasp (corte de energía)';
+            if (m.includes('offline')) return 'ONU fuera de línea';
+            if (m.includes('port los') || m.includes('link down')) return 'Pérdida de señal en puerto LAN de ONU';
+            if (m.includes('online')) return 'ONU en línea';
+            if (m.includes('authentication failed')) return 'Fallo de autenticación PPPoE';
+            if (m.includes('connection established')) return 'Sesión PPPoE establecida';
+            if (m.includes('event down')) return 'Host sin respuesta (netwatch)';
+            if (m.includes('event up')) return 'Host recuperado (netwatch)';
+            if (m.includes('logged in')) return 'Inicio de sesión en el equipo';
+            if (m.includes('logged out') || m.includes('logouted')) return 'Cierre de sesión en el equipo';
+            if (m.includes('link up')) return 'Enlace restablecido';
+            return 'Evento de ' + (tag || 'equipo');
+        }
 
-// Formatear hora ISO a HH:MM:SS
-const _isoTime = (value) => {
-  const text = String(value || '');
-  if (text.includes('T') && text.length >= 19) return text.substring(11, 19);
-  return text.substring(0, 19) || '--:--:--';
-};
+        function syslogType(msg) {
+            const m = String(msg || '').toLowerCase();
+            if (m.includes('bip8') || m.includes('óptic') || m.includes('optic') || m.includes('rx power')) return 'optical';
+            if (m.includes('dying gasp') || m.includes('offline') || m.includes('link down') || m.includes('port los')) return 'outage';
+            if (m.includes('authentication failed') || m.includes('attack') || m.includes('login failed')) return 'security';
+            if (m.includes('pppoe') || m.includes('logged') || m.includes('online') || m.includes('event up')) return 'network';
+            return 'software';
+        }
 
-// Estado de severidad → clase CSS
-const logSev = (sev) => {
-  const map = {
-    danger: { icon: '⚠️', class: 'text-red-400', bg: 'bg-red-100/20' },
-    high: { icon: '🔴', class: 'text-orange-400', bg: 'bg-orange-100/20' },
-    warning: { icon: '🟡', class: 'text-yellow-300', bg: 'bg-yellow-100/20' },
-    news: { icon: 'ℹ️', class: 'text-sky-300', bg: 'bg-sky-100/20' },
-  };
-  return map[sev] || map.news;
-};
+        function buildSyslogDetail(row, bucket) {
+            const msg = cleanLogMsg(row.message);
+            const repeats = Number(row.repeats) || 1;
+            const device = row.device || row.device_ip || '—';
+            const isOlt = String(row.device_type || '').toLowerCase() === 'olt';
+            const serialMatch = msg.match(/\bsn\s+([0-9a-z]{6,})\b/i);
+            const ponMatch = msg.match(/\bpon\s+(\d+\/\d+)/i);
+            const ponPort = ponMatch ? 'GPON' + ponMatch[1] : '';
+            const sev = row.sev || (bucket === 'alerts' ? 'high' : bucket === 'warnings' ? 'warning' : 'news');
+            const evidencia = [
+                `Repeticiones en la ventana: ${repeats}`,
+                `Primera vez: ${row.first_seen ? formatClock(toIso(row.first_seen)) : '—'}`,
+                `Tag: ${row.tag || row.program || '—'}`,
+                row.host ? `Origen: ${row.host}` : '',
+                row.facility ? `Facility: ${row.facility}` : '',
+                row.event_at ? `Hora del equipo: ${formatClock(toIso(row.event_at))}` : '',
+                serialMatch ? `Serial ONU: ${serialMatch[1]}` : '',
+                ponPort ? `Puerto PON: ${ponPort}` : '',
+            ].filter(Boolean);
+            return {
+                kind: 'syslog',
+                id: 'SYSLOG-' + String(row.time || '').replace(/:/g, '') + '-' + String(row.tag || 'evt').replace(/[^a-z0-9]/gi, '').slice(0, 10).toUpperCase(),
+                sev,
+                type: syslogType(msg),
+                source: isOlt ? 'OLT' : 'MikroTik',
+                title: syslogTitle(msg, row.tag),
+                detail: msg,
+                device,
+                inicio: row.time || '—',
+                detectado: row.time || '—',
+                duracion: '—',
+                estado: 'EVENTO',
+                estadoCls: 'bg-surface-800 text-surface-300 border-surface-600/50',
+                causa: msg || 'Sin mensaje registrado.',
+                confianza: null,
+                evidencia,
+                impacto: [
+                    { n: repeats, l: 'Repeticiones' },
+                    { n: isOlt ? 'OLT' : 'MT', l: 'Origen' },
+                ],
+                fuentes: [
+                    { l: 'Syslog', ok: true },
+                    { l: 'Métricas', ok: !!(opticalData.value && opticalData.value.length) },
+                    { l: 'Clientes', ok: false },
+                ],
+                interfaces: isOlt ? ponStatsFor(device, ponPort) : [],
+                clientes: [],
+                clientesTotal: 0,
+                logs: [],
+                acciones: [{ label: 'Actualizar', kind: 'refresh', busy: false, done: false }],
+            };
+        }
 
-// Icono por tipo de evento
-const logTypeIcon = (type) => {
-  const map = {
-    bip8: '📡',
-    dying_gasp: '⚡',
-    port_los: '🔌',
-    offline: '💻',
-    online: '🌐',
-    link_down: '↘️',
-    link_up: '↗️',
-    auth_fail: '🔐',
-    netwatch_down: '🔍',
-    netwatch_up: '🔎',
-    pppoe_conn: '📶',
-    pppoe_auth: '✅',
-    pppoe_close: '🚪',
-    deregister: '↩️',
-    register: '↪️',
-    config_change: ⚙️',
-    login: '👤',
-    logout: '👋',
-    generic: 'ℹ️',
-  };
-  return map[type] || map.generic;
-};
+        async function loadRelatedIncidentLogs(inc) {
+            if (!inc || !inc.olt) return [];
+            const oltKey = normDev(inc.olt);
+            const pon = String(inc.pon || '');
+            // El syslog escribe "PON 0/9"; la incidencia guarda "GPON0/9".
+            const ponNum = pon.replace(/^GPON\s*/i, '').trim();
+            try {
+                const res = await apiFetch(`/api/v1/syslog/recent?minutes=${logsRange.value * 60}&device_type=olt&limit=600`);
+                const rows = (res && res.events) || [];
+                const sameOlt = rows.filter(r => normDev(r.device_name) === oltKey);
+                const samePon = ponNum ? sameOlt.filter(r => {
+                    const msg = cleanLogMsg(r.message);
+                    return msg.includes('PON ' + ponNum) || msg.includes('pon ' + ponNum) || msg.includes(pon);
+                }) : sameOlt;
+                const use = (samePon.length ? samePon : sameOlt).slice(0, 40);
+                use.sort((a, b) => String(b.processed_at || b.timestamp || '').localeCompare(String(a.processed_at || a.timestamp || '')));
+                return use.map(r => ({ t: timeOf(r), tag: r.tag || r.program || '', msg: cleanLogMsg(r.message) }));
+            } catch (e) { return []; }
+        }
 
-// Fetch de eventos del backend (agrupados por problema real)
-const apiFetch = async (url, options = {}) => {
-  const key = localStorage.getItem('api_key') || '';
-  const defaultOpts = {
-    headers: {
-      'X-API-Key': key,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    timeout: 20000,
-  };
-  const res = await fetch(url, defaultOpts);
-  if (res.status === 401) {
-    logsError.value = 'Clave API inválida o expirada';
-    // Limpiar y pedir nueva
-    localStorage.removeItem('api_key');
-    // promptForKey(true); // disponible en el entorno original
-    throw new Error('401 - Clave API inválida');
-  }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-};
+        async function loadRelatedSyslogLogs(row) {
+            if (!row) return [];
+            try {
+                const params = new URLSearchParams({ minutes: String(logsRange.value * 60), limit: '300' });
+                if (row.device_ip) params.set('device_ip', row.device_ip);
+                else if (row.device) params.set('device_name', row.device);
+                const res = await apiFetch('/api/v1/syslog/recent?' + params.toString());
+                const rows = (res && res.events) || [];
+                const key = patternKey(cleanLogMsg(row.message));
+                // Primero la misma familia de mensaje (mismo tipo de evento).
+                const family = rows.filter(r => patternKey(cleanLogMsg(r.message)) === key);
+                // Si no hay repeticiones de la familia, los eventos del mismo
+                // dispositivo con el mismo tag son el contexto más cercano.
+                const sameDev = rows.filter(r => row.device_ip && String(r.device_ip) === String(row.device_ip) && String(r.tag) === String(row.tag));
+                const use = (family.length ? family : (sameDev.length ? sameDev : rows)).slice(0, 30);
+                use.sort((a, b) => String(b.processed_at || b.timestamp || '').localeCompare(String(a.processed_at || a.timestamp || '')));
+                return use.map(r => ({ t: timeOf(r), tag: r.tag || r.program || '', msg: cleanLogMsg(r.message) }));
+            } catch (e) { return []; }
+        }
 
-// Cargar eventos reales
-let unsubscribe = null;
+        async function loadSyslogClient(row) {
+            const msg = cleanLogMsg((row && row.message) || '');
+            const m = msg.match(/\bsn\s+([0-9a-z]{6,})\b/i) || msg.match(/\b(?:vsol|gpon|monu|hwtc|adcg|oemt|zicg)[0-9a-z]{6,}\b/i);
+            if (!m) return [];
+            const serial = m[1] || m[0];
+            try {
+                const res = await apiFetch('/api/clientes/vital/batch', {
+                    method: 'POST',
+                    body: JSON.stringify({ queries: [serial], include_history: false, include_infra: false }),
+                });
+                const hit = res && res.results && res.results[0];
+                if (!hit || !hit.found || !hit.ficha) return [];
+                const f = hit.ficha;
+                const estado = Number(f.estado_onu);
+                return [{
+                    n: f.nombre || f.usuario_pppoe || serial,
+                    czwisp: f.documento || '—',
+                    onu: f.serial_onu || serial,
+                    mac: f.mac || '—',
+                    rx: f.rx_power !== undefined && f.rx_power !== null && f.rx_power !== '' ? `${f.rx_power} dBm` : '—',
+                    st: estado === 3 ? 'online' : (estado >= 0 ? 'caído' : '—'),
+                }];
+            } catch (e) { return []; }
+        }
 
-const fetchAll = async (notify = false) => {
-  if (logsLoading.value) return;
-  logsLoading.value = true;
-  logsError.value = '';
-  try {
-    const data = await apiFetch(`/api/v1/syslog/events?minutes=${logsRange.value}&limit=500`);
-    if (!data.ok) throw new Error(data.detail || 'Error desconocido');
-    
-    // Procesar eventos para el grid
-    const events = data.events || [];
-    
-    // Agrupar por tipo y dispositivo para el grid
-    let gridItems = [];
-    const counts = data.counts || { olt: { raw: 0, news: 0, warnings: 0, alerts: 0, high: 0, danger: 0 }, mikrotik: { raw: 0, news: 0, warnings: 0, alerts: 0, high: 0, danger: 0 } };
-    
-    // Para cada evento, crear ítem del grid
-    const seenKeys = new Set();
-    
-    for (const ev of events) {
-      const type = ev.type || 'generic';
-      const title = _TYPE_TITLES[type] || `Evento: ${type}`;
-      const device = ev.device || ev.device_ip || 'Equipo desconocido';
-      const pon = ev.pon_port || '';
-      const sev = ev.sev || 'news';
-      const key = `${device}|${pon}|${type}|${sev}`;
-      
-      if (seenKeys.has(key)) continue;
-      seenKeys.add(key);
-      
-      // Contar ONUs con evidencia
-      let onuCount = 0;
-      let onuList = [];
-      if (ev.onu_serials && ev.onu_serials.length) {
-        onuCount = ev.onu_serials.length;
-        onuList = ev.onu_serials.slice(0, 4); // máximo 4 para mostrar
-      }
-      
-      // Contar eventos relacionados (repeticiones)
-      let eventCount = ev.count || 1;
-      
-      gridItems.push({
-        id: key,
-        title,
-        device,
-        pon,
-        sev,
-        count: eventCount,
-        onuCount,
-        onuList,
-        sample: ev.sample || '',
-        lastSeen: ev.last_time || '--:--:--',
-        key, // para filtrado
-      });
-    }
-    
-    // Ordenar: primero los graves, luego los más repetidos
-    const sevRank = { danger: 0, high: 1, warning: 2, news: 3 };
-    gridItems.sort((a, b) => {
-      const sa = sevRank[a.sev] || 3;
-      const sb = sevRank[b.sev] || 3;
-      if (sa !== sb) return sa - sb;
-      return (b.count || 0) - (a.count || 0);
-    });
-    
-    logsEvents.value = gridItems;
-    logsCounts.value = counts;
-    logsLoading.value = false;
-    
-    // Notificar si es necesario
-    if (notify && window.__flags?.onLogsUpdate) window.__flags.onLogsUpdate(data);
-    
-  } catch (err) {
-    logsError.value = err.message || 'Error al cargar logs';
-    logsLoading.value = false;
-    console.error('fetchLogs error:', err);
-  }
-};
+        async function openLogEvent(card) {
+            if (!card) return;
+            if (card.kind === 'syslog') { openSyslogRow(card.row, card.bucket); return; }
+            showLogEventModal.value = true;
+            logDetail.value = emptyIncidentDetail(card);
+            logDetailError.value = '';
+            logDetailLoading.value = true;
+            const token = ++logDetailToken;
+            try {
+                const [detRes, affRes] = await Promise.allSettled([
+                    apiFetch(`/api/v1/incidents/${encodeURIComponent(card.id)}`),
+                    apiFetch(`/api/v1/incidents/${encodeURIComponent(card.id)}/affected`),
+                ]);
+                if (token !== logDetailToken) return;
+                if (detRes.status !== 'fulfilled') throw new Error((detRes.reason && detRes.reason.message) || 'No se pudo cargar la incidencia.');
+                const inc = detRes.value || {};
+                const affected = affRes.status === 'fulfilled' ? ((affRes.value && affRes.value.clientes) || []) : [];
+                const related = await loadRelatedIncidentLogs(inc);
+                if (token !== logDetailToken) return;
+                logDetail.value = buildIncidentDetail(inc, affected, related);
+            } catch (e) {
+                if (token === logDetailToken) logDetailError.value = (e && e.message) || 'Error al cargar el detalle.';
+            } finally {
+                if (token === logDetailToken) logDetailLoading.value = false;
+            }
+        }
 
-// Window event para rangos de tiempo
-const rangeButtons = [
-  { label: '1h', minutes: 1 },
-  { label: '6h', minutes: 6 },
-  { label: '24h', minutes: 24 },
-  { label: '7d', minutes: 7 * 24 },
-];
+        async function openSyslogRow(row, bucket) {
+            if (!row) return;
+            showLogEventModal.value = true;
+            logDetailError.value = '';
+            logDetailLoading.value = true;
+            logDetail.value = buildSyslogDetail(row, bucket);
+            const token = ++logDetailToken;
+            try {
+                const [logs, clientes] = await Promise.all([
+                    loadRelatedSyslogLogs(row),
+                    loadSyslogClient(row),
+                ]);
+                if (token !== logDetailToken) return;
+                const det = buildSyslogDetail(row, bucket);
+                det.logs = logs;
+                if (clientes.length) {
+                    det.clientes = clientes;
+                    det.clientesTotal = clientes.length;
+                    det.fuentes = det.fuentes.map(f => f.l === 'Clientes' ? { l: 'Clientes', ok: true } : f);
+                }
+                logDetail.value = det;
+            } catch (e) {
+                // El detalle básico ya está pintado; el fallo solo afecta al enriquecimiento.
+            } finally {
+                if (token === logDetailToken) logDetailLoading.value = false;
+            }
+        }
 
-// Watchers para actualización automática
-watch(logsRange, (newRange, oldRange) => {
-  if (newRange !== oldRange) {
-    fetchAll(true).catch(() => {});
-  }
-});
+        async function refreshLogDetail() {
+            const det = logDetail.value;
+            if (!det || det.kind !== 'incident') return;
+            const token = ++logDetailToken;
+            logDetailLoading.value = true;
+            logDetailError.value = '';
+            try {
+                const [detRes, affRes] = await Promise.allSettled([
+                    apiFetch(`/api/v1/incidents/${encodeURIComponent(det.id)}`),
+                    apiFetch(`/api/v1/incidents/${encodeURIComponent(det.id)}/affected`),
+                ]);
+                if (token !== logDetailToken) return;
+                if (detRes.status !== 'fulfilled') throw new Error((detRes.reason && detRes.reason.message) || 'No se pudo actualizar la incidencia.');
+                const inc = detRes.value || {};
+                const affected = affRes.status === 'fulfilled' ? ((affRes.value && affRes.value.clientes) || []) : [];
+                const related = await loadRelatedIncidentLogs(inc);
+                if (token !== logDetailToken) return;
+                logDetail.value = buildIncidentDetail(inc, affected, related);
+            } catch (e) {
+                if (token === logDetailToken) logDetailError.value = (e && e.message) || 'Error al actualizar.';
+            } finally {
+                if (token === logDetailToken) logDetailLoading.value = false;
+            }
+        }
 
-// Si hay experimento de watch activo, suscribirse
-if (experiment?.logsWatch) {
-  unsubscribe = watch('activeTab', (tab) => {
-    if (tab === 'logs') fetchAll();
-  });
-}
+        async function runLogAction(action) {
+            if (!action || action.busy || action.done) return;
+            const det = logDetail.value;
+            if (!det) return;
+            if (action.kind === 'refresh') { await refreshLogDetail(); return; }
+            if (det.kind !== 'incident') return;
+            action.busy = true;
+            try {
+                let url = `/api/v1/incidents/${encodeURIComponent(det.id)}/${action.kind}`;
+                if (action.kind === 'mute') url += `?hours=${action.hours || 1}`;
+                await apiFetch(url, { method: 'POST' });
+                showToast(action.kind === 'ack' ? 'Incidencia reconocida' : action.kind === 'mute' ? 'Incidencia silenciada 1 h' : 'Incidencia resuelta');
+                await fetchLogs();
+                await refreshLogDetail();
+            } catch (e) {
+                showToast('Error: ' + ((e && e.message) || 'no se pudo ejecutar la acción'), 'error');
+            } finally {
+                action.busy = false;
+            }
+        }
 
-// Estado reactivo
-const logsEvents = ref([]);
-const logsCounts = ref({
-  olt: { raw: 0, news: 0, warnings: 0, alerts: 0, high: 0, danger: 0 },
-  mikrotik: { raw: 0, news: 0, warnings: 0, alerts: 0, high: 0, danger: 0 },
-});
+        function closeLogEvent() {
+            logDetailToken++;
+            showLogEventModal.value = false;
+            logDetail.value = null;
+            logDetailError.value = '';
+            logDetailLoading.value = false;
+        }
 
-// Inicializar al cargar
-fetchAll(false).catch(() => {});
-
+        function clearLogsDeviceFocus() { logsDeviceFocus.value = ''; }
 
         // Network tab (ping)
         const pingStatus = ref([]);
