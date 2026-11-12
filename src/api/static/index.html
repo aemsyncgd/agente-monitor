@@ -1206,7 +1206,7 @@
                             :class="[s.cls, logsFilter === s.key ? 'ring-2 ring-brand-500' : '']">
                             <div class="text-[11px] uppercase tracking-wider text-surface-400">{{ s.label }}</div>
                             <div class="mt-1 flex items-baseline gap-2">
-                                <span class="text-3xl font-bold" :class="s.num">{{ pad2(s.value) }}{{ s.plus ? '+' : '' }}</span>
+                                <span class="text-3xl font-bold" :class="s.num">{{ s.value }}{{ s.plus ? '+' : '' }}</span>
                                 <span class="text-[11px] text-surface-500">{{ s.hint }}</span>
                             </div>
                         </button>
@@ -1270,6 +1270,9 @@
                                 <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500"></span>Danger</span>
                             </div>
                         </div>
+                        <p class="text-[11px] text-surface-500">
+                            Cada fila agrupa un <span class="text-surface-300">tipo de mensaje</span> (no un evento suelto): el <span class="text-surface-300">×N</span> indica cuántas veces se repitió y el chip muestra <span class="text-surface-300">tipos · eventos</span>. Haz clic en una fila para ver el detalle y sus logs relacionados.
+                        </p>
                         <div class="space-y-5">
                             <div v-for="g in visibleLogGroups" :key="g.key" class="rounded-xl border border-surface-700/50 bg-surface-900/60 overflow-hidden">
                                 <div class="flex items-center gap-3 px-4 py-3 border-b border-surface-700/50 bg-surface-900/80">
