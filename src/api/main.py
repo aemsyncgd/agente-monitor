@@ -150,16 +150,18 @@ async def dashboard():
     if index_file.exists():
         content = index_file.read_text(encoding="utf-8")
         content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
-        content = content.replace(
-            'tailwindcss">',
-            f'tailwindcss?v={content_hash}">'
-        ).replace(
-            'vue@3/dist/vue.global.prod.js">',
-            f'vue@3/dist/vue.global.prod.js?v={content_hash}">'
-        ).replace(
-            'apexcharts">',
-            f'apexcharts?v={content_hash}">'
-        )
+        # Cache-busting de las librerías locales (vendorizadas para que el
+        # dashboard no dependa de CDNs externos y nunca quede en blanco).
+        for asset in (
+            "tailwind.js",
+            "vue.global.prod.js",
+            "apexcharts.min.js",
+            "vis-network.min.js",
+        ):
+            content = content.replace(
+                f'/static/vendor/{asset}"',
+                f'/static/vendor/{asset}?v={content_hash}"',
+            )
         return HTMLResponse(
             content=content,
             headers={

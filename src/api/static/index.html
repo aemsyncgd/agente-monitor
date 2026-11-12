@@ -4,7 +4,58 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vidanet - Monitoreo IA</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!--
+      Red de seguridad de arranque: si una librería no carga o el setup de Vue
+      lanza una excepción, el dashboard NO queda en blanco (v-cloak lo oculta).
+      Se muestra el error real en pantalla con un botón para recargar.
+    -->
+    <script>
+        (function () {
+            var shown = false;
+            function renderBootError(message) {
+                if (shown) return;
+                var app = document.getElementById('app');
+                if (app && app.__vue_app__) return; // la app sí montó: no interferir
+                shown = true;
+                if (app) app.removeAttribute('v-cloak');
+                var box = document.createElement('div');
+                box.id = 'boot-error';
+                box.setAttribute('role', 'alert');
+                box.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;background:#0b1220;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;';
+                box.innerHTML = '<div style="max-width:760px;width:100%;border:1px solid #7f1d1d;background:#1f1216;border-radius:14px;padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.55)">' +
+                    '<h2 style="margin:0 0 8px;font-size:18px;color:#fca5a5">No se pudo iniciar el dashboard</h2>' +
+                    '<p style="margin:0 0 12px;font-size:13px;color:#cbd5e1">La interfaz no cargó. Detalle técnico:</p>' +
+                    '<pre id="boot-error-detail" style="margin:0 0 16px;padding:12px;background:#0b1220;border:1px solid #334155;border-radius:8px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#fecaca;max-height:45vh;overflow:auto"></pre>' +
+                    '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+                    '<button onclick="location.reload()" style="padding:9px 16px;border-radius:8px;border:0;background:#2563eb;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Recargar</button>' +
+                    '<button onclick="document.getElementById(\'boot-error\').remove()" style="padding:9px 16px;border-radius:8px;border:1px solid #334155;background:transparent;color:#cbd5e1;font-size:13px;cursor:pointer">Ocultar</button>' +
+                    '</div></div>';
+                box.querySelector('#boot-error-detail').textContent = message || 'Error desconocido';
+                (document.body || document.documentElement).appendChild(box);
+            }
+            window.__vidanetBootError = renderBootError;
+            window.addEventListener('error', function (e) {
+                if (e && e.target && e.target.tagName === 'SCRIPT') {
+                    renderBootError('No se pudo cargar la librería: ' + (e.target.src || 'script'));
+                    return;
+                }
+                if (e && e.message) {
+                    renderBootError(e.message + (e.filename ? '\n' + e.filename + ':' + e.lineno : ''));
+                }
+            }, true);
+            window.addEventListener('unhandledrejection', function (e) {
+                var r = e && e.reason;
+                renderBootError((r && (r.stack || r.message)) || String(r));
+            });
+            setTimeout(function () {
+                var app = document.getElementById('app');
+                if (!app || !app.__vue_app__) {
+                    renderBootError('La aplicación no terminó de montar (tiempo de espera agotado).');
+                }
+            }, 20000);
+        })();
+    </script>
+    <script src="/static/vendor/tailwind.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -37,9 +88,9 @@
             }
         }
     </script>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-    <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+    <script src="/static/vendor/vue.global.prod.js"></script>
+    <script src="/static/vendor/apexcharts.min.js"></script>
+    <script src="/static/vendor/vis-network.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -1155,14 +1206,14 @@
                             :class="[s.cls, logsFilter === s.key ? 'ring-2 ring-brand-500' : '']">
                             <div class="text-[11px] uppercase tracking-wider text-surface-400">{{ s.label }}</div>
                             <div class="mt-1 flex items-baseline gap-2">
-                                <span class="text-3xl font-bold" :class="s.num">{{ pad2(s.value) }}</span>
+                                <span class="text-3xl font-bold" :class="s.num">{{ pad2(s.value) }}{{ s.plus ? '+' : '' }}</span>
                                 <span class="text-[11px] text-surface-500">{{ s.hint }}</span>
                             </div>
                         </button>
                     </div>
 
-                    <!-- Eventos importantes -->
-                    <section>
+                    <!-- Eventos importantes (incidencias reales; se oculta si no hay) -->
+                    <section v-if="logsIncidents.length">
                         <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-2">
                                 <h2 class="text-sm font-semibold text-surface-200">Eventos importantes</h2>
@@ -1234,16 +1285,16 @@
                                         <div class="flex items-center gap-2 px-4 py-2.5 border-b border-surface-800/70">
                                             <span class="w-2 h-2 rounded-full" :class="c.dot"></span>
                                             <h4 class="text-xs font-semibold" :class="c.head">{{ c.label }}</h4>
-                                            <span class="ml-auto text-[10px] px-1.5 py-0.5 rounded-full" :class="c.chip">{{ g.counts[c.key] }}</span>
+                                            <span class="ml-auto text-[10px] px-1.5 py-0.5 rounded-full" :class="c.chip">{{ g[c.key].length }} tipos · {{ g.events[c.key] }} eventos</span>
                                         </div>
-                                        <div class="divide-y divide-surface-800/50 max-h-[300px] overflow-y-auto">
+                                        <div class="divide-y divide-surface-800/50 max-h-[520px] overflow-y-auto">
                                             <button v-for="(l, i) in g[c.key]" :key="c.key + i" @click="openSyslogRow(l, c.key)"
                                                 class="w-full text-left px-4 py-2.5 hover:bg-surface-800/40 transition-colors">
                                                 <div class="flex items-center gap-2 text-[11px] text-surface-500">
                                                     <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="logSev(l.sev).dot"></span>
                                                     <span class="font-mono text-surface-400">{{ l.time }}</span>
                                                     <span class="px-1.5 py-0.5 rounded bg-surface-800/80 text-surface-400 font-mono text-[10px] truncate">{{ l.tag }}</span>
-                                                    <span class="ml-auto whitespace-nowrap">{{ l.device }}</span>
+                                                    <span class="ml-auto whitespace-nowrap">{{ l.deviceLabel || l.device }}</span>
                                                     <span v-if="l.repeats > 1" class="px-1.5 py-0.5 rounded bg-surface-800 text-surface-300 font-semibold">×{{ l.repeats }}</span>
                                                 </div>
                                                 <div class="mt-1 text-xs text-surface-300 leading-snug">{{ cleanLogMsg(l.message) }}</div>
@@ -3357,6 +3408,47 @@ createApp({
                 .replace(/[^a-z0-9]/g, '');
         }
 
+        // Nombre canónico de equipo: "OLT-SISAL2-PON2" -> "OLT SISAL-2".
+        // Se elimina el sufijo PON (no identifica al equipo) y se normaliza
+        // el separador para que todos los paneles muestren el mismo nombre.
+        function canonicalOlt(name) {
+            let s = String(name || '').trim();
+            if (!s) return '';
+            s = s.replace(/-?PON\d+$/i, '').replace(/[_\s]+/g, '-').replace(/-+/g, '-');
+            s = s.replace(/^OLT-?/i, 'OLT-');
+            const m = s.match(/^OLT-(.+?)-?(\d+)$/i);
+            if (m) return 'OLT ' + m[1].replace(/-/g, ' ') + '-' + m[2];
+            return s.replace(/^OLT-/i, 'OLT ').replace(/-/g, ' ');
+        }
+
+        // "GPON0/9", "GPON 0/9", "PON 0/9" o "0/9" -> "Puerto GPON 0/9"
+        function canonicalPon(pon) {
+            const m = String(pon || '').match(/(\d+)\s*\/\s*(\d+)/);
+            return m ? 'Puerto GPON ' + m[1] + '/' + m[2] : '';
+        }
+
+        // Ubicación física derivada del puerto: 0/9 -> bastidor 0, casillero 9
+        function ponLocation(pon) {
+            const m = String(pon || '').match(/(\d+)\s*\/\s*(\d+)/);
+            return m ? 'bastidor ' + m[1] + ', casillero ' + m[2] : '';
+        }
+
+        // Etiqueta única para tarjetas, filas y modal:
+        // "OLT SISAL-2 · Puerto GPON 0/9 → bastidor 0, casillero 9"
+        function canonicalDevice(name, pon) {
+            const olt = canonicalOlt(name);
+            const port = canonicalPon(pon);
+            if (!port) return olt || String(name || '—');
+            const loc = ponLocation(pon);
+            return olt + ' · ' + port + (loc ? ' → ' + loc : '');
+        }
+
+        // Extrae el puerto PON del mensaje de un evento syslog ("PON 0/9").
+        function ponFromMessage(msg) {
+            const m = String(msg || '').match(/\bPON\s+(\d+)\s*\/\s*(\d+)/i);
+            return m ? 'GPON' + m[1] + '/' + m[2] : '';
+        }
+
         // Misma normalización que usa /api/v1/syslog/panels para agrupar
         // familias; aquí sirve para relacionar un evento con sus repeticiones.
         function patternKey(msg) {
@@ -3443,7 +3535,7 @@ createApp({
                 source: 'OLT · Red',
                 title: inc.causa || 'Incidencia sin causa registrada',
                 detail: partes.length ? `Impacto: ${partes.join(' · ')}` : (inc.nap ? `NAP ${inc.nap}` : 'Sin impacto calculado'),
-                device: [inc.olt, inc.pon].filter(Boolean).join(' · ') || inc.nap || '—',
+                device: canonicalDevice(inc.olt, inc.pon) || inc.nap || '—',
                 time: iso ? formatClock(iso) : '—',
                 ago: formatAgo(iso),
                 raw: inc,
@@ -3460,13 +3552,15 @@ createApp({
         });
 
         const logSummary = computed(() => {
-            const events = logEventCards.value;
-            const count = k => k === 'all' ? events.length : events.filter(e => e.sev === k).length;
+            // Los indicadores muestran volumen real de eventos syslog, no solo
+            // incidencias: así coinciden con los contadores del menú.
+            const counts = (logsMeta.value && logsMeta.value.counts) || {};
+            const sum = k => ['olt', 'mikrotik'].reduce((acc, g) => acc + (Number((counts[g] || {})[k]) || 0), 0);
             return [
-                { key: 'all',     label: 'Todos los eventos', value: count('all'),     hint: 'incidencias', cls: 'border-surface-700/50 bg-surface-900/60', num: 'text-surface-100' },
-                { key: 'danger',  label: 'Alertas críticas',  value: count('danger'),  hint: 'danger',      cls: 'border-red-700/50 bg-red-950/20',          num: 'text-red-300' },
-                { key: 'high',    label: 'Alertas altas',     value: count('high'),    hint: 'high',        cls: 'border-orange-700/45 bg-orange-950/15',    num: 'text-orange-300' },
-                { key: 'warning', label: 'Advertencias',      value: count('warning'), hint: 'warning',     cls: 'border-amber-700/40 bg-amber-950/15',      num: 'text-amber-300' },
+                { key: 'all',     label: 'Todos los eventos', value: sum('raw'),      hint: 'eventos', plus: !!(logsMeta.value && logsMeta.value.truncated), cls: 'border-surface-700/50 bg-surface-900/60', num: 'text-surface-100' },
+                { key: 'danger',  label: 'Alertas críticas',  value: sum('danger'),   hint: 'danger',  cls: 'border-red-700/50 bg-red-950/20',          num: 'text-red-300' },
+                { key: 'high',    label: 'Alertas altas',     value: sum('high'),     hint: 'high',    cls: 'border-orange-700/45 bg-orange-950/15',    num: 'text-orange-300' },
+                { key: 'warning', label: 'Advertencias',      value: sum('warnings'), hint: 'warning', cls: 'border-amber-700/40 bg-amber-950/15',      num: 'text-amber-300' },
             ];
         });
 
@@ -3483,12 +3577,26 @@ createApp({
             ];
         });
 
+        // Etiqueta de equipo para las filas del panel: los OLT usan nombre
+        // canónico + puerto; los MikroTik muestran el nombre del router (si se
+        // conoce) en lugar de la IP de origen del syslog.
+        function deviceLabelFor(groupKey, row) {
+            if (groupKey === 'mikrotik') {
+                const ip = row.device_ip || row.device || '';
+                const hit = (mikrotikMetrics.value || []).find(m => String(m.device_ip) === String(ip));
+                const name = (hit && hit.device_name) || row.device || ip;
+                return name && name !== ip ? 'MikroTik ' + name : 'MikroTik ' + ip;
+            }
+            return canonicalDevice(row.device, ponFromMessage(row.message));
+        }
+
         const visibleLogGroups = computed(() => {
             const meta = logsMeta.value || {};
             const groups = logsPanels.value || {};
             const counts = meta.counts || {};
             const labels = meta.labels || {};
             const focus = normDev(logsDeviceFocus.value);
+            const sevFilter = logsFilter.value;
             const iconOlt = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>';
             const iconMt = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>';
             const out = [];
@@ -3496,7 +3604,10 @@ createApp({
                 if (logsDeviceFilter.value !== 'all' && logsDeviceFilter.value !== key) return;
                 const g = groups[key] || {};
                 const c = counts[key] || {};
-                const filt = arr => (arr || []).filter(l => !focus || normDev(l.device).includes(focus));
+                const filt = arr => (arr || [])
+                    .filter(l => !focus || normDev(l.device).includes(focus))
+                    .filter(l => sevFilter === 'all' || l.sev === sevFilter)
+                    .map(l => ({ ...l, deviceLabel: deviceLabelFor(key, l) }));
                 out.push({
                     key,
                     label: labels[key] || key,
@@ -3504,6 +3615,7 @@ createApp({
                     raw: c.raw || 0,
                     families: c.families_total || 0,
                     counts: c.families || { news: 0, warnings: 0, alerts: 0 },
+                    events: c,
                     news: filt(g.news),
                     warnings: filt(g.warnings),
                     alerts: filt(g.alerts),
@@ -3518,12 +3630,13 @@ createApp({
             logsError.value = '';
             try {
                 const [panelsRes, incRes] = await Promise.allSettled([
-                    apiFetch(`/api/v1/syslog/panels?minutes=${logsRange.value * 60}&per_bucket=20`),
+                    apiFetch(`/api/v1/syslog/panels?minutes=${logsRange.value * 60}&per_bucket=60`),
                     apiFetch('/api/v1/incidents/?limit=100'),
                 ]);
                 if (panelsRes.status === 'fulfilled' && panelsRes.value) {
                     logsPanels.value = panelsRes.value.groups || {};
                     logsMeta.value = panelsRes.value;
+                    logsError.value = '';
                 } else if (panelsRes.status === 'rejected') {
                     logsError.value = (panelsRes.reason && panelsRes.reason.message) || 'No se pudieron cargar los logs de equipos.';
                 }
@@ -3581,7 +3694,7 @@ createApp({
                 source: 'OLT · Red',
                 title: inc.causa || 'Incidencia sin causa registrada',
                 detail: '',
-                device: [inc.olt, inc.pon].filter(Boolean).join(' · ') || inc.nap || '—',
+                device: canonicalDevice(inc.olt, inc.pon) || inc.nap || '—',
                 inicio: iso ? formatClock(iso) : '—',
                 detectado: inc.detectado ? formatClock(toIso(inc.detectado)) : '—',
                 duracion: inc.duracion || (estado === 'resolved' && inc.fin ? formatClock(toIso(inc.fin)) : 'en curso'),
@@ -3668,7 +3781,7 @@ createApp({
                 source: isOlt ? 'OLT' : 'MikroTik',
                 title: syslogTitle(msg, row.tag),
                 detail: msg,
-                device,
+                device: canonicalDevice(device, ponPort),
                 inicio: row.time || '—',
                 detectado: row.time || '—',
                 duracion: '—',
@@ -6356,6 +6469,7 @@ createApp({
             // Logs (syslog + incidencias)
             logsRange, logsDeviceFilter, logsFilter, logsLoading, logsError, logsMeta,
             logsDeviceFocus, clearLogsDeviceFocus, logBadges, logSummary, filteredLogEvents,
+            logsIncidents,
             visibleLogGroups, LOG_CATS, logSev, logTypeIcon, pad2, cleanLogMsg,
             fetchLogs, openLogEvent, openSyslogRow, closeLogEvent,
             showLogEventModal, logDetail, logDetailLoading, logDetailError, runLogAction,
