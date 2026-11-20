@@ -9,6 +9,7 @@ Type=simple
 WorkingDirectory=@PROJECT_DIR@
 Environment=CONFIG_PATH=config/config_ia.yaml
 EnvironmentFile=@PROJECT_DIR@/.env.ia
+EnvironmentFile=-@PROJECT_DIR@/.env.ia.local
 ExecStart=@PROJECT_DIR@/venv/bin/python3 -m src.ai.llm_agent.main
 Restart=always
 RestartSec=10

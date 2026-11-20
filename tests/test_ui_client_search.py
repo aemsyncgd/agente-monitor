@@ -104,7 +104,9 @@ def test_el_script_principal_no_esta_roto():
 
 def test_los_bloques_de_tags_estan_balanceados():
     ini = HTML.index("<!-- Client Search -->")
-    fin = HTML.index("<!-- LLM Agent Panel -->", ini)
+    # El marcador del panel LLM cambio de texto al desactivarse el panel;
+    # se usa el comentario actual para delimitar la region del modal.
+    fin = HTML.index("<!-- ===== INICIO: PANEL AGENTE LLM", ini)
     region = HTML[ini:fin]
     for tag in ("div", "span", "button"):
         assert region.count(f"<{tag}") == region.count(f"</{tag}>"), (

@@ -1,0 +1,91 @@
+# compose.dev.yml - Agente Monitor (entorno de DESARROLLO en LXC sin /dev/net/tun)
+# ---------------------------------------------------------------
+# Este LXC no permite crear /dev/net/tun ni /dev/fuse, por lo que Podman
+# rootless no puede usar bridge networking ni fuse-overlayfs. La solucion
+# es ejecutar los contenedores con network_mode: host:
+#   - InfluxDB escucha en 127.0.0.1:8086
+#   - Redis principal en 127.0.0.1:6379
+#   - Redis syslog en 127.0.0.1:6380 (se cambia el puerto por comando)
+#   - rsyslog en 127.0.0.1:5515 (el relay del host usa 5514)
+#
+# Uso:
+#   venv/bin/podman-compose -f compose.dev.yml up -d
+#   venv/bin/podman-compose -f compose.dev.yml down
+#
+# En un host con bridge networking disponible sigue usando compose.yml.
+# ---------------------------------------------------------------
+
+name: agente-monitor
+
+services:
+  influxdb-ia:
+    image: docker.io/library/influxdb:2.7
+    container_name: influxdb-ia
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - DOCKER_INFLUXDB_INIT_SETUP=false
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN}
+    volumes:
+      - ./influxdb/data:/var/lib/influxdb2
+      - ./influxdb/config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis-ia:
+    image: docker.io/library/redis:7-alpine
+    container_name: redis-ia
+    restart: unless-stopped
+    network_mode: host
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - ./redis/data:/data
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # --- SYSLOG MIKROTIK ---
+  mikrotik-syslog:
+    image: docker.io/rsyslog/rsyslog:latest
+    container_name: mikrotik-syslog
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      # Variante dev: escucha en 5515 porque el relay del host usa 5514.
+      - ./mikrotik-syslog/config/rsyslog.dev.conf:/etc/rsyslog.conf:ro
+      - ./mikrotik-syslog/logs:/var/log/mikrotik:Z
+
+  # --- REDIS SYSLOG (aislado para logs MikroTik/OLTs) ---
+  redis-syslog:
+    image: docker.io/library/redis:7-alpine
+    container_name: redis-syslog
+    restart: unless-stopped
+    network_mode: host
+    command: >
+      redis-server
+      --port 6380
+      --maxmemory 64mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    volumes:
+      - ./redis-syslog/data:/data
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6380", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s

@@ -1,0 +1,23 @@
+[Unit]
+Description=Agente Monitor - Replicador de syslog desde agente-monitor-1
+Documentation=file://@PROJECT_DIR@/scripts/syslog_replicator.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_DIR@
+Environment=PROJECT_DIR=@PROJECT_DIR@
+EnvironmentFile=-@PROJECT_DIR@/.env.replicator.local
+ExecStart=@PROJECT_DIR@/venv/bin/python3 @PROJECT_DIR@/scripts/syslog_replicator.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+KillSignal=SIGTERM
+
+# Logs
+StandardOutput=append:@PROJECT_DIR@/logs/syslog-replicator.log
+StandardError=append:@PROJECT_DIR@/logs/syslog-replicator-error.log
+
+[Install]
+WantedBy=default.target

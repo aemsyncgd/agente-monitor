@@ -165,6 +165,11 @@ Los procesos de aplicación corren como **servicios systemd de usuario** (`syste
 
 > **Opción "todo en uno":** el unit `agente-monitor.service` ejecuta `scripts/start-all.sh`, que lanza **collector + api + ai-agent + llm-agent** en un solo proceso supervisor (con espera a que InfluxDB esté healthy). Los otros tres (`wisp-agent`, `scheduler`, `bot`) siguen como units separados para no duplicar procesos.
 
+> **LXC sin `/dev/net/tun`:** si Podman rootless no puede usar bridge networking,
+> ver [`DEV_LXC.md`](DEV_LXC.md). Allí se explica `compose.dev.yml`
+> (`network_mode: host`), el ajuste de `/etc/subuid` y la configuración de
+> desarrollo sin tokens de producción.
+
 ---
 
 ## 📁 Estructura del proyecto

@@ -1,0 +1,26 @@
+[Unit]
+Description=Agente Monitor - Monitor de logs syslog MikroTik/OLT hacia Redis
+Documentation=file://@PROJECT_DIR@/scripts/log_monitor.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_DIR@
+Environment=PROJECT_DIR=@PROJECT_DIR@
+# Redis syslog: .env.ia define REDIS_URL para el 6379 principal; el monitor
+# usa el 6380 por defecto (REDIS_PORT), no la URL de la app.
+EnvironmentFile=@PROJECT_DIR@/.env.ia
+EnvironmentFile=-@PROJECT_DIR@/.env.ia.local
+ExecStart=@PROJECT_DIR@/venv/bin/python3 @PROJECT_DIR@/scripts/log_monitor.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=15
+KillSignal=SIGTERM
+
+# Logs
+StandardOutput=append:@PROJECT_DIR@/logs/log-monitor.log
+StandardError=append:@PROJECT_DIR@/logs/log-monitor-error.log
+
+[Install]
+WantedBy=default.target

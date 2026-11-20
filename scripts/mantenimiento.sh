@@ -34,8 +34,15 @@ RELAY_PORT="5514"
 
 # Orden de arranque: primero la app principal, luego los auxiliares.
 APP_CORE="agente-monitor.service"
+# Alternativa recomendada en desarrollo: un unit por componente.
+APP_CORE_SPLIT=(
+    "agente-monitor-collector.service"
+    "agente-monitor-api.service"
+    "agente-monitor-ai-agent.service"
+)
 APP_AUX=(
     "agente-log-monitor.service"
+    "agente-monitor-syslog-replicator.service"
     "agente-monitor-scheduler.service"
     "agente-monitor-bot.service"
 )
@@ -44,8 +51,12 @@ APP_AUX=(
 APP_STOP=(
     "agente-monitor-bot.service"
     "agente-monitor-scheduler.service"
+    "agente-monitor-syslog-replicator.service"
     "agente-log-monitor.service"
     "agente-monitor.service"
+    "agente-monitor-collector.service"
+    "agente-monitor-api.service"
+    "agente-monitor-ai-agent.service"
 )
 
 LLM_UNIT="agente-monitor-wisp-agent.service"
@@ -165,7 +176,7 @@ do_status() {
 
     echo "--- Aplicación ---"
     local u
-    for u in "${APP_CORE}" "${APP_AUX[@]}" "${LLM_UNIT}"; do
+    for u in "${APP_CORE}" "${APP_CORE_SPLIT[@]}" "${APP_AUX[@]}" "${LLM_UNIT}"; do
         local extra=""
         if [ "${u}" = "${LLM_UNIT}" ]; then
             if llm_enabled; then extra=" (config LLM: habilitado)"; else extra=" (config LLM: deshabilitado)"; fi
@@ -228,16 +239,29 @@ do_start() {
     wait_infra
 
     log "Iniciando aplicación (collector+API+ai-agent)..."
-    systemctl --user start "${APP_CORE}" \
-        || { echo "ERROR: no se pudo iniciar ${APP_CORE}" >&2; exit 1; }
+    if systemctl --user is-enabled --quiet "${APP_CORE}" 2>/dev/null; then
+        # Modo "todo en uno" (unit unificado habilitado).
+        systemctl --user start "${APP_CORE}" \
+            || { echo "ERROR: no se pudo iniciar ${APP_CORE}" >&2; exit 1; }
+    else
+        # Modo desarrollo: un unit por componente.
+        for u in "${APP_CORE_SPLIT[@]}"; do
+            systemctl --user start "${u}" \
+                || { echo "ERROR: no se pudo iniciar ${u}" >&2; exit 1; }
+        done
+    fi
     wait_api
 
     local u
     for u in "${APP_AUX[@]}"; do
-        systemctl --user start "${u}" 2>/dev/null \
-            || echo "  aviso: no se pudo iniciar ${u} (revisa manage-services.sh install all)"
+        if systemctl --user is-enabled --quiet "${u}" 2>/dev/null; then
+            systemctl --user start "${u}" 2>/dev/null \
+                || echo "  aviso: no se pudo iniciar ${u} (revisa manage-services.sh install all)"
+        else
+            echo "  aviso: ${u} no habilitado; se omite"
+        fi
     done
-    log "Auxiliares iniciados (log-monitor, scheduler, bot)."
+    log "Auxiliares habilitados iniciados (log-monitor, scheduler, bot si aplica)."
 
     if [ "${WITH_LLM}" = "1" ]; then
         if llm_enabled; then

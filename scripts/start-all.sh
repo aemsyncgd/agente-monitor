@@ -21,6 +21,11 @@ export MODEL_PATH="${PROJECT_DIR}/models/optical_autoencoder.pt"
 if [ -f "${PROJECT_DIR}/.env.ia" ]; then
     set -a
     source "${PROJECT_DIR}/.env.ia"
+    # Overrides locales (git-ignorado). En este LXC apunta a la config de
+    # desarrollo y anula tokens de produccion (Telegram/WISP).
+    if [ -f "${PROJECT_DIR}/.env.ia.local" ]; then
+        source "${PROJECT_DIR}/.env.ia.local"
+    fi
     set +a
 else
     log "ERROR: .env.ia not found. Copy .env.ia.example to .env.ia and fill in secrets."

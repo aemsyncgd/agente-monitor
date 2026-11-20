@@ -1,0 +1,23 @@
+[Unit]
+Description=Agente Monitor - Infraestructura Podman (InfluxDB, Redis, syslog; red host en LXC dev)
+Documentation=file://@PROJECT_DIR@/compose.dev.yml
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@PROJECT_DIR@
+# Token admin de InfluxDB para podman-compose (.env) y overrides locales.
+EnvironmentFile=@PROJECT_DIR@/.env
+EnvironmentFile=-@PROJECT_DIR@/.env.ia.local
+# Este LXC no tiene /dev/net/tun: se usa compose.dev.yml (network_mode: host).
+# En un host con bridge networking, cambiar a compose.yml.
+ExecStart=@PROJECT_DIR@/venv/bin/podman-compose -f @PROJECT_DIR@/compose.dev.yml up -d --no-recreate
+ExecStop=@PROJECT_DIR@/venv/bin/podman-compose -f @PROJECT_DIR@/compose.dev.yml down
+TimeoutStartSec=300
+TimeoutStopSec=120
+KillMode=none
+
+[Install]
+WantedBy=default.target

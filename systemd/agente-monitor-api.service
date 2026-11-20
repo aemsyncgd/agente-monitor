@@ -10,6 +10,7 @@ WorkingDirectory=@PROJECT_DIR@
 Environment=CONFIG_PATH=config/config_ia.yaml
 Environment=NODES_PATH=config/nodes.yaml
 EnvironmentFile=@PROJECT_DIR@/.env.ia
+EnvironmentFile=-@PROJECT_DIR@/.env.ia.local
 ExecStart=@PROJECT_DIR@/venv/bin/python3 -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=10

@@ -10,6 +10,7 @@ Environment=CONFIG_PATH=config/config_ia.yaml
 Environment=NODES_PATH=config/nodes.yaml
 Environment=CSV_PATH=@PROJECT_DIR@/grid_servicios.csv
 EnvironmentFile=@PROJECT_DIR@/.env.ia
+EnvironmentFile=-@PROJECT_DIR@/.env.ia.local
 ExecStart=@PROJECT_DIR@/venv/bin/python3 -m src.ai.agent_loop
 Restart=always
 RestartSec=10

@@ -1,5 +1,9 @@
 # Despliegue en `test-monitor` (LXC Debian 12) — Dependencias y unidades `systemctl --user`
 
+> **Documento histórico (2026-10-15).** Describe un despliegue anterior con
+> Podman rootful. El estado actual de este LXC (Podman rootless, red host y
+> configuración de desarrollo segura) está en [`../DEV_LXC.md`](../DEV_LXC.md).
+
 > Generado durante el despliegue de `agente-monitor` el 2026-10-15.
 > Los `.service` de esta carpeta son las plantillas de `systemd/` con `@PROJECT_DIR@`
 > sustituido por **`/home/monitor/agente-monitor`**.

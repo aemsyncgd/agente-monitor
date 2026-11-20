@@ -24,14 +24,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.syslog_severity import effective_severity
 
 # ==================== CONFIGURACIÓN ====================
-LOG_FILE = "/home/server/agente-monitor/mikrotik-syslog/logs/all.jsonl"
-REDIS_HOST = "127.0.0.1"
-REDIS_PORT = 6380
+# Raiz del proyecto: PROJECT_DIR (systemd) o dos niveles arriba de este script.
+PROJECT_ROOT = Path(
+    os.environ.get("PROJECT_DIR", str(Path(__file__).resolve().parent.parent))
+).resolve()
+LOG_FILE = os.environ.get(
+    "SYSLOG_LOG_FILE", str(PROJECT_ROOT / "mikrotik-syslog" / "logs" / "all.jsonl")
+)
+REDIS_HOST = os.environ.get("SYSLOG_REDIS_HOST", "127.0.0.1")
+REDIS_PORT = int(os.environ.get("SYSLOG_REDIS_PORT", "6380"))
 REDIS_DB = 0
 REDIS_QUEUE = "cola_logs_para_llm"
 TAIL_SLEEP = 0.1
-NODES_YAML = "/home/server/agente-monitor/config/nodes.yaml"
-LLM_CONFIG = "/home/server/agente-monitor/config/llm_config.json"
+NODES_YAML = os.environ.get("NODES_PATH", str(PROJECT_ROOT / "config" / "nodes.yaml"))
+LLM_CONFIG = os.environ.get(
+    "LLM_CONFIG", str(PROJECT_ROOT / "config" / "llm_config.json")
+)
 
 # Rendimiento: agrupa escrituras en Redis y evita trabajo por línea
 BATCH_MAX = 500                    # eventos máximos por pipeline
@@ -146,8 +154,7 @@ def get_redis_client():
                 port=REDIS_PORT,
                 db=REDIS_DB,
                 decode_responses=True,
-                socket_connect_timeout=5,
-                retry_on_timeout=True
+                socket_connect_timeout=5
             )
             client.ping()
             logger.info(f"✅ Conectado a Redis en {REDIS_HOST}:{REDIS_PORT}")

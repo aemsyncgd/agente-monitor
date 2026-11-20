@@ -22,6 +22,7 @@ Comandos:
   disable <servicio>   Deshabilitar inicio automático (systemctl --user)
 
 Servicios: collector, api, ai-agent, llm-agent, wisp-agent, scheduler, bot
+Infraestructura: compose (Podman), syslog-relay, log-monitor, syslog-replicator
 
 Nota: InfluxDB y Redis NO son servicios de este script; corren como
 contenedores Podman definidos en compose.yml (`podman compose up -d`).
@@ -32,6 +33,11 @@ ensure_env() {
     if [ -f "${PROJECT_DIR}/.env.ia" ]; then
         set -a
         source "${PROJECT_DIR}/.env.ia"
+        # Overrides locales (git-ignorado): en este LXC selecciona la
+        # config de desarrollo y anula tokens de produccion.
+        if [ -f "${PROJECT_DIR}/.env.ia.local" ]; then
+            source "${PROJECT_DIR}/.env.ia.local"
+        fi
         set +a
     fi
     export CONFIG_PATH="${CONFIG_PATH:-config/config_ia.yaml}"
@@ -235,7 +241,35 @@ install_units() {
         install_one wisp-agent || true
         install_one scheduler || true
         install_one bot || true
+        install_one compose || true
         install_one syslog-relay || true
+        install_one syslog-replicator || true
+    fi
+
+    # El monitor de logs usa un nombre historico sin el prefijo "-monitor-".
+    if [ -z "${service}" ] || [ "${service}" = "all" ] || [ "${service}" = "log-monitor" ]; then
+        if [ -f "${src_dir}/agente-log-monitor.service" ]; then
+            sed "s|@PROJECT_DIR@|${PROJECT_DIR}|g" \
+                "${src_dir}/agente-log-monitor.service" \
+                > "${user_units}/agente-log-monitor.service" \
+                && echo "OK: agente-log-monitor.service instalado"
+        fi
+    fi
+
+    # Rotacion de logs: service (oneshot) + timer diario.
+    if [ -z "${service}" ] || [ "${service}" = "all" ] || [ "${service}" = "logrotate" ]; then
+        if [ -f "${src_dir}/agente-monitor-logrotate.service" ]; then
+            sed "s|@PROJECT_DIR@|${PROJECT_DIR}|g" \
+                "${src_dir}/agente-monitor-logrotate.service" \
+                > "${user_units}/agente-monitor-logrotate.service" \
+                && echo "OK: agente-monitor-logrotate.service instalado"
+        fi
+        if [ -f "${src_dir}/agente-monitor-logrotate.timer" ]; then
+            sed "s|@PROJECT_DIR@|${PROJECT_DIR}|g" \
+                "${src_dir}/agente-monitor-logrotate.timer" \
+                > "${user_units}/agente-monitor-logrotate.timer" \
+                && echo "OK: agente-monitor-logrotate.timer instalado"
+        fi
     fi
 
     # La unidad unificada (collector+api+ai+llm) no está en la lista anterior:
